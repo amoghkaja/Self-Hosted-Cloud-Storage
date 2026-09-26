@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+deploy/.env
+.data/
+.dev-data/
+playwright-report/
+test-results/
+.DS_Store
+*.log
+
+# Personal DNS zone files (keep the domain-specific backup out of the public repo)
+deploy/cloudflare/*.zone
