@@ -1,0 +1,330 @@
+import { unlink } from 'node:fs/promises';
+import { type ChildrenQuery, ErrorCode, type NodePage, withCopySuffix } from '@familycloud/shared';
+import { and, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm';
+import type { AppContext } from '../../context';
+import type { Executor } from '../../db/client';
+import { blobs, type NodeRow, nodes, users } from '../../db/schema';
+import { toFileNode } from '../../lib/dto';
+import { badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
+import { thumbPaths } from '../../storage/thumbs';
+
+/** Advisory lock guarding usage counters: exclusive for sum checks/reconcile, shared otherwise. */
+export const QUOTA_LOCK = 727_002;
+
+// ── listing ─────────────────────────────────────────────────────────────────
+
+type Cursor = [type: 'folder' | 'file', key: string | number, id: string];
+
+function encodeCursor(c: Cursor): string {
+  return Buffer.from(JSON.stringify(c)).toString('base64url');
+}
+
+function decodeCursor(raw: string): Cursor {
+  try {
+    const c = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    if (
+      Array.isArray(c) &&
+      c.length === 3 &&
+      (c[0] === 'folder' || c[0] === 'file') &&
+      (typeof c[1] === 'string' || typeof c[1] === 'number') &&
+      typeof c[2] === 'string'
+    ) {
+      return c as Cursor;
+    }
+  } catch {}
+  throw badRequest('Invalid cursor');
+}
+
+/**
+ * Keyset-paginated folder listing: folders first, then the chosen sort key, then id as a
+ * tie-breaker. Stable under concurrent inserts and O(limit) regardless of folder size.
+ */
+export async function listChildren(
+  exec: Executor,
+  folderId: string,
+  q: ChildrenQuery,
+): Promise<NodePage> {
+  const key: SQL =
+    q.sort === 'name'
+      ? sql`lower(${nodes.name})`
+      : q.sort === 'updated'
+        ? sql`date_trunc('milliseconds', ${nodes.updatedAt})`
+        : sql`${nodes.size}`;
+  const cmp = sql.raw(q.dir === 'asc' ? '>' : '<');
+  const dir = sql.raw(q.dir === 'asc' ? 'asc' : 'desc');
+
+  const conditions: SQL[] = [eq(nodes.parentId, folderId), isNull(nodes.deletedAt)];
+  if (q.cursor) {
+    const [t, k, id] = decodeCursor(q.cursor);
+    const kv =
+      q.sort === 'updated'
+        ? sql`${String(k)}::timestamptz`
+        : q.sort === 'size'
+          ? sql`${Number(k)}::bigint`
+          : sql`${String(k)}`;
+    conditions.push(sql`(
+      ${nodes.type} > ${t}::node_type
+      OR (${nodes.type} = ${t}::node_type AND (${key} ${cmp} ${kv} OR (${key} = ${kv} AND ${nodes.id} ${cmp} ${id})))
+    )`);
+  }
+
+  const rows = await exec
+    .select({ node: nodes, thumb: blobs.thumbStatus })
+    .from(nodes)
+    .leftJoin(blobs, eq(blobs.id, nodes.blobId))
+    .where(and(...conditions))
+    .orderBy(sql`${nodes.type} asc`, sql`${key} ${dir}`, sql`${nodes.id} ${dir}`)
+    .limit(q.limit + 1);
+
+  const page = rows.slice(0, q.limit);
+  const last = page[page.length - 1];
+  let nextCursor: string | null = null;
+  if (rows.length > q.limit && last) {
+    const n = last.node;
+    const k =
+      q.sort === 'name'
+        ? n.name.toLowerCase()
+        : q.sort === 'updated'
+          ? n.updatedAt.toISOString()
+          : n.size;
+    nextCursor = encodeCursor([n.type, k, n.id]);
+  }
+  return { items: page.map((r) => toFileNode({ ...r.node, thumb: r.thumb })), nextCursor };
+}
+
+// ── naming ──────────────────────────────────────────────────────────────────
+
+/** First free name among "name", "name (1)", "name (2)"… in a folder (case-insensitive). */
+export async function findFreeName(
+  exec: Executor,
+  parentId: string,
+  name: string,
+  label?: string,
+): Promise<string> {
+  const candidates = [
+    name,
+    ...Array.from({ length: 50 }, (_, i) => withCopySuffix(name, i + 1, label)),
+  ];
+  const taken = new Set(
+    (
+      await exec
+        .select({ n: sql<string>`lower(${nodes.name})` })
+        .from(nodes)
+        .where(
+          and(
+            eq(nodes.parentId, parentId),
+            isNull(nodes.deletedAt),
+            inArray(
+              sql`lower(${nodes.name})`,
+              candidates.map((c) => c.toLowerCase()),
+            ),
+          ),
+        )
+    ).map((r) => r.n),
+  );
+  const free = candidates.find((c) => !taken.has(c.toLowerCase()));
+  if (!free) throw conflict(`Too many items named "${name}"`, ErrorCode.NAME_CONFLICT);
+  return free;
+}
+
+/**
+ * Inserts a node, resolving name clashes per `mode`:
+ * - rename: pick "name (n)" (uploads)
+ * - reuse: return the existing folder of that name (folder uploads)
+ * - fail: 409 NAME_CONFLICT (new folder)
+ */
+export async function insertNode(
+  exec: Executor,
+  values: typeof nodes.$inferInsert & { parentId: string },
+  mode: 'rename' | 'reuse' | 'fail',
+): Promise<NodeRow> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const name =
+      mode === 'rename' ? await findFreeName(exec, values.parentId, values.name) : values.name;
+    const [row] = await exec
+      .insert(nodes)
+      .values({ ...values, name })
+      .onConflictDoNothing()
+      .returning();
+    if (row) return row;
+    if (mode === 'reuse') {
+      const [existing] = await exec
+        .select()
+        .from(nodes)
+        .where(
+          and(
+            eq(nodes.parentId, values.parentId),
+            isNull(nodes.deletedAt),
+            sql`lower(${nodes.name}) = lower(${values.name})`,
+          ),
+        );
+      if (existing?.type === values.type) return existing;
+    }
+    if (mode !== 'rename') {
+      throw conflict(`An item named "${values.name}" already exists here`, ErrorCode.NAME_CONFLICT);
+    }
+  }
+  throw conflict('Could not find a free name, please try again', ErrorCode.NAME_CONFLICT);
+}
+
+// ── rename / move ───────────────────────────────────────────────────────────
+
+export async function isAncestor(
+  exec: Executor,
+  ancestorId: string,
+  nodeId: string,
+): Promise<boolean> {
+  const rows = (await exec.execute(sql`
+    WITH RECURSIVE up AS (
+      SELECT id, parent_id, 0 AS depth FROM nodes WHERE id = ${nodeId}
+      UNION ALL
+      SELECT n.id, n.parent_id, u.depth + 1 FROM nodes n JOIN up u ON n.id = u.parent_id WHERE u.depth < 512
+    )
+    SELECT 1 FROM up WHERE id = ${ancestorId} LIMIT 1
+  `)) as unknown as unknown[];
+  return rows.length > 0;
+}
+
+export async function updateNode(
+  exec: Executor,
+  nodeId: string,
+  patch: { name?: string; parentId?: string },
+): Promise<NodeRow> {
+  try {
+    const [row] = await exec
+      .update(nodes)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)))
+      .returning();
+    if (!row) throw notFound();
+    return row;
+  } catch (err) {
+    if (isUniqueViolation(err, 'nodes_parent_name_key')) {
+      throw conflict('An item with that name already exists there', ErrorCode.NAME_CONFLICT);
+    }
+    throw err;
+  }
+}
+
+// ── trash ───────────────────────────────────────────────────────────────────
+
+/** Moves a node and its live descendants to the trash as one restorable unit. */
+export async function trashSubtree(exec: Executor, nodeId: string): Promise<void> {
+  await exec.execute(sql`
+    WITH RECURSIVE sub AS (
+      SELECT id FROM nodes WHERE id = ${nodeId} AND deleted_at IS NULL
+      UNION ALL
+      SELECT n.id FROM nodes n JOIN sub s ON n.parent_id = s.id WHERE n.deleted_at IS NULL
+    )
+    UPDATE nodes SET deleted_at = now(), trash_root_id = ${nodeId}
+    WHERE id IN (SELECT id FROM sub)
+  `);
+}
+
+/** Restores a trashed unit into its original folder, or the owner's root if that folder is gone. */
+export async function restoreSubtree(
+  exec: Executor,
+  owner: { id: string; rootNodeId: string | null },
+  rootId: string,
+): Promise<NodeRow> {
+  const [root] = await exec
+    .select()
+    .from(nodes)
+    .where(
+      and(
+        eq(nodes.id, rootId),
+        eq(nodes.ownerId, owner.id),
+        eq(nodes.trashRootId, rootId),
+        sql`${nodes.deletedAt} IS NOT NULL`,
+      ),
+    )
+    .for('update');
+  if (!root) throw notFound('Trash item');
+  let parentId = owner.rootNodeId!;
+  if (root.parentId) {
+    const [parent] = await exec
+      .select({ id: nodes.id })
+      .from(nodes)
+      .where(and(eq(nodes.id, root.parentId), isNull(nodes.deletedAt)));
+    if (parent) parentId = parent.id;
+  }
+  const name = await findFreeName(exec, parentId, root.name, 'restored');
+  await exec.update(nodes).set({ parentId, name }).where(eq(nodes.id, rootId));
+  await exec
+    .update(nodes)
+    .set({ deletedAt: null, trashRootId: null })
+    .where(eq(nodes.trashRootId, rootId));
+  const [restored] = await exec.select().from(nodes).where(eq(nodes.id, rootId));
+  return restored!;
+}
+
+/**
+ * Permanently deletes trashed units: rows (cascading to descendants, shares and links), blob
+ * rows, usage counters, then the bytes on disk and cached thumbnails.
+ */
+export async function purgeTrashRoots(
+  ctx: AppContext,
+  rootIds: string[],
+  ownerId?: string,
+): Promise<{ files: number; bytes: number }> {
+  let files = 0;
+  let bytes = 0;
+  for (const rootId of rootIds) {
+    const removed = await ctx.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
+      const [root] = await tx
+        .select({ id: nodes.id, ownerId: nodes.ownerId })
+        .from(nodes)
+        .where(
+          and(
+            eq(nodes.id, rootId),
+            eq(nodes.trashRootId, rootId),
+            sql`${nodes.deletedAt} IS NOT NULL`,
+            ownerId ? eq(nodes.ownerId, ownerId) : undefined,
+          ),
+        )
+        .for('update');
+      if (!root) return null;
+      const fileRows = (await tx.execute(sql`
+        WITH RECURSIVE sub AS (
+          SELECT id, type, blob_id, size FROM nodes WHERE id = ${rootId}
+          UNION ALL
+          SELECT n.id, n.type, n.blob_id, n.size FROM nodes n JOIN sub s ON n.parent_id = s.id
+        )
+        SELECT blob_id AS "blobId", size FROM sub WHERE type = 'file' AND blob_id IS NOT NULL
+      `)) as unknown as { blobId: string; size: number }[];
+      await tx.delete(nodes).where(eq(nodes.id, rootId));
+      const deleted: { id: string; volumeId: string }[] = [];
+      const ids = fileRows.map((f) => f.blobId);
+      for (let i = 0; i < ids.length; i += 5000) {
+        deleted.push(
+          ...(await tx
+            .delete(blobs)
+            .where(inArray(blobs.id, ids.slice(i, i + 5000)))
+            .returning({ id: blobs.id, volumeId: blobs.volumeId })),
+        );
+      }
+      const total = fileRows.reduce((sum, f) => sum + Number(f.size), 0);
+      if (total > 0) {
+        await tx
+          .update(users)
+          .set({ usedBytes: sql`greatest(${users.usedBytes} - ${total}, 0)` })
+          .where(eq(users.id, root.ownerId));
+      }
+      return { deleted, total };
+    });
+    if (!removed) continue;
+    files += removed.deleted.length;
+    bytes += removed.total;
+    await deleteBlobFiles(ctx, removed.deleted);
+  }
+  return { files, bytes };
+}
+
+export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {
+  for (const b of list) {
+    const file = await ctx.volumes.blobFile(b).catch(() => null);
+    const targets = [...(file ? [file] : []), ...thumbPaths(ctx.config.cacheDir, b.id)];
+    await Promise.all(targets.map((t) => unlink(t).catch(() => {})));
+  }
+}
