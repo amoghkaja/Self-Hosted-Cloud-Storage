@@ -1,0 +1,119 @@
+# Family Cloud
+
+Your family's own Google Drive, running on a computer you already have.
+
+Family Cloud turns a Linux machine and its disks into a private cloud for the people you live with. Everyone gets an account, a storage quota you control, and access from any browser, phone or laptop. Files stay in your home, on your disks.
+
+![Browsing a folder](docs/images/files.png)
+
+## What it does
+
+- **Accounts for the whole family.** Invite people with a link. Admins set and change each person's storage quota at any time.
+- **Upload anything, from anywhere.** Big uploads are sent in pieces, survive a dropped Wi‑Fi connection, and resume where they left off. Drag in whole folders.
+- **Photos and videos look right.** Thumbnails for photos (including iPhone HEIC), videos and PDFs; in-browser preview with video seeking.
+- **Share inside the family** (view or edit), or **with anyone** through a link with an optional password and expiry date.
+- **A real network drive.** Open your files in the iPhone/iPad Files app, macOS Finder or Windows Explorer (WebDAV), with a separate revocable password per device.
+- **Grow storage by adding disks.** Plug in a new drive and add it from the admin screen, without restarting. Retire an old drive and every file is moved off it and checked first.
+- **Trash with undo**, a 30-day safety net before anything is gone for good.
+- **Secure by default.** Two-factor sign-in, rate limiting, no open router ports (with Cloudflare Tunnel), and uploaded files that can never run code in your browser. See the [security report](docs/security.md).
+
+| Admin overview | Network drive setup | On a phone |
+| --- | --- | --- |
+| ![Admin overview](docs/images/admin-overview.png) | ![Connect a device](docs/images/connect-device.png) | ![Mobile](docs/images/mobile.png) |
+
+## Run your own
+
+You need a Linux computer that stays on (a spare PC, a mini PC or a Raspberry Pi 5 works) with Docker. Then:
+
+```bash
+git clone https://github.com/amoghkaja/Cloud-Storage.git familycloud
+cd familycloud
+./scripts/install.sh            # add --install-docker if Docker isn't installed yet
+```
+
+The installer asks for your web address, creates the storage folders under `/srv/familycloud`, generates the secrets and starts everything. It then prints a link and a one-time setup token. Open the link, create the admin account, and invite your family from **Admin → People**.
+
+To reach it from outside your home, the recommended route is a free **Cloudflare Tunnel**, which needs no router changes. See the [self-hosting guide](docs/self-hosting.md) for all the options, step by step.
+
+### Guides
+
+| Guide | What it covers |
+| --- | --- |
+| [Self-hosting](docs/self-hosting.md) | Hardware, installing, your domain, first sign-in, updating, troubleshooting |
+| [Cloudflare Tunnel](docs/cloudflare-tunnel.md) | Putting it on your own domain without opening ports |
+| [Disks and storage](docs/storage-and-disks.md) | Quotas, family limit, adding, limiting and retiring disks |
+| [Network drive](docs/network-drive.md) | iPhone/iPad Files app, Finder and Windows |
+| [Backups and moving](docs/backup-restore.md) | Nightly backups, restoring, moving to new hardware |
+| [Hardware and uptime](docs/hardware-and-uptime.md) | What to run it on, power use, keeping it online |
+
+## How it's built
+
+```
+Browser / phone / Files app
+        │ HTTPS
+  Cloudflare Tunnel (or Caddy)
+        │
+ ┌──────┴──────────────── Docker Compose ─────────────────────┐
+ │  app      Fastify API + web app + WebDAV     (Node.js 24)  │
+ │  worker   thumbnails, checksums, disk moves, cleanups      │
+ │  db       PostgreSQL 18: accounts, folders, job queue      │
+ └──────┬─────────────────────────────────────────────────────┘
+        │
+  /srv/familycloud/volumes/disk1, disk2, …   (your disks)
+```
+
+- **Server:** TypeScript, Fastify 5, Drizzle ORM and PostgreSQL. pg-boss runs background jobs, so Redis isn't needed.
+- **Web app:** React 19 with Vite, TanStack Query, Radix UI primitives and Tailwind CSS 4.
+- **Files:** kept as content blobs spread across your disks; the folder tree lives in the database. Renames and moves are instant, and a file's bytes can move between disks without anything else changing.
+
+The full design (data model, upload protocol, permissions, caching and how it would scale) is in [docs/architecture.md](docs/architecture.md). The HTTP API is documented in [docs/api.md](docs/api.md), and the UI component library in [docs/ui-components.md](docs/ui-components.md).
+
+### Repository layout
+
+```
+apps/server/        API, background worker and admin CLI (Fastify, Drizzle, pg-boss)
+  src/modules/      auth, files, uploads, sharing, admin, webdav: one folder per feature
+  src/storage/      disk volumes, placement, thumbnails
+  src/jobs/         background jobs (thumbnails, checksums, draining disks, cleanups)
+  test/             integration tests against a real PostgreSQL
+apps/web/           React app
+  src/components/ui reusable, accessible UI primitives
+  src/features/     file browser, uploads, sharing, admin, settings, public links
+packages/shared/    API contract (Zod schemas + types) shared by server and web
+deploy/             docker-compose.yml, Caddyfile, .env.example
+scripts/            install.sh, add-disk.sh, backup.sh
+docs/               guides and design documents
+e2e/                Playwright end-to-end tests
+```
+
+## Development
+
+Requires Node.js 24 (`nvm use`) and pnpm. No Docker needed for development: an embedded PostgreSQL runs from the repository.
+
+```bash
+pnpm install
+cp .env.example .env         # then set SECRET_KEY (openssl rand -hex 32)
+pnpm dev:db                  # terminal 1: local PostgreSQL on port 54320
+pnpm dev                     # terminal 2: API on :3000 and the web app on http://localhost:5173
+pnpm dev:worker              # terminal 3 (optional): thumbnails and background jobs
+```
+
+On first start the API log prints a setup token for creating the first account.
+
+| Command | What it does |
+| --- | --- |
+| `pnpm test` | Unit and integration tests (server tests start their own PostgreSQL) |
+| `pnpm typecheck` / `pnpm lint` | TypeScript and Biome |
+| `pnpm build` | Production build of the web app and server |
+| `pnpm e2e` | Playwright smoke test against a running instance |
+| `./scripts/dev-reset.sh` | Stop dev processes and wipe local dev data |
+
+Interactive API docs are served at `/api/docs` in development. See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
+
+## Security
+
+Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md). The threat model and the findings of the most recent review are in [docs/security.md](docs/security.md).
+
+## License
+
+[MIT](LICENSE)
