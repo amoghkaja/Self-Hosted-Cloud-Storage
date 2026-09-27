@@ -49,33 +49,58 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     setSessionCookie(ctx, reply, s.token, s.absoluteExpiresAt);
   }
 
-  async function recordFailure(user: UserRow, req: FastifyRequest, reason: string) {
-    const failed = user.failedLogins + 1;
-    const lockMinutes = failed >= LOCK_AFTER ? Math.min(2 ** (failed - LOCK_AFTER), 60) : 0;
-    await db
+  const locked = (until: Date | null) => {
+    const minutes = until ? Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000)) : 1;
+    return new AppError(
+      429,
+      ErrorCode.ACCOUNT_LOCKED,
+      `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+    );
+  };
+
+  /**
+   * Counts a sign-in attempt *before* the secret is checked, in one atomic statement, and
+   * refuses it while the account is locked. Counting first means a burst of parallel guesses
+   * can't all read "not locked" before any failure is written: the row lock serializes them and
+   * the 6th sees the lock set by the 5th. The counter is reset only after a full sign-in.
+   * Lock length doubles from 1 minute per extra failure, capped at 60 minutes.
+   */
+  async function claimAttempt(userId: string): Promise<number> {
+    const [row] = await db
       .update(users)
       .set({
-        failedLogins: failed,
-        lockedUntil: lockMinutes ? new Date(Date.now() + lockMinutes * 60_000) : user.lockedUntil,
+        failedLogins: sql`${users.failedLogins} + 1`,
+        lockedUntil: sql`CASE WHEN ${users.failedLogins} + 1 >= ${LOCK_AFTER}
+          THEN now() + make_interval(mins => least(power(2, ${users.failedLogins} + 1 - ${LOCK_AFTER}), 60)::int)
+          ELSE NULL END`,
       })
-      .where(eq(users.id, user.id));
-    await audit(db, {
-      actorId: user.id,
-      action: 'auth.login_failed',
-      ip: req.clientIp,
-      meta: { reason, failed },
-    });
+      .where(
+        and(
+          eq(users.id, userId),
+          sql`(${users.lockedUntil} IS NULL OR ${users.lockedUntil} <= now())`,
+        ),
+      )
+      .returning({ attempts: users.failedLogins });
+    if (row) return row.attempts;
+    const [current] = await db
+      .select({ lockedUntil: users.lockedUntil })
+      .from(users)
+      .where(eq(users.id, userId));
+    throw locked(current?.lockedUntil ?? null);
   }
 
-  function assertNotLocked(user: UserRow) {
-    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-      const minutes = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
-      throw new AppError(
-        429,
-        ErrorCode.ACCOUNT_LOCKED,
-        `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
-      );
-    }
+  async function auditFailure(
+    userId: string,
+    req: FastifyRequest,
+    reason: string,
+    attempts: number,
+  ) {
+    await audit(db, {
+      actorId: userId,
+      action: 'auth.login_failed',
+      ip: req.clientIp,
+      meta: { reason, attempts },
+    });
   }
 
   // ── first-run setup ───────────────────────────────────────────────────────
@@ -122,12 +147,14 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     { config: strictLimit(10), schema: { body: LoginBody, response: { 200: LoginResponse } } },
     async (req, reply) => {
       const [user] = await db.select().from(users).where(eq(users.email, req.body.email));
-      if (user) assertNotLocked(user);
+      const attempts = user ? await claimAttempt(user.id) : 0;
       const ok = await verifyPassword(user?.passwordHash ?? null, req.body.password);
       if (!user || !ok || user.disabledAt) {
-        if (user) await recordFailure(user, req, !ok ? 'password' : 'disabled');
+        if (user) await auditFailure(user.id, req, !ok ? 'password' : 'disabled', attempts);
         throw invalidCredentials();
       }
+      // With two-factor on, the counter keeps running until the code is also correct, so knowing
+      // the password can't be used to reset the lockout between TOTP guesses.
       if (user.totpEnabled) {
         return {
           status: 'mfa_required' as const,
@@ -156,16 +183,27 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!user || user.disabledAt || !user.totpEnabled || !user.totpSecretEnc) {
         throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
       }
-      assertNotLocked(user);
+      const attempts = await claimAttempt(user.id);
       const step = checkTotp(ctx, user.totpSecretEnc, req.body.code, user.totpLastStep);
       if (step === null) {
-        await recordFailure(user, req, 'totp');
+        await auditFailure(user.id, req, 'totp', attempts);
         throw new AppError(401, ErrorCode.MFA_INVALID, 'That code is not valid');
       }
-      await db
+      // Consume the time-step atomically: two parallel requests with the same code can't both win.
+      const consumed = await db
         .update(users)
         .set({ failedLogins: 0, lockedUntil: null, totpLastStep: step })
-        .where(eq(users.id, user.id));
+        .where(
+          and(
+            eq(users.id, user.id),
+            sql`(${users.totpLastStep} IS NULL OR ${users.totpLastStep} < ${step})`,
+          ),
+        )
+        .returning({ id: users.id });
+      if (consumed.length === 0) {
+        await auditFailure(user.id, req, 'totp_replay', attempts);
+        throw new AppError(401, ErrorCode.MFA_INVALID, 'That code was already used');
+      }
       await startSession(req, reply, user);
       await audit(db, {
         actorId: user.id,

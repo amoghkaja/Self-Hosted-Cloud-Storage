@@ -234,3 +234,57 @@ describe('web app manifest', () => {
     }
   });
 });
+
+describe('lockout under concurrency', () => {
+  it('a burst of parallel wrong passwords still locks the account', async () => {
+    const admin = new Client(env.app);
+    await admin.post('/auth/login', {
+      email: 'admin@example.com',
+      password: 'correct horse battery',
+    });
+    await addMember(env, admin, 'burst@example.com');
+    const attempts = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        new Client(env.app).post('/auth/login', {
+          email: 'burst@example.com',
+          password: 'wrong password!!',
+        }),
+      ),
+    );
+    // At most 5 attempts get as far as checking the password; the rest are refused as locked.
+    expect(attempts.filter((r) => r.status === 401).length).toBeLessThanOrEqual(5);
+    expect(attempts.filter((r) => r.status === 429).length).toBeGreaterThanOrEqual(7);
+    const right = await new Client(env.app).post('/auth/login', {
+      email: 'burst@example.com',
+      password: 'another long password',
+    });
+    expect(right.status).toBe(429);
+  });
+
+  it('the same two-factor code used twice at once lets only one sign-in through', async () => {
+    const admin = new Client(env.app);
+    await admin.post('/auth/login', {
+      email: 'admin@example.com',
+      password: 'correct horse battery',
+    });
+    const { client } = await addMember(env, admin, 'race2fa@example.com');
+    const setup = await client.post('/auth/totp/setup');
+    const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
+    await client.post('/auth/totp/enable', { code: totp.generate() });
+    const code = totp.generate({ timestamp: Date.now() + 30_000 });
+    const tokens = await Promise.all(
+      [0, 1].map(async () => {
+        const c = new Client(env.app);
+        const r = await c.post('/auth/login', {
+          email: 'race2fa@example.com',
+          password: 'another long password',
+        });
+        return { c, token: r.body.mfaToken as string };
+      }),
+    );
+    const results = await Promise.all(
+      tokens.map(({ c, token }) => c.post('/auth/login/totp', { mfaToken: token, code })),
+    );
+    expect(results.map((r) => r.status).sort()).toEqual([200, 401]);
+  });
+});

@@ -22,10 +22,10 @@ import {
   users,
 } from '../../db/schema';
 import { toFileNode } from '../../lib/dto';
-import { AppError, conflict, forbidden, notFound } from '../../lib/errors';
+import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { isThumbnailable } from '../../storage/thumbs';
-import { loadAccess, requireFolder, satisfies } from '../files/access';
+import { lockWriteAccess, requireFolder } from '../files/access';
 import { insertNode, QUOTA_LOCK } from '../files/tree';
 
 const SESSION_TTL_MS = DAY_MS;
@@ -148,24 +148,24 @@ export async function createUpload(
   const chargeUserId = parent.node.ownerId;
   const settings = await ctx.settings.get();
   assertFileSizeAllowed(settings, input.size);
-  const [open_] = await ctx.db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(uploadSessions)
-    .where(and(eq(uploadSessions.userId, userId), eq(uploadSessions.status, 'uploading')));
-  if ((open_?.n ?? 0) >= MAX_OPEN_SESSIONS_PER_USER) {
-    throw new AppError(
-      429,
-      ErrorCode.RATE_LIMITED,
-      'Too many uploads in progress. Wait for some to finish.',
-    );
-  }
-
   const chunkSize = ctx.config.chunkSize;
   const totalChunks = Math.max(1, Math.ceil(input.size / chunkSize));
   const mimeType = guessMimeType(input.name, input.mimeType);
 
   const { session, volumePath } = await ctx.db.transaction(async (tx) => {
     await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
+    // Counted under the reservation lock so parallel requests can't exceed the limit.
+    const [open_] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(uploadSessions)
+      .where(and(eq(uploadSessions.userId, userId), eq(uploadSessions.status, 'uploading')));
+    if ((open_?.n ?? 0) >= MAX_OPEN_SESSIONS_PER_USER) {
+      throw new AppError(
+        429,
+        ErrorCode.RATE_LIMITED,
+        'Too many uploads in progress. Wait for some to finish.',
+      );
+    }
     const volume = await ctx.volumes.pickVolume(tx, input.size);
     const [row] = await tx
       .insert(uploadSessions)
@@ -330,13 +330,6 @@ export async function finalizeUpload(
     return { session: now ?? session, node: null };
   }
 
-  // Re-check access: a share may have been removed while the upload was in progress.
-  const stillAllowed = await loadAccess(ctx.db, claimed.userId, claimed.parentId);
-  if (!stillAllowed || !satisfies(stillAllowed.access, 'edit')) {
-    await releaseUpload(ctx, claimed.id, 'aborted');
-    throw forbidden('You no longer have permission to add files to this folder');
-  }
-
   const volumePath = await ctx.volumes.pathOf(claimed.volumeId);
   const tmp = ctx.volumes.tmpPath(volumePath, claimed.id);
   const final = ctx.volumes.blobPath(volumePath, claimed.blobId);
@@ -355,11 +348,9 @@ export async function finalizeUpload(
   try {
     const node = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
-      const [parent] = await tx
-        .select({ id: nodes.id, ownerId: nodes.ownerId })
-        .from(nodes)
-        .where(and(eq(nodes.id, claimed.parentId), isNull(nodes.deletedAt)));
-      if (!parent) throw conflict('The destination folder was deleted during the upload');
+      // Access is re-checked here, under row locks, because a share may have been revoked
+      // (or the folder trashed) while the chunks were uploading.
+      const parent = await lockWriteAccess(tx, claimed.userId, claimed.parentId);
       await tx.insert(blobs).values({
         id: claimed.blobId,
         volumeId: claimed.volumeId,

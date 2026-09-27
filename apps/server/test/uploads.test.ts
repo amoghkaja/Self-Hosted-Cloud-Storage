@@ -228,3 +228,16 @@ describe('quotas', () => {
     expect(blob!.sha256).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
 });
+
+describe('parallel uploads into one folder', () => {
+  it('all finish (no lock deadlocks while committing)', async () => {
+    const folder = (await admin.post('/folders', { parentId: root, name: 'Burst' })).body.id;
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        uploadFile(admin, folder, `p${i}.bin`, bytes(1000 + i, i)),
+      ),
+    );
+    expect(results.map((r) => r.final?.status)).toEqual(Array(10).fill(200));
+    expect((await admin.get(`/nodes/${folder}/children`)).body.items).toHaveLength(10);
+  });
+});

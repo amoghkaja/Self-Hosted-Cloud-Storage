@@ -10,6 +10,7 @@ import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { isThumbnailable, thumbPaths } from '../../storage/thumbs';
+import { lockWriteAccess } from '../files/access';
 import { insertNode, QUOTA_LOCK } from '../files/tree';
 import { assertFileSizeAllowed, releaseReservation, reserveSpace } from './service';
 
@@ -99,6 +100,9 @@ export async function ingest(
     const thumbable = isThumbnailable(input.mimeType);
     const result = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
+      // The body may have taken minutes to stream: re-check access now, under row locks, so a
+      // share revoked mid-upload can't still create or replace the file.
+      await lockWriteAccess(tx, input.uploaderId, input.parent.id);
       await tx.insert(blobs).values({
         id: blobId,
         volumeId: volume.id,

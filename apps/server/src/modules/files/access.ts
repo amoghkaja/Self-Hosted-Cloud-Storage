@@ -1,8 +1,8 @@
 import type { Access, Breadcrumb, ThumbStatus } from '@familycloud/shared/all';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Executor } from '../../db/client';
-import { blobs, type NodeRow, nodes } from '../../db/schema';
-import { forbidden, notFound } from '../../lib/errors';
+import { blobs, type NodeRow, nodes, shares } from '../../db/schema';
+import { conflict, forbidden, notFound } from '../../lib/errors';
 
 export type NodeWithBlob = NodeRow & { thumb: ThumbStatus | null; volumeId: string | null };
 
@@ -117,4 +117,56 @@ export async function requireFolder(
   const result = await requireAccess(exec, userId, nodeId, need);
   if (result.node.type !== 'folder') throw notFound('Folder');
   return result;
+}
+
+/**
+ * Re-checks, *inside the transaction that commits a new file*, that `userId` may still add files
+ * to `folderId`, and locks the rows that grant it:
+ * - the folder row (FOR NO KEY UPDATE): a concurrent trash of the folder waits for this commit;
+ *   taken at the strength the commit's own folder update needs, so parallel uploads into one
+ *   folder queue briefly instead of deadlocking on a lock upgrade;
+ * - the granting share row (FOR SHARE): a concurrent revoke or edit→view change waits.
+ * A revocation therefore lands entirely before this check (upload refused) or after the commit
+ * (file already saved), never in between.
+ */
+export async function lockWriteAccess(
+  tx: Executor,
+  userId: string,
+  folderId: string,
+): Promise<{ id: string; ownerId: string }> {
+  const [folder] = await tx
+    .select({ id: nodes.id, ownerId: nodes.ownerId, type: nodes.type, deletedAt: nodes.deletedAt })
+    .from(nodes)
+    .where(eq(nodes.id, folderId))
+    .for('no key update');
+  if (!folder || folder.deletedAt || folder.type !== 'folder') {
+    throw conflict('The destination folder was deleted');
+  }
+  if (folder.ownerId === userId) return folder;
+
+  const ancestors = (await tx.execute(sql`
+    WITH RECURSIVE up AS (
+      SELECT id, parent_id, 0 AS depth FROM nodes WHERE id = ${folderId}
+      UNION ALL
+      SELECT n.id, n.parent_id, u.depth + 1 FROM nodes n JOIN up u ON n.id = u.parent_id WHERE u.depth < 512
+    )
+    SELECT id FROM up
+  `)) as unknown as { id: string }[];
+  const [grant] = await tx
+    .select({ id: shares.id })
+    .from(shares)
+    .where(
+      and(
+        eq(shares.granteeId, userId),
+        eq(shares.permission, 'edit'),
+        inArray(
+          shares.nodeId,
+          ancestors.map((a) => a.id),
+        ),
+      ),
+    )
+    .limit(1)
+    .for('share');
+  if (!grant) throw forbidden('You no longer have permission to add files to this folder');
+  return folder;
 }

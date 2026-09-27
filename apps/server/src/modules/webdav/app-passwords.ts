@@ -53,35 +53,42 @@ export const appPasswordRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { user } = requireUser(req);
-      const [count] = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(appPasswords)
-        .where(eq(appPasswords.userId, user.id));
-      if ((count?.n ?? 0) >= MAX_PER_USER) {
-        throw new AppError(
-          409,
-          ErrorCode.CONFLICT,
-          `You can have up to ${MAX_PER_USER} devices. Remove an old one first.`,
-        );
-      }
       const password = generateAppPassword();
-      const [row] = await db
-        .insert(appPasswords)
-        .values({ userId: user.id, name: req.body.name, tokenHash: hashAppPassword(password) })
-        .returning();
+      // Count and insert under a per-user lock so parallel requests can't exceed the limit.
+      const row = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext(${`app-passwords:${user.id}`}))`,
+        );
+        const [count] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(appPasswords)
+          .where(eq(appPasswords.userId, user.id));
+        if ((count?.n ?? 0) >= MAX_PER_USER) {
+          throw new AppError(
+            409,
+            ErrorCode.CONFLICT,
+            `You can have up to ${MAX_PER_USER} devices. Remove an old one first.`,
+          );
+        }
+        const [inserted] = await tx
+          .insert(appPasswords)
+          .values({ userId: user.id, name: req.body.name, tokenHash: hashAppPassword(password) })
+          .returning();
+        return inserted!;
+      });
       await audit(db, {
         actorId: user.id,
         action: 'app_password.created',
         targetType: 'app_password',
-        targetId: row!.id,
+        targetId: row.id,
         ip: req.clientIp,
-        meta: { name: row!.name },
+        meta: { name: row.name },
       });
       return {
         appPassword: {
-          id: row!.id,
-          name: row!.name,
-          createdAt: toIso(row!.createdAt),
+          id: row.id,
+          name: row.name,
+          createdAt: toIso(row.createdAt),
           lastUsedAt: null,
         },
         password,

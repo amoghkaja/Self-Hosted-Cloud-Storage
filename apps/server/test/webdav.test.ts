@@ -282,3 +282,54 @@ async function setupAdminClient() {
   await c.post('/auth/login', { email: 'admin@example.com', password: 'correct horse battery' });
   return { client: c };
 }
+
+describe('share revoked during a WebDAV upload', () => {
+  it('refuses to commit the file once the share is gone', async () => {
+    const { PassThrough } = await import('node:stream');
+    const admin = (await setupAdminClient()).client;
+    const { client: carol, me: carolMe } = await addMember(env, admin, 'carol@example.com', {
+      quotaBytes: 50_000,
+    });
+    const carolAuth = `Basic ${Buffer.from(`${carolMe.email}:${(await newAppPassword(carol)).password}`).toString('base64')}`;
+    const folder = (
+      await alice.post('/folders', {
+        parentId: (await alice.get('/auth/me')).body.rootNodeId,
+        name: 'Shared drop',
+      })
+    ).body.id;
+    const share = await alice.post(`/nodes/${folder}/shares`, {
+      userId: carolMe.id,
+      permission: 'edit',
+    });
+
+    const body = new PassThrough();
+    const put = env.app.inject({
+      method: 'PUT',
+      url: '/dav/Shared%20with%20me/Shared%20drop/late.txt',
+      headers: { authorization: carolAuth, 'content-length': '10' },
+      payload: body,
+    });
+    body.write('hello');
+    await new Promise((r) => setTimeout(r, 50)); // upload is in flight
+    expect((await alice.del(`/shares/${share.body.id}`)).status).toBe(200);
+    body.end('world');
+    const res = await put;
+    expect(res.statusCode).toBe(403);
+    const listing = await alice.get(`/nodes/${folder}/children`);
+    expect(listing.body.items).toHaveLength(0);
+  });
+});
+
+describe('device password limit', () => {
+  it('holds under parallel requests', async () => {
+    const admin = (await setupAdminClient()).client;
+    const { client } = await addMember(env, admin, 'many-devices@example.com');
+    const results = await Promise.all(
+      Array.from({ length: 30 }, (_, i) =>
+        client.post('/auth/app-passwords', { name: `Device ${i}` }),
+      ),
+    );
+    expect(results.filter((r) => r.status === 200)).toHaveLength(25);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(5);
+  });
+});
