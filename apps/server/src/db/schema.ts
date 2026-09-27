@@ -271,6 +271,27 @@ export const shareLinks = pgTable(
   ],
 );
 
+/** Per-device passwords for WebDAV clients (Files app helpers, Finder, Windows). Revocable. */
+export const appPasswords = pgTable(
+  'app_passwords',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** sha256 of a 100-bit random secret (high entropy, so a fast hash is appropriate). */
+    tokenHash: text('token_hash').notNull(),
+    lastUsedAt: ts('last_used_at'),
+    lastUsedIp: text('last_used_ip'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('app_passwords_token_hash_key').on(t.tokenHash),
+    index('app_passwords_user_idx').on(t.userId),
+  ],
+);
+
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: jsonb('value').notNull(),

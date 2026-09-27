@@ -198,6 +198,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       const [row] = await db.update(users).set(patch).where(eq(users.id, target.id)).returning();
       if (b.disabled) await ctx.sessions.revokeAll(db, target.id);
       ctx.sessions.forgetUser(target.id);
+      ctx.davAuth.forgetUser(target.id);
       await audit(db, {
         actorId: admin.id,
         action: 'admin.user_updated',

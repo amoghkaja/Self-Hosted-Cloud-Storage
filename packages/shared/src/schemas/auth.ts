@@ -77,3 +77,24 @@ export const AcceptInviteBody = z.object({
 });
 
 export const TokenParams = z.object({ token: z.string().min(16).max(200) });
+
+// ── app passwords (network drive / WebDAV) ──────────────────────────────────
+
+export const AppPassword = z.object({
+  id: Id,
+  name: z.string(),
+  createdAt: IsoDate,
+  lastUsedAt: IsoDate.nullable(),
+});
+export type AppPassword = z.infer<typeof AppPassword>;
+
+export const CreateAppPasswordBody = z.object({ name: z.string().trim().min(1).max(60) });
+
+export const CreateAppPasswordResponse = z.object({
+  appPassword: AppPassword,
+  /** Shown once. Formatted in dash-separated groups for easy typing on a phone. */
+  password: z.string(),
+  davUrl: z.string(),
+  username: z.string(),
+});
+export type CreateAppPasswordResponse = z.infer<typeof CreateAppPasswordResponse>;

@@ -19,6 +19,8 @@ import { fileRoutes } from './modules/files/routes';
 import { linkRoutes } from './modules/sharing/links';
 import { sharingRoutes } from './modules/sharing/routes';
 import { uploadRoutes } from './modules/uploads/routes';
+import { appPasswordRoutes } from './modules/webdav/app-passwords';
+import { DAV_METHODS, davRoutes } from './modules/webdav/routes';
 import { registerAuth } from './plugins/auth';
 import { registerErrorHandling, sendProblem } from './plugins/errors';
 import { registerSecurity } from './plugins/security';
@@ -31,7 +33,7 @@ export async function buildApp(
     loggerInstance: opts.logger === false ? undefined : (ctx.log as unknown as FastifyBaseLogger),
     trustProxy: ctx.config.trustedProxies,
     bodyLimit: 1024 * 1024, // JSON bodies only; upload chunks bypass the parser
-    routerOptions: { maxParamLength: 200 },
+    routerOptions: { maxParamLength: 4096 }, // deep WebDAV paths travel in the wildcard param
     requestTimeout: 0, // large uploads/downloads may legitimately take long
     disableRequestLogging: false,
   });
@@ -41,6 +43,10 @@ export async function buildApp(
     app.addHook('onRequest', async (req) => {
       req.log = req.log.child({ url: scrubUrl(req.url) });
     });
+  }
+
+  for (const method of DAV_METHODS) {
+    app.addHttpMethod(method, { hasBody: method !== 'UNLOCK' });
   }
 
   app.setValidatorCompiler(validatorCompiler);
@@ -84,9 +90,13 @@ export async function buildApp(
       await api.register(sharingRoutes);
       await api.register(linkRoutes);
       await api.register(adminRoutes);
+      await api.register(appPasswordRoutes);
     },
     { prefix: API_PREFIX },
   );
+
+  // Network drive (WebDAV) for Finder, Windows and iPhone/iPad Files-app helpers.
+  await app.register(davRoutes);
 
   app.get('/healthz', { config: { rateLimit: false } }, async () => ({ ok: true }));
   app.get('/readyz', { config: { rateLimit: false } }, async (_req, reply) => {

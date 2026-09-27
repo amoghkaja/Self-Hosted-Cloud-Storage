@@ -2,10 +2,17 @@ import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { ErrorCode, type FileNode, guessMimeType, type UploadSession } from '@familycloud/shared';
+import {
+  ErrorCode,
+  type FileNode,
+  guessMimeType,
+  type Settings,
+  type UploadSession,
+} from '@familycloud/shared';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
+import type { Tx } from '../../db/client';
 import {
   blobs,
   nodes,
@@ -64,6 +71,70 @@ export async function toUploadDto(
   };
 }
 
+export function assertFileSizeAllowed(settings: Settings, size: number): void {
+  if (settings.maxFileSizeBytes != null && size > settings.maxFileSizeBytes) {
+    throw new AppError(
+      413,
+      ErrorCode.FILE_TOO_LARGE,
+      'This file is larger than the allowed maximum',
+    );
+  }
+}
+
+/**
+ * Atomically reserves `size` bytes against the charged user's quota and the global cap.
+ * Must run inside a transaction; takes the exclusive quota lock so concurrent reservations
+ * (and the global sum) stay consistent. Release with `releaseReservation` if the write fails.
+ */
+export async function reserveSpace(
+  tx: Tx,
+  settings: Settings,
+  input: { chargeUserId: string; uploaderId: string; size: number },
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${QUOTA_LOCK})`);
+  if (settings.globalCapacityBytes != null) {
+    const [row] = await tx
+      .select({
+        total: sql<number>`coalesce(sum(${users.usedBytes} + ${users.reservedBytes}), 0)::bigint`,
+      })
+      .from(users);
+    if (Number(row?.total ?? 0) + input.size > settings.globalCapacityBytes) {
+      throw new AppError(
+        507,
+        ErrorCode.CAPACITY_EXCEEDED,
+        'The family storage limit has been reached',
+      );
+    }
+  }
+  const reserved = await tx
+    .update(users)
+    .set({ reservedBytes: sql`${users.reservedBytes} + ${input.size}` })
+    .where(
+      and(
+        eq(users.id, input.chargeUserId),
+        sql`(${users.quotaBytes} IS NULL OR ${users.usedBytes} + ${users.reservedBytes} + ${input.size} <= ${users.quotaBytes})`,
+      ),
+    )
+    .returning({ id: users.id });
+  if (reserved.length === 0) {
+    const detail =
+      input.chargeUserId === input.uploaderId
+        ? 'Not enough storage left in your quota for this file'
+        : "Not enough storage left in the folder owner's quota for this file";
+    throw new AppError(507, ErrorCode.QUOTA_EXCEEDED, detail);
+  }
+}
+
+export async function releaseReservation(ctx: AppContext, chargeUserId: string, size: number) {
+  await ctx.db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
+    await tx
+      .update(users)
+      .set({ reservedBytes: sql`greatest(${users.reservedBytes} - ${size}, 0)` })
+      .where(eq(users.id, chargeUserId));
+  });
+}
+
 /**
  * Starts an upload: authorizes, checks limits, atomically reserves quota on the destination
  * owner's account (and against the global cap), picks a volume and pre-allocates a sparse file.
@@ -76,13 +147,7 @@ export async function createUpload(
   const parent = await requireFolder(ctx.db, userId, input.parentId, 'edit');
   const chargeUserId = parent.node.ownerId;
   const settings = await ctx.settings.get();
-  if (settings.maxFileSizeBytes != null && input.size > settings.maxFileSizeBytes) {
-    throw new AppError(
-      413,
-      ErrorCode.FILE_TOO_LARGE,
-      'This file is larger than the allowed maximum',
-    );
-  }
+  assertFileSizeAllowed(settings, input.size);
   const [open_] = await ctx.db
     .select({ n: sql<number>`count(*)::int` })
     .from(uploadSessions)
@@ -100,42 +165,7 @@ export async function createUpload(
   const mimeType = guessMimeType(input.name, input.mimeType);
 
   const { session, volumePath } = await ctx.db.transaction(async (tx) => {
-    // Serializes reservations so the global-cap sum and per-volume free space are consistent.
-    await tx.execute(sql`select pg_advisory_xact_lock(${QUOTA_LOCK})`);
-
-    if (settings.globalCapacityBytes != null) {
-      const [row] = await tx
-        .select({
-          total: sql<number>`coalesce(sum(${users.usedBytes} + ${users.reservedBytes}), 0)::bigint`,
-        })
-        .from(users);
-      if (Number(row?.total ?? 0) + input.size > settings.globalCapacityBytes) {
-        throw new AppError(
-          507,
-          ErrorCode.CAPACITY_EXCEEDED,
-          'The family storage limit has been reached',
-        );
-      }
-    }
-
-    const reserved = await tx
-      .update(users)
-      .set({ reservedBytes: sql`${users.reservedBytes} + ${input.size}` })
-      .where(
-        and(
-          eq(users.id, chargeUserId),
-          sql`(${users.quotaBytes} IS NULL OR ${users.usedBytes} + ${users.reservedBytes} + ${input.size} <= ${users.quotaBytes})`,
-        ),
-      )
-      .returning({ id: users.id });
-    if (reserved.length === 0) {
-      const detail =
-        chargeUserId === userId
-          ? 'Not enough storage left in your quota for this file'
-          : "Not enough storage left in the folder owner's quota for this file";
-      throw new AppError(507, ErrorCode.QUOTA_EXCEEDED, detail);
-    }
-
+    await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
     const volume = await ctx.volumes.pickVolume(tx, input.size);
     const [row] = await tx
       .insert(uploadSessions)

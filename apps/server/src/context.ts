@@ -8,6 +8,7 @@ import { type JobQueue, PgBossQueue } from './jobs/queue';
 import { Keyring, randomToken } from './lib/crypto';
 import { SessionService } from './lib/sessions';
 import { SettingsStore } from './lib/settings';
+import { DavAuthenticator } from './modules/webdav/auth';
 import { VolumeManager } from './storage/volume-manager';
 
 export interface AppContext {
@@ -20,6 +21,7 @@ export interface AppContext {
   keys: Keyring;
   settings: SettingsStore;
   sessions: SessionService;
+  davAuth: DavAuthenticator;
   close(): Promise<void>;
 }
 
@@ -85,6 +87,7 @@ export async function createContext(
     keys: new Keyring(config.secretKey),
     settings: new SettingsStore(db),
     sessions: new SessionService(db),
+    davAuth: new DavAuthenticator(db),
     async close() {
       await jobs.stop();
       await client.end({ timeout: 5 });
