@@ -29,6 +29,8 @@ describe('names', () => {
     expect(nameProblem('..')).toMatch(/cannot be/);
     expect(nameProblem('')).toMatch(/empty/);
     expect(nameProblem('ok name.txt')).toBeNull();
+    // Right-to-left override would display "invoice\u202efdp.exe" as "invoiceexe.pdf".
+    expect(nameProblem('invoice\u202efdp.exe')).toMatch(/cannot contain/);
   });
 
   it('normalizes to NFC so macOS names compare equal', () => {

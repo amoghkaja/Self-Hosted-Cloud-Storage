@@ -10,7 +10,7 @@ import {
   serializerCompiler,
   validatorCompiler,
 } from 'fastify-type-provider-zod';
-import { type AppContext, scrubUrl } from './context';
+import type { AppContext } from './context';
 import { storageVolumes } from './db/schema';
 import { createClientIpResolver } from './lib/client-ip';
 import { adminRoutes } from './modules/admin/routes';
@@ -34,16 +34,10 @@ export async function buildApp(
     trustProxy: ctx.config.trustedProxies,
     bodyLimit: 1024 * 1024, // JSON bodies only; upload chunks bypass the parser
     routerOptions: { maxParamLength: 4096 }, // deep WebDAV paths travel in the wildcard param
-    requestTimeout: 0, // large uploads/downloads may legitimately take long
-    disableRequestLogging: false,
+    // Generous (1 h) for big WebDAV uploads on slow links, but bounded so slow-body clients
+    // can't pin connections forever. Chunked web uploads finish each request in minutes.
+    requestTimeout: 60 * 60 * 1000,
   });
-
-  if (opts.logger !== false) {
-    // Log URLs with share/invite tokens scrubbed.
-    app.addHook('onRequest', async (req) => {
-      req.log = req.log.child({ url: scrubUrl(req.url) });
-    });
-  }
 
   for (const method of DAV_METHODS) {
     app.addHttpMethod(method, { hasBody: method !== 'UNLOCK' });
@@ -99,7 +93,7 @@ export async function buildApp(
   await app.register(davRoutes);
 
   app.get('/healthz', { config: { rateLimit: false } }, async () => ({ ok: true }));
-  app.get('/readyz', { config: { rateLimit: false } }, async (_req, reply) => {
+  app.get('/readyz', { config: { rateLimit: false } }, async (req, reply) => {
     const checks: Record<string, string> = {};
     try {
       await ctx.db.execute(sql`select 1`);
@@ -116,7 +110,9 @@ export async function buildApp(
       checks[`volume:${v.name}`] = (await ctx.volumes.status(v)).online ? 'ok' : 'offline';
     }
     const healthy = Object.values(checks).every((c) => c === 'ok');
-    return reply.status(healthy ? 200 : 503).send({ ok: healthy, checks });
+    // Details (disk names) only for the machine itself / the LAN; the internet sees ok/not ok.
+    const local = /^(127\.|::1$|::ffff:127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|f[cd])/i.test(req.clientIp);
+    return reply.status(healthy ? 200 : 503).send(local ? { ok: healthy, checks } : { ok: healthy });
   });
 
   const webDist = ctx.config.webDistDir;

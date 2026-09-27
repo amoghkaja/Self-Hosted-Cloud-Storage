@@ -65,3 +65,28 @@ describe('misc', () => {
     expect(toIso('2026-09-26 11:14:23+02')).toBe('2026-09-26T09:14:23.000Z');
   });
 });
+
+describe('request logging', () => {
+  it('never writes share or invite tokens to the logs', async () => {
+    const { Writable } = await import('node:stream');
+    const { loadConfig } = await import('../src/config');
+    const { createLogger } = await import('../src/context');
+    const lines: string[] = [];
+    const sink = new Writable({
+      write(chunk, _e, cb) {
+        lines.push(String(chunk));
+        cb();
+      },
+    });
+    const log = createLogger(
+      loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'x', SECRET_KEY: 'k'.repeat(40), LOG_LEVEL: 'info' }),
+      sink,
+    );
+    log.info({ req: { method: 'GET', url: '/api/v1/public/links/SUPERSECRET123456789/content/x' } }, 'incoming request');
+    log.info({ req: { method: 'POST', url: '/api/v1/invites/INVITESECRET123456789/accept' } }, 'incoming request');
+    const out = lines.join('');
+    expect(out).not.toContain('SUPERSECRET');
+    expect(out).not.toContain('INVITESECRET');
+    expect(out).toContain('/public/links/[token]');
+  });
+});

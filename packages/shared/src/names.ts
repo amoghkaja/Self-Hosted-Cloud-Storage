@@ -1,8 +1,9 @@
 import { NAME_MAX_LENGTH } from './constants';
 
-// Control characters, path separators and NUL are never valid in a node name.
+// Control characters, path separators and NUL are never valid in a node name, nor are
+// bidirectional-override characters, which can disguise "photo<RLO>gpj.exe" as "photoexe.jpg".
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
-const FORBIDDEN = /[/\\\u0000-\u001f\u007f]/;
+const FORBIDDEN = /[/\\\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 /** Normalizes a user-supplied name (NFC so macOS NFD names compare equal, trimmed). */
 export function normalizeName(name: string): string {

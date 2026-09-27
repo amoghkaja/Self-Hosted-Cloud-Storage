@@ -33,8 +33,8 @@ export function scrubUrl(url: string): string {
     .replace(/(\/s\/)[^/?#]+/g, '$1[token]');
 }
 
-export function createLogger(config: Config): Logger {
-  return pino({
+export function createLogger(config: Config, destination?: pino.DestinationStream): Logger {
+  const options: pino.LoggerOptions = {
     level: config.logLevel,
     redact: {
       paths: [
@@ -47,11 +47,21 @@ export function createLogger(config: Config): Logger {
       ],
       censor: '[redacted]',
     },
+    // Fastify logs every request with this serializer before any hook runs, so scrubbing must
+    // happen here: share-link and invite tokens travel in URLs and must never reach the logs.
+    serializers: {
+      req: (req: { method?: string; url?: string; id?: string; ip?: string }) => ({
+        method: req.method,
+        url: req.url ? scrubUrl(req.url) : undefined,
+        reqId: req.id,
+      }),
+    },
     transport:
-      config.env === 'development'
+      config.env === 'development' && !destination
         ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss' } }
         : undefined,
-  });
+  };
+  return destination ? pino(options, destination) : pino(options);
 }
 
 export async function createContext(

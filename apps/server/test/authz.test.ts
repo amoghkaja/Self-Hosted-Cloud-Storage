@@ -151,3 +151,22 @@ describe('admin role', () => {
     }
   });
 });
+
+describe('revoked share during upload', () => {
+  it('refuses to finish an upload after the share was removed', async () => {
+    const share = await alice.post(`/nodes/${shared}/shares`, { userId: bobId, permission: 'edit' });
+    const created = await bob.post('/uploads', { parentId: shared, name: 'late.bin', size: 3 });
+    expect(created.status).toBe(200);
+    await alice.del(`/shares/${share.body.id}`);
+    const res = await bob.req('PUT', `/uploads/${created.body.id}/chunks/0`, { body: Buffer.from('abc') });
+    expect(res.status).toBe(403);
+    // The reservation on Alice's quota was released.
+    const me = await alice.get('/auth/me');
+    expect(me.status).toBe(200);
+    const { sql } = await import('drizzle-orm');
+    const [row] = (await env.ctx.db.execute(
+      sql`select reserved_bytes from users where id = ${me.body.id}`,
+    )) as unknown as { reserved_bytes: number }[];
+    expect(Number(row!.reserved_bytes)).toBe(0);
+  });
+});

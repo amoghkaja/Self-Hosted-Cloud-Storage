@@ -22,10 +22,10 @@ import {
   users,
 } from '../../db/schema';
 import { toFileNode } from '../../lib/dto';
-import { AppError, conflict, notFound } from '../../lib/errors';
+import { AppError, conflict, forbidden, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { isThumbnailable } from '../../storage/thumbs';
-import { requireFolder } from '../files/access';
+import { loadAccess, requireFolder, satisfies } from '../files/access';
 import { insertNode, QUOTA_LOCK } from '../files/tree';
 
 const SESSION_TTL_MS = DAY_MS;
@@ -328,6 +328,13 @@ export async function finalizeUpload(
       .from(uploadSessions)
       .where(eq(uploadSessions.id, session.id));
     return { session: now ?? session, node: null };
+  }
+
+  // Re-check access: a share may have been removed while the upload was in progress.
+  const stillAllowed = await loadAccess(ctx.db, claimed.userId, claimed.parentId);
+  if (!stillAllowed || !satisfies(stillAllowed.access, 'edit')) {
+    await releaseUpload(ctx, claimed.id, 'aborted');
+    throw forbidden('You no longer have permission to add files to this folder');
   }
 
   const volumePath = await ctx.volumes.pathOf(claimed.volumeId);
