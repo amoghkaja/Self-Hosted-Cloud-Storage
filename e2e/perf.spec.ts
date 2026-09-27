@@ -8,7 +8,9 @@ test('large folder renders fast and stays virtualized', async ({ page }) => {
   test.skip(!FOLDER, 'set E2E_PERF_FOLDER to a folder id with thousands of items');
   await page.goto('/login');
   await page.getByLabel('Email').fill(process.env.E2E_EMAIL ?? 'admin@example.com');
-  await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_PASSWORD ?? 'correct horse battery staple');
+  await page
+    .getByLabel('Password', { exact: true })
+    .fill(process.env.E2E_PASSWORD ?? 'correct horse battery staple');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/files$/);
 
@@ -29,8 +31,20 @@ test('large folder renders fast and stays virtualized', async ({ page }) => {
     lastCount = Number(total);
   }
   const scrollAll = Date.now() - scrollStart;
-  const heap = await page.evaluate(() => (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0);
-  console.log(JSON.stringify({ firstRowsMs: firstRows, domRowsRendered: domRows, itemsLoaded: lastCount - 1, scrollAllMs: scrollAll, jsHeapMB: Math.round(heap / 1048576) }));
+  const heap = await page.evaluate(
+    () =>
+      (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ??
+      0,
+  );
+  console.info(
+    JSON.stringify({
+      firstRowsMs: firstRows,
+      domRowsRendered: domRows,
+      itemsLoaded: lastCount - 1,
+      scrollAllMs: scrollAll,
+      jsHeapMB: Math.round(heap / 1048576),
+    }),
+  );
   expect(domRows).toBeLessThan(100); // virtualized: never thousands of DOM rows
   expect(firstRows).toBeLessThan(3000);
 });

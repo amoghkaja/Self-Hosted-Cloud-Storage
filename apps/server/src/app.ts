@@ -111,8 +111,13 @@ export async function buildApp(
     }
     const healthy = Object.values(checks).every((c) => c === 'ok');
     // Details (disk names) only for the machine itself / the LAN; the internet sees ok/not ok.
-    const local = /^(127\.|::1$|::ffff:127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|f[cd])/i.test(req.clientIp);
-    return reply.status(healthy ? 200 : 503).send(local ? { ok: healthy, checks } : { ok: healthy });
+    const local =
+      /^(127\.|::1$|::ffff:127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|f[cd])/i.test(
+        req.clientIp,
+      );
+    return reply
+      .status(healthy ? 200 : 503)
+      .send(local ? { ok: healthy, checks } : { ok: healthy });
   });
 
   const webDist = ctx.config.webDistDir;

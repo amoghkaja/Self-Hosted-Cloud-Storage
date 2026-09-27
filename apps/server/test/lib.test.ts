@@ -79,11 +79,22 @@ describe('request logging', () => {
       },
     });
     const log = createLogger(
-      loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'x', SECRET_KEY: 'k'.repeat(40), LOG_LEVEL: 'info' }),
+      loadConfig({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'x',
+        SECRET_KEY: 'k'.repeat(40),
+        LOG_LEVEL: 'info',
+      }),
       sink,
     );
-    log.info({ req: { method: 'GET', url: '/api/v1/public/links/SUPERSECRET123456789/content/x' } }, 'incoming request');
-    log.info({ req: { method: 'POST', url: '/api/v1/invites/INVITESECRET123456789/accept' } }, 'incoming request');
+    log.info(
+      { req: { method: 'GET', url: '/api/v1/public/links/SUPERSECRET123456789/content/x' } },
+      'incoming request',
+    );
+    log.info(
+      { req: { method: 'POST', url: '/api/v1/invites/INVITESECRET123456789/accept' } },
+      'incoming request',
+    );
     const out = lines.join('');
     expect(out).not.toContain('SUPERSECRET');
     expect(out).not.toContain('INVITESECRET');
