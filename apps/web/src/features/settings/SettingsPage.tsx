@@ -30,6 +30,7 @@ import {
   UsageBar,
 } from '../../components/ui';
 import { describeUserAgent, formatRelative } from '../../lib/format';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 function Section({
   id,
@@ -535,8 +536,8 @@ function SessionsSection() {
 
 export function SettingsPage() {
   const { me } = useShell();
+  usePageTitle('Settings');
   useEffect(() => {
-    document.title = 'Settings · Family Cloud';
     if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
   }, []);
   return (

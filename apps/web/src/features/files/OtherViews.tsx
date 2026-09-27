@@ -1,6 +1,6 @@
 import { type FileNode, formatBytes } from '@familycloud/shared';
 import { RotateCcw, Search, Trash2, Users } from 'lucide-react';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { contentUrl, errorMessage, thumbUrl } from '../../api/client';
 import { usePurge, useRestore, useSearch, useSharedWithMe, useTrash } from '../../api/queries';
@@ -16,6 +16,7 @@ import {
 } from '../../components/ui';
 import { formatRelative } from '../../lib/format';
 import { usePref } from '../../lib/storage';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { useFileActions } from './actions';
 import { FileIcon } from './FileIcon';
 import { FileView, FileViewSkeleton } from './FileView';
@@ -23,9 +24,7 @@ import { FileView, FileViewSkeleton } from './FileView';
 const PreviewModal = lazy(() => import('./PreviewModal'));
 
 function PageTitle({ title, children }: { title: string; children?: React.ReactNode }) {
-  useEffect(() => {
-    document.title = `${title} · Family Cloud`;
-  }, [title]);
+  usePageTitle(title);
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
       <h1 className="flex-1 text-xl font-semibold">{title}</h1>

@@ -16,7 +16,7 @@ import {
   TriangleAlert,
   UserPlus,
 } from 'lucide-react';
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { errorMessage } from '../../api/client';
 import {
@@ -47,6 +47,7 @@ import {
   UsageBar,
 } from '../../components/ui';
 import { formatDate, formatDateTime, formatRelative } from '../../lib/format';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { ByteSizeInput } from './ByteSizeInput';
 
 function Card({
@@ -855,9 +856,7 @@ export function AdminPage() {
   const tab = TABS.includes(params.get('tab') as (typeof TABS)[number])
     ? (params.get('tab') as string)
     : 'overview';
-  useEffect(() => {
-    document.title = 'Admin · Family Cloud';
-  }, []);
+  usePageTitle('Admin');
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
       <h1 className="text-xl font-semibold">Admin</h1>

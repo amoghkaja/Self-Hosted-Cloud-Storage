@@ -216,3 +216,21 @@ describe('rate limiting', () => {
     }
   });
 });
+
+describe('web app manifest', () => {
+  it('uses the configured family name', async () => {
+    const named = await createTestEnv({ APP_NAME: 'Kaja Family Cloud' });
+    try {
+      const res = await named.app.inject({ method: 'GET', url: '/manifest.webmanifest' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('application/manifest+json');
+      expect(res.json()).toMatchObject({
+        name: 'Kaja Family Cloud',
+        short_name: 'Kaja Family',
+        start_url: '/files',
+      });
+    } finally {
+      await named.close();
+    }
+  });
+});

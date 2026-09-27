@@ -136,6 +136,28 @@ export async function buildApp(
     });
   }
 
+  // Web-app manifest built from APP_NAME, so "Add to Home Screen" shows the family's name.
+  app.get('/manifest.webmanifest', { config: { rateLimit: false } }, async (_req, reply) => {
+    const name = ctx.config.appName;
+    reply.header('Cache-Control', 'no-cache').type('application/manifest+json');
+    return {
+      name,
+      short_name:
+        name.length > 12 ? name.replace(/\s*cloud$/i, '').slice(0, 12) || name.slice(0, 12) : name,
+      description: `${name}: your family's private cloud storage.`,
+      start_url: '/files',
+      scope: '/',
+      display: 'standalone',
+      background_color: '#f7f6f3',
+      theme_color: '#2458d6',
+      icons: [
+        { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    };
+  });
+
   app.setNotFoundHandler(async (req, reply) => {
     const accept = req.headers.accept ?? '';
     if (

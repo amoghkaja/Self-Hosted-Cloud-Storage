@@ -1,10 +1,11 @@
 import type { PublicFolder, PublicLinkInfo, PublicNode } from '@familycloud/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cloud, Download, FolderOpen, Lock } from 'lucide-react';
-import { type FormEvent, lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, lazy, Suspense, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ApiError, api, apiUrl, errorMessage } from '../../api/client';
 import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../components/ui';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { triggerDownload } from '../files/actions';
 import { FileView } from '../files/FileView';
 
@@ -52,11 +53,7 @@ export function PublicLinkPage() {
   const [unlocking, setUnlocking] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
 
-  useEffect(() => {
-    document.title = info.data?.node
-      ? `${info.data.node.name} · Family Cloud`
-      : 'Shared with you · Family Cloud';
-  }, [info.data]);
+  usePageTitle(info.data?.node ? info.data.node.name : 'Shared with you');
 
   const source = useMemo(
     () => ({

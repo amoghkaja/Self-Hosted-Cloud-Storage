@@ -42,6 +42,7 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:3000' },
       '/dav': { target: 'http://localhost:3000' },
+      '/manifest.webmanifest': { target: 'http://localhost:3000' },
     },
   },
   build: {

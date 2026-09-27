@@ -33,6 +33,7 @@ import {
   Tooltip,
 } from '../../components/ui';
 import { usePref } from '../../lib/storage';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { downloadNodes, useFileActions } from './actions';
 import { NewFolderDialog } from './dialogs';
 import { FileView, FileViewSkeleton } from './FileView';
@@ -82,9 +83,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
   });
 
   const name = detail.data ? (detail.data.isRoot ? 'My Files' : detail.data.node.name) : '';
-  useEffect(() => {
-    if (name) document.title = `${name} · Family Cloud`;
-  }, [name]);
+  usePageTitle(name || null);
 
   // Thumbnails are rendered in the background after upload: refresh until they're ready.
   const pendingThumbs = items.some((n) => n.thumb === 'pending');

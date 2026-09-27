@@ -1,8 +1,9 @@
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import { errorMessage } from '../../api/client';
 import { useLogin, useLoginTotp, useMe, useSetupStatus } from '../../api/queries';
 import { Button, PasswordField, TextField } from '../../components/ui';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { AuthLayout, FormError } from './AuthLayout';
 
 /** Only follow same-app relative redirects after sign-in (no open redirect). */
@@ -24,9 +25,7 @@ export function LoginPage() {
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    document.title = 'Sign in · Family Cloud';
-  }, []);
+  usePageTitle('Sign in');
 
   if (setup.data?.needsSetup) return <Navigate to="/setup" replace />;
   if (me.data) return <Navigate to={next} replace />;
