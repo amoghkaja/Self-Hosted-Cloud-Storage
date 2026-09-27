@@ -1,4 +1,4 @@
-import type { Access, Breadcrumb, ThumbStatus } from '@familycloud/shared';
+import type { Access, Breadcrumb, ThumbStatus } from '@familycloud/shared/all';
 import { eq, sql } from 'drizzle-orm';
 import type { Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes } from '../../db/schema';

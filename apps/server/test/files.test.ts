@@ -1,4 +1,4 @@
-import type { NodePage } from '@familycloud/shared';
+import type { NodePage } from '@familycloud/shared/all';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { purgeExpiredTrash } from '../src/jobs/maintenance';
 import {

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { API_PREFIX, ErrorCode } from '@familycloud/shared';
+import { API_PREFIX, ErrorCode } from '@familycloud/shared/all';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { sql } from 'drizzle-orm';

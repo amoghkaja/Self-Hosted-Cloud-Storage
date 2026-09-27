@@ -8,7 +8,7 @@ import {
   guessMimeType,
   type Settings,
   type UploadSession,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';

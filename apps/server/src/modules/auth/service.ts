@@ -1,4 +1,4 @@
-import type { UserRole } from '@familycloud/shared';
+import type { UserRole } from '@familycloud/shared/all';
 import { eq } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
 import type { AppContext } from '../../context';

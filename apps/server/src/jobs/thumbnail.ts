@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { cpus, tmpdir } from 'node:os';
 import path from 'node:path';
-import { splitExtension } from '@familycloud/shared';
+import { splitExtension } from '@familycloud/shared/all';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import type { AppContext } from '../context';

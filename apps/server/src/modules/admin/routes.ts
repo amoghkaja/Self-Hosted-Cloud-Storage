@@ -17,7 +17,7 @@ import {
   UpdateVolumeBody,
   Volume,
   VolumeCandidate,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import { and, asc, desc, eq, gt, isNull, lt, max, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';

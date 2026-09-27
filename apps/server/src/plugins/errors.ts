@@ -1,4 +1,4 @@
-import { ErrorCode, type ProblemDetails } from '@familycloud/shared';
+import { ErrorCode, type ProblemDetails } from '@familycloud/shared/all';
 import type { FastifyError, FastifyInstance, FastifyReply } from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,

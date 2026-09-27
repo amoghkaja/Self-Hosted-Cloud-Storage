@@ -3,7 +3,7 @@ import path from 'node:path';
 import { stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { Email, Password } from '@familycloud/shared';
+import { Email, Password } from '@familycloud/shared/all';
 import { eq } from 'drizzle-orm';
 import { loadConfig } from './config';
 import { createContext, ensureSetupToken } from './context';

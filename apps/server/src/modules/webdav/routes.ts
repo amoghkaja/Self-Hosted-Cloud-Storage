@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCode, guessMimeType, nameProblem, normalizeName } from '@familycloud/shared';
+import { ErrorCode, guessMimeType, nameProblem, normalizeName } from '@familycloud/shared/all';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../../context';
@@ -127,7 +127,7 @@ async function resolve(ctx: AppContext, user: UserRow, segments: string[]): Prom
   }
   if (found.depth === names.length - 1) {
     const parent = await loadAccess(ctx.db, user.id, found.id);
-    if (!parent || parent.node.type !== 'folder') return { kind: 'conflict' };
+    if (parent?.node.type !== 'folder') return { kind: 'conflict' };
     return { kind: 'missing', parent, name: names[names.length - 1]!, segments };
   }
   return { kind: 'conflict' };

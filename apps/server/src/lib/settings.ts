@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type Settings } from '@familycloud/shared';
+import { DEFAULT_SETTINGS, type Settings } from '@familycloud/shared/all';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { settings as settingsTable } from '../db/schema';

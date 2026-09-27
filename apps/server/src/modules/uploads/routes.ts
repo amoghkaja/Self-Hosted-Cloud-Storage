@@ -5,7 +5,7 @@ import {
   IdParams,
   Ok,
   UploadSession,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { requireUser } from '../../plugins/auth';
 import { createUpload, getOwnedSession, releaseUpload, toUploadDto, writeChunk } from './service';

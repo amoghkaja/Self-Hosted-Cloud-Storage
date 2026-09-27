@@ -14,7 +14,7 @@ import {
   TrashList,
   UpdateNodeBody,
   ZipQuery,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';

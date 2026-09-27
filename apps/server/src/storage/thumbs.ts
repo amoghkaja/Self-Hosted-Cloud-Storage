@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { THUMB_SIZES, type ThumbSize } from '@familycloud/shared';
+import { THUMB_SIZES, type ThumbSize } from '@familycloud/shared/all';
 
 export function thumbPath(cacheDir: string, blobId: string, size: ThumbSize): string {
   return path.join(cacheDir, 'thumbs', blobId.slice(-2), `${blobId}-${size}.webp`);

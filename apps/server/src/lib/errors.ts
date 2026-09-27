@@ -1,4 +1,4 @@
-import { ErrorCode } from '@familycloud/shared';
+import { ErrorCode } from '@familycloud/shared/all';
 
 export class AppError extends Error {
   constructor(

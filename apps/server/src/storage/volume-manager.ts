@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { ErrorCode, GiB } from '@familycloud/shared';
+import { ErrorCode, GiB } from '@familycloud/shared/all';
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { Db, Executor } from '../db/client';
 import { blobs, storageVolumes, uploadSessions, type VolumeRow } from '../db/schema';

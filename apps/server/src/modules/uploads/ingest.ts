@@ -3,7 +3,7 @@ import { copyFile, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { ErrorCode } from '@familycloud/shared';
+import { ErrorCode } from '@familycloud/shared/all';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
@@ -115,7 +115,7 @@ export async function ingest(
           .from(nodes)
           .where(and(eq(nodes.id, input.replaceNodeId), isNull(nodes.deletedAt)))
           .for('update');
-        if (!existing || existing.type !== 'file') throw conflict('The file changed while saving');
+        if (existing?.type !== 'file') throw conflict('The file changed while saving');
         [node] = (await tx
           .update(nodes)
           .set({ blobId, size: input.size, mimeType: input.mimeType, updatedAt: new Date() })

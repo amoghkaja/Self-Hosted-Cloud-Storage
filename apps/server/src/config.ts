@@ -1,6 +1,6 @@
 import { cpus } from 'node:os';
 import path from 'node:path';
-import { DEFAULT_CHUNK_SIZE, MiB } from '@familycloud/shared';
+import { DEFAULT_CHUNK_SIZE, MiB } from '@familycloud/shared/all';
 import { z } from 'zod';
 
 const bool = z

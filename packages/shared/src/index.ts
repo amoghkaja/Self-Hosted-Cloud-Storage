@@ -1,10 +1,8 @@
+// Browser-safe entry: small runtime helpers plus *types only* for the API contract.
+// Importing this never pulls Zod into the web bundle; the server uses '@familycloud/shared/all'.
 export * from './constants';
 export * from './errors';
 export * from './format';
 export * from './mime';
 export * from './names';
-export * from './schemas/admin';
-export * from './schemas/auth';
-export * from './schemas/common';
-export * from './schemas/files';
-export * from './schemas/sharing';
+export type * from './schemas';

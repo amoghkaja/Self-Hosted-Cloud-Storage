@@ -1,4 +1,4 @@
-import type { AdminUser, FileNode, Me, ThumbStatus } from '@familycloud/shared';
+import type { AdminUser, FileNode, Me, ThumbStatus } from '@familycloud/shared/all';
 import type { NodeRow, UserRow } from '../db/schema';
 import { toIso, toIsoOrNull } from './time';
 

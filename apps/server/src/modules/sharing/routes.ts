@@ -6,7 +6,7 @@ import {
   Share,
   SharedWithMeItem,
   UpdateShareBody,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';

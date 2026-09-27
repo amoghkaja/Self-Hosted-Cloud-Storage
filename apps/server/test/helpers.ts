@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Me, UploadSession } from '@familycloud/shared';
+import type { Me, UploadSession } from '@familycloud/shared/all';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import pino from 'pino';
 import postgres from 'postgres';

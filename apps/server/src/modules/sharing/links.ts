@@ -12,7 +12,7 @@ import {
   ThumbQuery,
   TokenParams,
   UnlockLinkBody,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';

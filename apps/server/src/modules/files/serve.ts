@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
-import { ErrorCode, type ThumbSize } from '@familycloud/shared';
+import { ErrorCode, type ThumbSize } from '@familycloud/shared/all';
 import { sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import yazl from 'yazl';

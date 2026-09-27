@@ -1,4 +1,4 @@
-import { ErrorCode } from '@familycloud/shared';
+import { ErrorCode } from '@familycloud/shared/all';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyRequest } from 'fastify';

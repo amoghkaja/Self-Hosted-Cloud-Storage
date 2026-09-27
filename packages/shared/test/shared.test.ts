@@ -9,7 +9,7 @@ import {
   splitExtension,
   withCopySuffix,
   ZipQuery,
-} from '../src';
+} from '../src/all';
 
 describe('formatBytes', () => {
   it('formats with 1024-based units', () => {

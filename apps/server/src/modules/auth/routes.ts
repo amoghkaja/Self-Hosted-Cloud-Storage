@@ -17,7 +17,7 @@ import {
   TotpEnableBody,
   TotpSetupResponse,
   UpdateProfileBody,
-} from '@familycloud/shared';
+} from '@familycloud/shared/all';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
