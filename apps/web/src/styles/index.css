@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Components only use these semantic names (bg-surface, text-muted, …), so
+ * theming or re-branding is a matter of changing the values below.
+ */
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --surface-2: #f0eee9;
+  --surface-3: #e7e4dd;
+  --border: #e2dfd8;
+  --border-strong: #c9c5bb;
+  --text: #1d1c1a;
+  --muted: #625e57;
+  --accent: #2458d6;
+  --accent-hover: #1d49b5;
+  --accent-soft: #e6edfc;
+  --accent-fg: #ffffff;
+  --danger: #c42b2b;
+  --danger-soft: #fbe9e9;
+  --success: #17803d;
+  --success-soft: #e5f5ea;
+  --warning: #a65b00;
+  --warning-soft: #fdf1dd;
+  --focus: #2458d6;
+  --overlay: rgb(20 20 19 / 0.45);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413;
+    --surface: #1c1c1a;
+    --surface-2: #242421;
+    --surface-3: #2e2e2a;
+    --border: #33322e;
+    --border-strong: #4a4943;
+    --text: #edebe6;
+    --muted: #a8a49b;
+    --accent: #7ea2ff;
+    --accent-hover: #9ab6ff;
+    --accent-soft: #1f2a44;
+    --accent-fg: #0d1426;
+    --danger: #ff7b7b;
+    --danger-soft: #3a1c1c;
+    --success: #5fd38a;
+    --success-soft: #16301f;
+    --warning: #f5b949;
+    --warning-soft: #33280f;
+    --focus: #7ea2ff;
+    --overlay: rgb(0 0 0 / 0.6);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #141413;
+  --surface: #1c1c1a;
+  --surface-2: #242421;
+  --surface-3: #2e2e2a;
+  --border: #33322e;
+  --border-strong: #4a4943;
+  --text: #edebe6;
+  --muted: #a8a49b;
+  --accent: #7ea2ff;
+  --accent-hover: #9ab6ff;
+  --accent-soft: #1f2a44;
+  --accent-fg: #0d1426;
+  --danger: #ff7b7b;
+  --danger-soft: #3a1c1c;
+  --success: #5fd38a;
+  --success-soft: #16301f;
+  --warning: #f5b949;
+  --warning-soft: #33280f;
+  --focus: #7ea2ff;
+  --overlay: rgb(0 0 0 / 0.6);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-overlay: var(--overlay);
+  --shadow-pop: var(--shadow);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+}
+
+@keyframes fc-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fc-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+@keyframes fc-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes fc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@utility animate-fade-in {
+  animation: fc-fade-in 150ms ease-out;
+}
+@utility animate-pop-in {
+  animation: fc-pop-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@utility animate-spin-slow {
+  animation: fc-spin 0.8s linear infinite;
+}
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 37%,
+    var(--surface-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: fc-shimmer 1.4s ease infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

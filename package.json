@@ -10,16 +10,19 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @familycloud/server --filter @familycloud/web dev",
+    "dev": "pnpm --parallel --filter @familycloud/server --filter @familycloud/web run dev",
     "dev:db": "pnpm --filter @familycloud/server dev:db",
     "build": "pnpm --filter @familycloud/web build && pnpm --filter @familycloud/server build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "lint": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "dev:worker": "pnpm --filter @familycloud/server dev:worker",
+    "e2e": "playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.13.6",
     "typescript": "^7.0.2"
   }
