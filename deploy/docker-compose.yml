@@ -1,0 +1,119 @@
+# Family Cloud: production stack.
+#
+#   cp .env.example .env   # then fill it in (scripts/install.sh does this for you)
+#   docker compose --profile tunnel up -d     # behind a Cloudflare Tunnel (recommended)
+#   docker compose --profile caddy up -d      # or: port-forward 80/443 to Caddy
+#   docker compose up -d                      # or: LAN/Tailscale only, on 127.0.0.1:${APP_PORT}
+#
+# Storage lives under ${STORAGE_ROOT} on the host (default /srv/familycloud):
+#   volumes/<disk>/   file data, one directory (usually one mounted disk) per volume
+#   cache/            thumbnails (safe to delete; regenerated)
+#   db/               PostgreSQL data
+#   backups/          scripts/backup.sh output
+
+name: familycloud
+
+x-app: &app
+  image: ${IMAGE:-ghcr.io/amoghkaja/cloud-storage:latest}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: postgres://familycloud:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/familycloud
+    DATA_DIR: /data
+    # Only the proxies on our own Docker network may set the client IP headers.
+    TRUSTED_PROXIES: loopback,uniquelocal
+  user: "${PUID:-1000}:${PGID:-1000}"
+  volumes:
+    # rslave: disks mounted under ${STORAGE_ROOT}/volumes later appear inside the container
+    # without a restart (add a disk, then register it in Admin → Storage).
+    - type: bind
+      source: ${STORAGE_ROOT:-/srv/familycloud}/volumes
+      target: /data/volumes
+      bind:
+        propagation: rslave
+    - ${STORAGE_ROOT:-/srv/familycloud}/cache:/data/cache
+  read_only: true
+  tmpfs:
+    - /tmp:size=2g
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: familycloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: familycloud
+    volumes:
+      - ${STORAGE_ROOT:-/srv/familycloud}/db:/var/lib/postgresql
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U familycloud -d familycloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  app:
+    <<: *app
+    ports:
+      # Localhost only. The public internet reaches the app through cloudflared or Caddy.
+      - "127.0.0.1:${APP_PORT:-3080}:3000"
+    networks: [internal, edge]
+
+  worker:
+    <<: *app
+    command: ["node", "dist/worker.js"]
+    healthcheck:
+      disable: true
+    networks: [internal]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env for the tunnel profile}
+    depends_on: [app]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks: [edge]
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: [caddy]
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env for the caddy profile}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    networks: [edge]
+
+networks:
+  # No route to the internet: the database and worker never need one.
+  internal:
+    internal: true
+  edge: {}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

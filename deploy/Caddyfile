@@ -1,0 +1,15 @@
+# Used only by the `caddy` compose profile (port-forwarding setups without Cloudflare).
+# Caddy obtains and renews HTTPS certificates automatically for $DOMAIN.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000 {
+		# Only Cloudflare may set this header; strip any value a client sends so it can't
+		# spoof its IP past the app's rate limits. (Caddy sets X-Forwarded-For itself.)
+		header_up -Cf-Connecting-Ip
+		# Large uploads and downloads can take a while; never cut them off.
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}

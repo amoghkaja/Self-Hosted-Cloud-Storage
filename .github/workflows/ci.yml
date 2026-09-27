@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Dependency audit (production deps, high+)
+        run: pnpm audit --prod --audit-level high
+
+      - name: End-to-end smoke test against the production build
+        env:
+          NODE_ENV: production
+          PORT: '3000'
+          PUBLIC_URL: http://localhost:3000
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          DATA_DIR: ${{ runner.temp }}/familycloud
+          SECRET_KEY: ci-only-secret-key-0123456789abcdef0123
+          WEB_DIST_DIR: ${{ github.workspace }}/apps/web/dist
+          MIGRATIONS_DIR: ${{ github.workspace }}/apps/server/dist/migrations
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          node apps/server/dist/index.js > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:3000/healthz && break; sleep 1; done
+          export E2E_SETUP_TOKEN=$(node apps/server/dist/cli.js setup-token | tail -1)
+          E2E_BASE_URL=http://localhost:3000 pnpm e2e || (cat server.log; exit 1)
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

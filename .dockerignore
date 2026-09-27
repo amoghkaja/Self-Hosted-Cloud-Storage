@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+.git
+.github
+.dev-data
+.env
+deploy/.env
+deploy/cloudflare
+test-results
+playwright-report
+**/*.log
+docs
+e2e
