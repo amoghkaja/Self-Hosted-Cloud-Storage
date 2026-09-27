@@ -52,6 +52,19 @@
 | 5 | **Low** | An upload that started while the uploader had edit access to a shared folder could still complete after the share was revoked (up to the 24 h session lifetime). | After being removed from a shared folder, someone finishes an upload into it, consuming the owner's quota. | Access is re-checked when the upload completes; the reservation is released if it fails. Regression test added. |
 | 6 | **Low** | `/readyz` returned disk names and per-check status to anyone on the internet. | Reconnaissance: learn disk layout and when a disk is offline. | Details only for loopback/private-network callers; public callers get `{ok}`. |
 
+### Second review (automated PR review), all fixed
+
+| # | Severity | Finding | Attack scenario | Fix |
+| --- | --- | --- | --- | --- |
+| 7 | **High** | Account lockout read the failure count, then wrote `count + 1`, from a stale row. | A burst of parallel wrong passwords all read "not locked" and write the same count, so far more than 5 guesses get through before the lock. | Each attempt is counted *before* the password is checked, in one atomic `UPDATE … WHERE not locked`. The row lock serializes a burst. Regression test: 12 parallel guesses → at most 5 checked, rest `429`. |
+| 8 | **High** | The same stale-read pattern let two simultaneous sign-ins reuse one two-factor code. | An attacker who observes a code (shoulder-surfing, phishing proxy) races the real user with it. | The code's time-step is consumed with a conditional `UPDATE`. Regression test: the same code twice in parallel → exactly one success. |
+| 9 | **High** | Access for chunked uploads (finding 5) was re-checked *outside* the commit transaction, and WebDAV `PUT`/`COPY` didn't re-check at all after streaming. | Someone whose share is revoked while an upload streams can still create or overwrite a file in the owner's folder. | `lockWriteAccess` re-checks inside the commit transaction and locks the folder row and the granting share row, so a revoke or trash lands entirely before (upload refused) or after (file already saved). Regression test: share revoked mid-`PUT` → `403`, no file. |
+| 10 | **High** | `add-disk.sh` compared only one level of the device tree with the system disk. | On LVM or encrypted installs `/` is `/dev/mapper/…`, so an unmounted partition on the system disk could pass the check and be formatted. | Physical disks are resolved through the whole stack (partition → LVM/LUKS/md → disk) for `/`, `/boot`, `/boot/efi` and swap. Tested against a dual-boot machine's real disks. |
+| 11 | **High** | `install.sh` wrote `deploy/.env` with `umask 077`, which only affects *new* files. | An existing `.env` with mode `644` stays world-readable, exposing `SECRET_KEY` and the database password to other local users. | Written to a `mktemp` file (mode 600), moved into place, then `chmod 600`. |
+| 12 | Medium | Scripts `source`d `deploy/.env`, and values were written unquoted. | Re-running the installer with a name like "Family Cloud" failed. Executing a config file also runs any shell code placed in it. | `scripts/lib.sh` reads `.env` without executing it (`load_env`) and writes values quoted in the Compose-compatible subset (`env_line`). Tested with spaces, quotes, `$`, `=` and a `$(…)` injection. |
+| 13 | Medium | Device-password and open-upload limits were checked with read-then-insert. | Parallel requests exceed the limit (e.g. 26 devices). | Checked under a per-user advisory lock / the reservation lock. Regression test: 30 parallel creates → exactly 25. |
+| 14 | Medium | The installer printed "Done!" even when the app never became healthy. | An unusable install looks successful. | It exits with an error and shows container status and logs. The wait length is configurable (`WAIT_SECS`). |
+
 ## Accepted risks
 
 | Severity | Item | Rationale / mitigation |

@@ -8,7 +8,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-[[ -f deploy/.env ]] && { set -a; source deploy/.env; set +a; }
+# shellcheck source=scripts/lib.sh
+. scripts/lib.sh
+load_env deploy/.env
 STORAGE_ROOT=${STORAGE_ROOT:-/srv/familycloud}
 PUID=${PUID:-$(id -u)}
 PGID=${PGID:-$(id -g)}
@@ -22,17 +24,30 @@ echo
 read -r -p "Device to use (e.g. /dev/sdb1 or /dev/nvme2n1p1): " DEV
 [[ -b "$DEV" ]] || die "$DEV is not a block device."
 
-# The physical disk a device lives on (itself for a whole disk, its parent for a partition).
-disk_of() {
-  if [[ "$(lsblk -dno TYPE "$1")" == disk ]]; then lsblk -dno NAME "$1"; else lsblk -no PKNAME "$1" | head -1; fi
+# Refuse any device that shares a physical disk with the running system. Follow the whole
+# device stack (partition → LVM/LUKS/md → disk), because on LVM or encrypted installs "/"
+# lives on /dev/mapper/..., several layers above the disk itself.
+system_disks() {
+  local mnt src sw
+  for mnt in / /boot /boot/efi; do
+    src=$(findmnt -nvo SOURCE "$mnt" 2>/dev/null) || continue
+    if [[ -b "$src" ]]; then disks_under "$src"; fi
+  done
+  while read -r sw; do
+    if [[ -b "$sw" ]]; then disks_under "$sw"; fi   # swap files (e.g. /swap.img) are skipped
+  done < <(swapon --show=NAME --noheadings 2>/dev/null || true)
 }
-ROOT_DISK=$(disk_of "$(findmnt -no SOURCE /)")
-DEV_DISK=$(disk_of "$DEV")
-[[ -n "$ROOT_DISK" && "$DEV_DISK" == "$ROOT_DISK" ]] && die "$DEV is on the system disk. Refusing."
+SYSTEM_DISKS=$(system_disks | sort -u)
+[[ -n "$SYSTEM_DISKS" ]] || die "Could not work out which disk holds the operating system. Refusing to continue."
+for d in $(disks_under "$DEV"); do
+  if grep -qx "$d" <<<"$SYSTEM_DISKS"; then
+    die "$DEV is on /dev/$d, which holds the operating system. Refusing."
+  fi
+done
 [[ -n "$(lsblk -no MOUNTPOINTS "$DEV" | tr -d '[:space:]')" ]] && die "$DEV (or a partition on it) is mounted. Unmount it first."
 # A whole disk with partitions (e.g. a Windows disk) must never be treated as blank.
 if [[ "$(lsblk -dno TYPE "$DEV")" == disk && "$(lsblk -no NAME "$DEV" | wc -l)" -gt 1 ]]; then
-  die "$DEV has partitions ($(lsblk -no NAME,FSTYPE "$DEV" | tail -n +2 | xargs)). Choose a partition, or wipe the disk yourself first if you really mean it."
+  die "$DEV has partitions ($(lsblk -lno NAME,FSTYPE "$DEV" | tail -n +2 | xargs)). Choose a partition, or wipe the disk yourself first if you really mean it."
 fi
 
 FSTYPE=$(lsblk -no FSTYPE "$DEV" | head -1)

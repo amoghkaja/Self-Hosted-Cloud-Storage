@@ -12,9 +12,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib.sh
+. scripts/lib.sh
 ROOT="$(pwd)"
-[[ -f deploy/.env ]] && { set -a; source deploy/.env; set +a; }
-[[ -f deploy/backup.env ]] && { set -a; source deploy/backup.env; set +a; }
+load_env deploy/.env
+load_env deploy/backup.env
 STORAGE_ROOT=${STORAGE_ROOT:-/srv/familycloud}
 BACKUP_DIR=${BACKUP_DIR:-$STORAGE_ROOT/backups}
 KEEP_DUMPS=${KEEP_DUMPS:-14}
