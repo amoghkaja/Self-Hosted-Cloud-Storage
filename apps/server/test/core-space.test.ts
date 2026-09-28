@@ -99,3 +99,13 @@ describe('branding', () => {
     );
   });
 });
+
+describe('privacy', () => {
+  it('asks search engines to stay away, on every response', async () => {
+    const guest = new C(env.app);
+    const robots = await env.app.inject({ method: 'GET', url: '/robots.txt' });
+    expect(robots.body).toContain('Disallow: /');
+    expect(robots.headers['x-robots-tag']).toContain('noindex');
+    expect((await guest.get('/auth/setup-status')).headers['x-robots-tag']).toContain('noindex');
+  });
+});

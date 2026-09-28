@@ -224,13 +224,16 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
           nav.toggle(index);
         }}
         className={cn(
-          'flex size-6 shrink-0 items-center justify-center rounded-full border transition-opacity',
+          // A 24px circle with a 44px touch area around it.
+          "relative flex size-6 shrink-0 items-center justify-center rounded-full border transition-opacity after:absolute after:-inset-2.5 after:content-['']",
           selected
             ? 'border-accent bg-accent text-accent-fg opacity-100'
             : 'border-border-strong bg-surface text-transparent',
+          // On touch screens it only appears once selecting (via the menu's "Select"), so rows
+          // don't carry an empty gutter.
           !selected &&
             !selectionMode &&
-            'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:opacity-0',
+            'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:hidden',
         )}
       >
         <Check size={14} aria-hidden />
@@ -239,7 +242,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
     // Nothing to offer (e.g. a view-only public link): no empty menus.
     const kebab =
       actions.length === 0 ? (
-        <span className="size-9 shrink-0" />
+        <span className="size-9 shrink-0 pointer-coarse:size-11" />
       ) : (
         <DropdownMenu
           label={`Actions for ${item.name}`}
@@ -254,7 +257,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
               aria-label={`More actions for ${item.name}`}
               onClick={(e) => e.stopPropagation()}
               onDoubleClick={(e) => e.stopPropagation()}
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-3 hover:text-text"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-3 hover:text-text pointer-coarse:size-11"
             >
               <EllipsisVertical size={18} aria-hidden />
             </button>
@@ -277,7 +280,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
           aria-rowindex={index + 2}
           {...common}
           className={cn(
-            'group grid h-14 cursor-default grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl px-2 outline-none select-none sm:grid-cols-[auto_1fr_8rem_6rem_auto]',
+            'group grid h-14 cursor-default grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl px-2 outline-none select-none [-webkit-touch-callout:none] sm:grid-cols-[auto_1fr_8rem_6rem_auto]',
             selected ? 'bg-accent-soft' : 'hover:bg-surface-2',
             'focus-visible:ring-2 focus-visible:ring-accent',
           )}
@@ -316,7 +319,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
         role="gridcell"
         {...common}
         className={cn(
-          'group relative flex cursor-default flex-col overflow-hidden rounded-xl border outline-none select-none',
+          'group relative flex cursor-default flex-col overflow-hidden rounded-xl border outline-none select-none [-webkit-touch-callout:none]',
           selected
             ? 'border-accent ring-2 ring-accent'
             : 'border-border hover:border-border-strong',
@@ -360,9 +363,13 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
         <div
           role="row"
           aria-rowindex={1}
-          className="grid h-9 grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border px-2 sm:grid-cols-[auto_1fr_8rem_6rem_auto]"
+          // Phones sort with the toolbar button; the header row stays for screen readers only.
+          className="grid h-9 grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border px-2 max-sm:sr-only sm:grid-cols-[auto_1fr_8rem_6rem_auto]"
         >
-          <div role="columnheader" className="w-[68px]">
+          <div
+            role="columnheader"
+            className={cn('w-[68px]', !selectionMode && 'pointer-coarse:w-9')}
+          >
             <span className="sr-only">Type</span>
           </div>
           <SortHeader label="Name" k="name" sort={p.sort as FileViewProps<ViewItem>['sort']} />
@@ -378,7 +385,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
             sort={p.sort as FileViewProps<ViewItem>['sort']}
             className="hidden text-right sm:block"
           />
-          <div role="columnheader" className="w-9">
+          <div role="columnheader" className="w-9 pointer-coarse:w-11">
             <span className="sr-only">Actions</span>
           </div>
         </div>

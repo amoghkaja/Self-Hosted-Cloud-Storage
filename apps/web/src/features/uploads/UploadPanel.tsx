@@ -140,7 +140,7 @@ export function UploadPanel() {
     <section
       ref={panel}
       aria-label="Uploads"
-      className="fixed right-2 bottom-2 left-2 z-40 overflow-hidden rounded-2xl border border-border bg-surface shadow-pop sm:left-auto sm:w-[380px] animate-pop-in"
+      className="fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-2 z-40 overflow-hidden rounded-2xl border border-border bg-surface shadow-pop sm:left-auto sm:w-[380px] animate-pop-in"
     >
       <header className="flex items-center gap-2 bg-surface-2 px-4 py-2.5">
         <div className="min-w-0 flex-1">

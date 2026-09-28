@@ -133,7 +133,7 @@
  * double-tap zooms the page; both are what made the app jump around. Unlayered, so it wins
  * over the text-sm utilities on inputs. Pinch-zoom is untouched (accessibility).
  */
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 767px) {
   input,
   select,
   textarea {

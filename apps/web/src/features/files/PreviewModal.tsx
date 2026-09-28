@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Download, File, X } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
 import { useEffect, useState } from 'react';
 import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui';
+import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
 import { kindOf } from './FileIcon';
 
 export interface PreviewItem {
@@ -65,7 +66,56 @@ function TextPreview({ url }: { url: string }) {
   );
 }
 
-function Viewer({ item, source }: { item: PreviewItem; source: PreviewSource }) {
+/** A photo you can pinch, pan, double-tap and swipe (see useImageGestures). */
+function ZoomableImage({
+  item,
+  src,
+  gestures,
+  onLoad,
+  onError,
+}: {
+  item: PreviewItem;
+  src: string;
+  gestures: Gestures;
+  onLoad: () => void;
+  onError: () => void;
+}) {
+  const { state, zoomed, handlers } = useImageGestures(item.id, gestures);
+  const dim = state.dragY > 0 ? Math.max(0.35, 1 - state.dragY / 400) : 1;
+  return (
+    <div
+      {...handlers}
+      // The browser must not pinch-zoom or scroll the page here: these gestures are the photo's.
+      className="absolute inset-0 flex touch-none items-center justify-center overflow-hidden select-none [-webkit-touch-callout:none]"
+      style={{ opacity: dim }}
+    >
+      <img
+        key={item.id}
+        src={src}
+        alt={item.name}
+        draggable={false}
+        onLoad={onLoad}
+        onError={onError}
+        className="max-h-full max-w-full object-contain will-change-transform"
+        style={{
+          transform: `translate3d(${state.x + state.dragX}px, ${state.y + state.dragY}px, 0) scale(${state.scale})`,
+          transition: state.active ? 'none' : 'transform 220ms cubic-bezier(.22,1,.36,1)',
+          cursor: zoomed ? 'grab' : undefined,
+        }}
+      />
+    </div>
+  );
+}
+
+function Viewer({
+  item,
+  source,
+  gestures,
+}: {
+  item: PreviewItem;
+  source: PreviewSource;
+  gestures: Gestures;
+}) {
   // Keyed by file rather than reset in an effect: a cached image can finish loading before an
   // effect runs, which left the spinner stuck on top of it.
   const [image, setImage] = useState<{ id: string; state: 'loaded' | 'error' } | null>(null);
@@ -90,13 +140,12 @@ function Viewer({ item, source }: { item: PreviewItem; source: PreviewSource }) 
           {imageState === 'loading' && (
             <Spinner size={28} label="Loading image" className="absolute text-white" />
           )}
-          <img
-            key={item.id}
+          <ZoomableImage
+            item={item}
             src={src}
-            alt={item.name}
+            gestures={gestures}
             onLoad={() => setImage({ id: item.id, state: 'loaded' })}
             onError={() => setImage({ id: item.id, state: 'error' })}
-            className="max-h-full max-w-full object-contain"
           />
         </>
       );
@@ -189,15 +238,22 @@ export default function PreviewModal({
   }, [index, hasPrev, hasNext, onIndexChange]);
 
   if (!item) return null;
+  // On touch screens you swipe instead, so the arrows don't cover the photo.
   const navBtn =
-    'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 disabled:hidden';
+    'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 disabled:hidden pointer-coarse:hidden';
+  const gestures: Gestures = {
+    canPrev: hasPrev,
+    canNext: hasNext,
+    onSwipe: (dir) => onIndexChange(index + dir),
+    onDismiss: onClose,
+  };
 
   return (
     <D.Root open onOpenChange={(o) => !o && onClose()}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 bg-black/90 animate-fade-in" />
+        <D.Overlay className="fixed inset-0 z-50 bg-black animate-fade-in sm:bg-black/90" />
         <D.Content
-          className="fixed inset-0 z-50 flex flex-col outline-none"
+          className="fixed inset-0 z-50 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none"
           onCloseAutoFocus={onCloseAutoFocus}
         >
           <header className="flex h-14 shrink-0 items-center gap-3 px-3 text-white">
@@ -213,14 +269,14 @@ export default function PreviewModal({
                 href={source.content(item.id, false)}
                 download
                 aria-label={`Download ${item.name}`}
-                className="flex size-10 items-center justify-center rounded-lg hover:bg-white/10"
+                className="flex size-11 items-center justify-center rounded-lg hover:bg-white/10"
               >
                 <Download size={20} aria-hidden />
               </a>
             )}
             <D.Close
               aria-label="Close preview"
-              className="flex size-10 items-center justify-center rounded-lg hover:bg-white/10"
+              className="flex size-11 items-center justify-center rounded-lg hover:bg-white/10"
             >
               <X size={22} aria-hidden />
             </D.Close>
@@ -235,7 +291,7 @@ export default function PreviewModal({
             >
               <ChevronLeft size={24} aria-hidden />
             </button>
-            <Viewer item={item} source={source} />
+            <Viewer item={item} source={source} gestures={gestures} />
             <button
               type="button"
               aria-label="Next file"

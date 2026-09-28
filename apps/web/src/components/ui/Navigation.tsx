@@ -39,7 +39,7 @@ export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: 
               ) : (
                 <Link
                   to={c.to}
-                  className="max-w-[12rem] truncate rounded-md px-1.5 py-1 text-muted hover:bg-surface-2 hover:text-text"
+                  className="max-w-[12rem] truncate rounded-md px-1.5 py-1 pointer-coarse:py-3 text-muted hover:bg-surface-2 hover:text-text"
                 >
                   {c.label}
                 </Link>
@@ -82,7 +82,7 @@ export function Tabs({
           <T.Trigger
             key={t.value}
             value={t.value}
-            className="relative h-10 shrink-0 rounded-t-md px-3 text-sm font-medium text-muted hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent"
+            className="relative h-10 pointer-coarse:h-11 shrink-0 rounded-t-md px-3 text-sm font-medium text-muted hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent"
           >
             {t.label}
           </T.Trigger>

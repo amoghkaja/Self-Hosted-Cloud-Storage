@@ -33,9 +33,11 @@ export function useReturnFocus(open: boolean) {
 
 const overlay = 'fixed inset-0 z-40 bg-overlay animate-fade-in';
 const panel =
-  'fixed z-50 flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-pop animate-pop-in ' +
-  // Bottom sheet on phones, centered card from sm up.
-  'inset-x-2 bottom-2 sm:inset-x-auto sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2';
+  'fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-pop animate-pop-in ' +
+  // Bottom sheet on phones: clear of the home bar and, via --kb (lib/keyboard.ts), sitting on
+  // top of the on-screen keyboard. A centered card from sm up.
+  'inset-x-2 bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+var(--kb,0px))] max-h-[calc(100dvh-1rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)-var(--kb,0px))] ' +
+  'sm:inset-x-auto sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2';
 
 const widths = { sm: 'sm:w-[400px]', md: 'sm:w-[520px]', lg: 'sm:w-[720px]' } as const;
 
@@ -88,7 +90,7 @@ export function Dialog({
             </div>
             <D.Close
               aria-label="Close"
-              className="-mt-1 -mr-2 inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+              className="-mt-1 -mr-2 inline-flex size-9 pointer-coarse:size-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
             >
               <X size={18} aria-hidden />
             </D.Close>

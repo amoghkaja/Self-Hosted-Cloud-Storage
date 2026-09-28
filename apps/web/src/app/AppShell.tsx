@@ -119,8 +119,8 @@ function SearchBox() {
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search your files"
-        className="h-10 w-full rounded-full border border-transparent bg-surface-2 pr-4 pl-9 text-sm placeholder:text-muted focus-visible:border-accent focus-visible:bg-surface focus-visible:outline-none"
+        placeholder="Search"
+        className="h-10 w-full rounded-full border border-transparent bg-surface-2 pr-4 pl-9 text-sm pointer-coarse:h-11 placeholder:text-muted focus-visible:border-accent focus-visible:bg-surface focus-visible:outline-none"
       />
     </form>
   );
@@ -142,7 +142,7 @@ function UserMenu({ me }: { me: Me }) {
         <button
           type="button"
           aria-label={`Account menu for ${me.displayName}`}
-          className="rounded-full"
+          className="flex size-11 items-center justify-center rounded-full"
         >
           <Avatar name={me.displayName} size={34} />
         </button>
@@ -215,14 +215,14 @@ export function AppShell({ me }: { me: Me }) {
       <D.Root open={drawer} onOpenChange={setDrawer}>
         <D.Portal>
           <D.Overlay className="fixed inset-0 z-40 bg-overlay animate-fade-in md:hidden" />
-          <D.Content className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-border bg-bg shadow-pop animate-fade-in md:hidden">
+          <D.Content className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-border bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] shadow-pop animate-fade-in md:hidden">
             <D.Title className="sr-only">Navigation</D.Title>
             <D.Description className="sr-only">Main sections of the app</D.Description>
             <D.Close asChild>
               <IconButton
                 label="Close menu"
                 icon={<X />}
-                className="absolute top-3 right-3"
+                className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] right-2"
                 noTooltip
               />
             </D.Close>
@@ -232,7 +232,8 @@ export function AppShell({ me }: { me: Me }) {
       </D.Root>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-bg/90 px-3 backdrop-blur md:px-6">
+        {/* Installed on an iPhone home screen the page runs under the status bar: pad for it. */}
+        <header className="sticky top-0 z-30 flex min-h-16 items-center gap-2 border-b border-border bg-bg/90 pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur md:gap-3 md:px-6">
           <IconButton
             label="Open menu"
             icon={<Menu />}
@@ -240,7 +241,11 @@ export function AppShell({ me }: { me: Me }) {
             onClick={() => setDrawer(true)}
             noTooltip
           />
-          <Link to="/files" aria-label="Home" className="shrink-0 md:hidden">
+          <Link
+            to="/files"
+            aria-label="Home"
+            className="flex size-11 shrink-0 items-center justify-center md:hidden"
+          >
             <LogoMark className="size-8" />
           </Link>
           <SearchBox />

@@ -38,7 +38,7 @@ const isolate = {
 };
 
 const item =
-  'flex h-9 cursor-default items-center gap-2.5 rounded-lg px-2.5 text-sm outline-none select-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2';
+  'flex h-9 pointer-coarse:h-11 cursor-default items-center gap-2.5 rounded-lg px-2.5 text-sm outline-none select-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2';
 
 function ItemBody({ a }: { a: MenuAction }) {
   return (
@@ -47,7 +47,9 @@ function ItemBody({ a }: { a: MenuAction }) {
         {a.checked === undefined ? a.icon : a.checked ? <Check /> : null}
       </span>
       <span className="flex-1">{a.label}</span>
-      {a.shortcut && <kbd className="font-sans text-xs text-muted">{a.shortcut}</kbd>}
+      {a.shortcut && (
+        <kbd className="font-sans text-xs text-muted pointer-coarse:hidden">{a.shortcut}</kbd>
+      )}
     </>
   );
 }

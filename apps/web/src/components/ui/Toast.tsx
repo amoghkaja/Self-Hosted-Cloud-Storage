@@ -101,7 +101,7 @@ export function Toaster() {
         </T.Root>
       ))}
       {/* Top on phones (the upload panel owns the bottom), bottom-centre on larger screens. */}
-      <T.Viewport className="fixed top-14 left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 p-3 sm:top-auto sm:bottom-0" />
+      <T.Viewport className="fixed top-[calc(3.5rem+env(safe-area-inset-top))] left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 p-3 sm:top-auto sm:bottom-[env(safe-area-inset-bottom)]" />
     </T.Provider>
   );
 }

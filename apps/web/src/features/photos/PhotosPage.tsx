@@ -93,7 +93,7 @@ export function PhotosPage() {
 
   const chip = (active: boolean) =>
     cn(
-      'flex h-10 shrink-0 items-center gap-2 rounded-full border px-3 text-sm transition-colors',
+      'flex h-10 pointer-coarse:h-11 shrink-0 items-center gap-2 rounded-full border px-3 text-sm transition-colors',
       active ? 'border-accent bg-accent-soft font-medium' : 'border-border hover:bg-surface-2',
     );
 

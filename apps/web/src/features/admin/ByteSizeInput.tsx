@@ -69,7 +69,7 @@ export function ByteSizeInput({
             value={draft.amount}
             onChange={(e) => emit(e.target.value, draft.unit)}
             aria-describedby={hint ? `${id}-h` : undefined}
-            className="h-10 w-32 rounded-lg border border-border bg-surface px-3 text-sm tabular-nums focus-visible:border-accent"
+            className="h-10 w-32 rounded-lg pointer-coarse:h-11 border border-border bg-surface px-3 text-sm tabular-nums focus-visible:border-accent"
           />
           <label htmlFor={`${id}-u`} className="sr-only">
             {label} unit
@@ -78,7 +78,7 @@ export function ByteSizeInput({
             id={`${id}-u`}
             value={draft.unit}
             onChange={(e) => emit(draft.amount, e.target.value as Unit)}
-            className="h-10 rounded-lg border border-border bg-surface px-3 text-sm"
+            className="h-10 rounded-lg border border-border bg-surface px-3 text-sm pointer-coarse:h-11"
           >
             <option>GB</option>
             <option>TB</option>

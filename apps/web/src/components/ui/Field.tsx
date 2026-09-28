@@ -4,7 +4,7 @@ import { type ComponentProps, type ReactNode, useId, useState } from 'react';
 import { cn } from '../../lib/cn';
 
 const control =
-  'h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-muted/70 transition-colors hover:border-border-strong focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 disabled:opacity-60 aria-[invalid=true]:border-danger';
+  'h-10 pointer-coarse:h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-muted/70 transition-colors hover:border-border-strong focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 disabled:opacity-60 aria-[invalid=true]:border-danger';
 
 interface FieldChrome {
   label: ReactNode;
@@ -111,7 +111,7 @@ export function PasswordField(props: Omit<TextFieldProps, 'type' | 'trailing'>) 
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? 'Hide password' : 'Show password'}
           aria-pressed={visible}
-          className="inline-flex size-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
+          className="inline-flex size-8 pointer-coarse:size-11 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text"
         >
           {visible ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
         </button>
@@ -195,7 +195,7 @@ export function SwitchField({
         onCheckedChange={onCheckedChange}
         disabled={disabled}
         aria-describedby={description ? ids.hintId : undefined}
-        className="relative mt-0.5 inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full bg-surface-3 transition-colors data-[state=checked]:bg-accent disabled:opacity-50"
+        className="relative mt-0.5 inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full bg-surface-3 after:absolute after:-inset-2.5 after:content-[''] transition-colors data-[state=checked]:bg-accent disabled:opacity-50"
       >
         <S.Thumb className="block size-5 translate-x-0.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
       </S.Root>

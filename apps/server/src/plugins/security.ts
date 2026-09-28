@@ -43,7 +43,16 @@ export async function registerSecurity(app: FastifyInstance) {
 
   app.addHook('onSend', async (_req, reply) => {
     reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    // A family's private cloud (and its share links) should never show up in search engines.
+    reply.header('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex');
   });
+
+  app.get('/robots.txt', { config: { rateLimit: false } }, async (_req, reply) =>
+    reply
+      .type('text/plain')
+      .header('Cache-Control', 'public, max-age=86400')
+      .send('User-agent: *\nDisallow: /\n'),
+  );
 
   // CSRF: state-changing API calls must come from our own origin. Browsers always send Origin on
   // non-GET requests, and SameSite=Lax cookies already block most cross-site sends; this is the
