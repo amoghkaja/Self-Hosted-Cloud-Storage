@@ -18,3 +18,7 @@ export const KiB = 1024;
 export const MiB = 1024 * KiB;
 export const GiB = 1024 * MiB;
 export const TiB = 1024 * GiB;
+
+/** Custom logo uploaded in Admin → Branding. */
+export const BRAND_LOGO_TYPES = ['image/svg+xml', 'image/png', 'image/webp'] as const;
+export const BRAND_LOGO_MAX_BYTES = 256 * 1024;

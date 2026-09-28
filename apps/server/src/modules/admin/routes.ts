@@ -34,6 +34,7 @@ import { audit } from '../../lib/audit';
 import { randomToken, sha256 } from '../../lib/crypto';
 import { toAdminUser } from '../../lib/dto';
 import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
+import { volumeSpace } from '../../lib/space';
 import { DAY_MS, toIso } from '../../lib/time';
 import { requireAdmin } from '../../plugins/auth';
 
@@ -61,6 +62,7 @@ async function volumeDtos(
         usedByAppBytes: usage.get(v.id)?.bytes ?? 0,
         blobCount: usage.get(v.id)?.count ?? 0,
         disk: rt.disk,
+        usable: rt.online ? volumeSpace(v, rt.disk, usage.get(v.id)?.bytes ?? 0) : null,
         statusMessage: v.statusMessage ?? rt.error,
         createdAt: toIso(v.createdAt),
       };
@@ -97,8 +99,11 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
 
     // Physical capacity: count each filesystem once, even if several volumes live on it.
     const seenDevs = new Set<number>();
-    let physicalTotal = 0;
-    let physicalFree = 0;
+    let diskTotal = 0;
+    let diskFree = 0;
+    let reserve = 0;
+    let usableTotal = 0;
+    let usableFree = 0;
     const warnings: string[] = [];
     for (const v of volumes) {
       if (v.status === 'retired') continue;
@@ -116,9 +121,13 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       if (dev != null) seenDevs.add(dev);
       if (v.disk) {
-        const cap = v.capacityLimitBytes ?? v.disk.totalBytes;
-        physicalTotal += Math.min(cap, v.disk.totalBytes);
-        physicalFree += Math.max(0, v.disk.freeBytes - v.reserveBytes);
+        diskTotal += v.disk.totalBytes;
+        diskFree += v.disk.freeBytes;
+        reserve += Math.min(v.reserveBytes, v.disk.freeBytes);
+        if (v.status === 'active' && v.usable) {
+          usableTotal += v.usable.totalBytes;
+          usableFree += v.usable.freeBytes;
+        }
         if (v.disk.freeBytes < v.disk.totalBytes * 0.1) {
           warnings.push(
             `Volume "${v.name}" is over 90% full (${formatBytes(v.disk.freeBytes)} free).`,
@@ -132,7 +141,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     const active = userList.filter((u) => !u.disabled);
     const allocated = active.reduce((s, u) => s + (u.quotaBytes ?? 0), 0);
     const unlimited = active.filter((u) => u.quotaBytes === null).length;
-    const capacity = used + physicalFree;
+    const capacity = used + reserved + usableFree;
     if (settings.globalCapacityBytes !== null && settings.globalCapacityBytes > capacity) {
       warnings.push(
         `The family storage limit (${formatBytes(settings.globalCapacityBytes)}) is more than the disks can hold (${formatBytes(capacity)}).`,
@@ -155,8 +164,12 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       users: userList,
       settings,
       totals: {
-        physicalTotalBytes: physicalTotal,
-        physicalFreeBytes: physicalFree,
+        diskTotalBytes: diskTotal,
+        diskFreeBytes: diskFree,
+        reserveBytes: reserve,
+        usableTotalBytes: usableTotal,
+        usableFreeBytes: usableFree,
+        familyCapacityBytes: Math.max(0, Math.floor(ceiling)),
         usedBytes: used,
         reservedBytes: reserved,
         allocatedQuotaBytes: allocated,

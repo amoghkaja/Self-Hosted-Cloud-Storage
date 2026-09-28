@@ -1,10 +1,10 @@
 import type { PublicFolder, PublicLinkInfo, PublicNode } from '@familycloud/shared';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Download, FolderOpen, Lock } from 'lucide-react';
+import { Download, FolderOpen, Lock } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ApiError, api, apiUrl, errorMessage } from '../../api/client';
-import { useSetupStatus } from '../../api/queries';
+import { Logo } from '../../app/Logo';
 import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { triggerDownload } from '../files/actions';
@@ -13,17 +13,10 @@ import { FileView } from '../files/FileView';
 const PreviewModal = lazy(() => import('../files/PreviewModal'));
 
 function Frame({ sharedBy, children }: { sharedBy?: string; children: React.ReactNode }) {
-  const appName = useSetupStatus().data?.appName ?? 'Family Cloud';
   return (
     <div className="min-h-dvh">
       <header className="flex h-14 items-center gap-2 border-b border-border px-4">
-        <span
-          aria-hidden="true"
-          className="flex size-7 items-center justify-center rounded-lg bg-accent text-accent-fg"
-        >
-          <Cloud size={16} />
-        </span>
-        <span className="truncate text-sm font-semibold">{appName}</span>
+        <Logo size="sm" />
         {sharedBy && (
           <span className="ml-auto shrink-0 text-xs text-muted">Shared by {sharedBy}</span>
         )}

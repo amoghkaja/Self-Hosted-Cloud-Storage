@@ -1,6 +1,6 @@
 import type { Me } from '@familycloud/shared';
 import {
-  Cloud,
+  ArrowLeft,
   HardDrive,
   LogOut,
   Menu,
@@ -14,13 +14,16 @@ import {
 } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
 import { type FormEvent, useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useLogout, useSetupStatus } from '../api/queries';
-import { Avatar, DropdownMenu, IconButton, UsageBar } from '../components/ui';
+import { Avatar, DropdownMenu, IconButton } from '../components/ui';
 import { UploadPanel } from '../features/uploads/UploadPanel';
 import { cn } from '../lib/cn';
+import { type ThemeChoice, useTheme } from '../lib/theme';
 import type { ShellContext } from './guards';
+import { Logo, LogoMark } from './Logo';
 import { uploadManager } from './providers';
+import { StorageSummary } from './StorageSummary';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
@@ -28,20 +31,26 @@ const NAV = [
   { to: '/trash', label: 'Trash', icon: Trash2, end: true },
 ];
 
-function Brand() {
-  const setup = useSetupStatus();
+function Brand({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="flex items-center gap-2 px-2 py-1">
-      <span
-        aria-hidden="true"
-        className="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-fg"
-      >
-        <Cloud size={18} />
-      </span>
-      <span className="truncate text-[15px] font-semibold">
-        {setup.data?.appName ?? 'Family Cloud'}
-      </span>
-    </div>
+    <Link to="/files" onClick={onNavigate} className="flex min-w-0 rounded-lg px-2 py-1">
+      <Logo />
+    </Link>
+  );
+}
+
+/** Where the family's own site lives (e.g. kajafamily.com), if the admin set one. */
+function HomeLink() {
+  const home = useSetupStatus().data?.homeUrl;
+  if (!home) return null;
+  return (
+    <a
+      href={home}
+      className="flex h-10 items-center gap-2 rounded-lg px-3 text-sm text-muted hover:bg-surface-2 hover:text-text"
+    >
+      <ArrowLeft size={16} aria-hidden />
+      <span className="truncate">{new URL(home).host}</span>
+    </a>
   );
 }
 
@@ -53,7 +62,7 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
     );
   return (
     <div className="flex h-full flex-col gap-4 p-3">
-      <Brand />
+      <Brand onNavigate={onNavigate} />
       <nav aria-label="Main" className="flex flex-col gap-0.5">
         {NAV.map(({ to, label, icon: Icon, end }) => (
           <NavLink key={to} to={to} end={end} className={item} onClick={onNavigate}>
@@ -68,9 +77,12 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
           </NavLink>
         )}
       </nav>
-      <div className="mt-auto rounded-xl border border-border bg-surface p-3">
-        <p className="mb-2 text-xs font-medium text-muted">Storage</p>
-        <UsageBar used={me.usedBytes} total={me.quotaBytes} label="Your storage use" />
+      <div className="mt-auto flex flex-col gap-2">
+        <div className="rounded-xl border border-border bg-surface p-3">
+          <p className="mb-2 text-xs font-medium text-muted">Storage</p>
+          <StorageSummary />
+        </div>
+        <HomeLink />
       </div>
     </div>
   );
@@ -114,6 +126,12 @@ function SearchBox() {
 function UserMenu({ me }: { me: Me }) {
   const navigate = useNavigate();
   const logout = useLogout();
+  const [theme, setTheme] = useTheme();
+  const themes: { id: ThemeChoice; label: string }[] = [
+    { id: 'system', label: 'Match device' },
+    { id: 'light', label: 'Light' },
+    { id: 'dark', label: 'Dark' },
+  ];
   return (
     <DropdownMenu
       label="Account"
@@ -133,6 +151,13 @@ function UserMenu({ me }: { me: Me }) {
           icon: <Settings />,
           onSelect: () => navigate('/settings'),
         },
+        ...themes.map((t, i) => ({
+          id: `theme-${t.id}`,
+          label: t.label,
+          checked: theme === t.id,
+          separatorBefore: i === 0,
+          onSelect: () => setTheme(t.id),
+        })),
         {
           id: 'logout',
           label: 'Sign out',
@@ -212,6 +237,9 @@ export function AppShell({ me }: { me: Me }) {
             onClick={() => setDrawer(true)}
             noTooltip
           />
+          <Link to="/files" aria-label="Home" className="shrink-0 md:hidden">
+            <LogoMark className="size-8" />
+          </Link>
           <SearchBox />
           <div className="ml-auto">
             <UserMenu me={me} />

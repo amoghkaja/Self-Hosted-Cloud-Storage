@@ -13,7 +13,24 @@ export const Me = z.object({
 });
 export type Me = z.infer<typeof Me>;
 
-export const SetupStatus = z.object({ needsSetup: z.boolean(), appName: z.string() });
+export const StorageInfo = z.object({
+  usedBytes: Bytes,
+  quotaBytes: Bytes.nullable(),
+  /** What can still be uploaded now: the tightest of quota, family limit and free disk space. */
+  availableBytes: Bytes,
+});
+export type StorageInfo = z.infer<typeof StorageInfo>;
+
+export const SetupStatus = z.object({
+  needsSetup: z.boolean(),
+  appName: z.string(),
+  /** Text shown next to the logo; defaults to the app name. */
+  wordmark: z.string(),
+  /** Changes whenever the admin uploads a new logo; null = built-in logo. */
+  logoVersion: z.string().nullable(),
+  /** Optional link back to the family's main website. */
+  homeUrl: z.string().nullable(),
+});
 export type SetupStatus = z.infer<typeof SetupStatus>;
 
 export const SetupBody = z.object({

@@ -13,6 +13,7 @@ import {
 import type { AppContext } from './context';
 import { storageVolumes } from './db/schema';
 import { createClientIpResolver } from './lib/client-ip';
+import { brandingRoutes, loadBranding } from './modules/admin/branding';
 import { adminRoutes } from './modules/admin/routes';
 import { authRoutes } from './modules/auth/routes';
 import { fileRoutes } from './modules/files/routes';
@@ -93,6 +94,7 @@ export async function buildApp(
       await api.register(sharingRoutes);
       await api.register(linkRoutes);
       await api.register(adminRoutes);
+      await api.register(brandingRoutes);
       await api.register(appPasswordRoutes);
     },
     { prefix: API_PREFIX },
@@ -148,6 +150,8 @@ export async function buildApp(
   // Web-app manifest built from APP_NAME, so "Add to Home Screen" shows the family's name.
   app.get('/manifest.webmanifest', { config: { rateLimit: false } }, async (_req, reply) => {
     const name = ctx.config.appName;
+    const logo = (await loadBranding(ctx)).logo;
+    const icon = (size: string) => `${API_PREFIX}/brand/icon/${size}?v=${logo?.version}`;
     reply.header('Cache-Control', 'no-cache').type('application/manifest+json');
     return {
       name,
@@ -157,13 +161,24 @@ export async function buildApp(
       start_url: '/files',
       scope: '/',
       display: 'standalone',
-      background_color: '#f7f6f3',
-      theme_color: '#2458d6',
-      icons: [
-        { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-      ],
+      background_color: '#f6f1e7',
+      theme_color: '#f6f1e7',
+      icons: logo
+        ? [
+            { src: icon('192'), sizes: '192x192', type: 'image/png' },
+            { src: icon('512'), sizes: '512x512', type: 'image/png' },
+            { src: icon('maskable'), sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ]
+        : [
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+            {
+              src: '/icon-maskable-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+          ],
     };
   });
 

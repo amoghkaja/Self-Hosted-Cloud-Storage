@@ -46,7 +46,7 @@ describe('Button', () => {
         </Button>
       </MemoryRouter>,
     );
-    expect(screen.getByRole('link', { name: 'Go' })).toHaveClass('bg-accent');
+    expect(screen.getByRole('link', { name: 'Go' })).toHaveClass('bg-primary');
   });
 });
 

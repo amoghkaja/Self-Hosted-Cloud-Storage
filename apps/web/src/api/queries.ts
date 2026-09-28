@@ -4,6 +4,7 @@ import type {
   AdminUser,
   AppPassword,
   AuditPage,
+  Branding,
   CreateAppPasswordResponse,
   DirectoryUser,
   FileNode,
@@ -13,12 +14,14 @@ import type {
   NodePage,
   SessionInfo,
   Settings,
+  SetupStatus,
   Share,
   SharedWithMeItem,
   ShareLink,
   SharePermission,
   SortDir,
   SortKey,
+  StorageInfo,
   TrashList,
   UserRole,
   Volume,
@@ -40,6 +43,8 @@ import { api } from './client';
  */
 export const qk = {
   me: ['me'] as const,
+  // Under 'me' so everything that refreshes the account refreshes the space left too.
+  storage: ['me', 'storage'] as const,
   setup: ['setup-status'] as const,
   nodes: ['node'] as const,
   node: (id: string) => ['node', id] as const,
@@ -59,6 +64,7 @@ export const qk = {
   adminInvites: ['admin', 'invites'] as const,
   adminCandidates: ['admin', 'candidates'] as const,
   adminAudit: ['admin', 'audit'] as const,
+  adminBranding: ['admin', 'branding'] as const,
 };
 
 // ── session ─────────────────────────────────────────────────────────────────
@@ -72,10 +78,47 @@ export function useMe() {
   });
 }
 
+export function useStorage() {
+  return useQuery({
+    queryKey: qk.storage,
+    queryFn: () => api<StorageInfo>('/auth/storage'),
+    staleTime: 30_000,
+  });
+}
+
+export function useBranding() {
+  return useQuery({ queryKey: qk.adminBranding, queryFn: () => api<Branding>('/admin/branding') });
+}
+
+export function useBrandingMutations() {
+  const qc = useQueryClient();
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: qk.adminBranding }),
+      qc.invalidateQueries({ queryKey: qk.setup }),
+    ]);
+  return {
+    update: useMutation({
+      mutationFn: (body: { wordmark?: string | null; homeUrl?: string | null }) =>
+        api<Branding>('/admin/branding', { method: 'PATCH', json: body }),
+      onSuccess: refresh,
+    }),
+    uploadLogo: useMutation({
+      mutationFn: (body: { mimeType: string; data: string }) =>
+        api<Branding>('/admin/branding/logo', { json: body }),
+      onSuccess: refresh,
+    }),
+    removeLogo: useMutation({
+      mutationFn: () => api<Branding>('/admin/branding/logo', { method: 'DELETE' }),
+      onSuccess: refresh,
+    }),
+  };
+}
+
 export function useSetupStatus() {
   return useQuery({
     queryKey: qk.setup,
-    queryFn: () => api<{ needsSetup: boolean; appName: string }>('/auth/setup-status'),
+    queryFn: () => api<SetupStatus>('/auth/setup-status'),
     staleTime: 5 * 60_000,
   });
 }

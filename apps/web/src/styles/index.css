@@ -5,51 +5,59 @@
  * theming or re-branding is a matter of changing the values below.
  */
 :root {
-  --bg: #f7f6f3;
-  --surface: #ffffff;
-  --surface-2: #f0eee9;
-  --surface-3: #e7e4dd;
-  --border: #e2dfd8;
-  --border-strong: #c9c5bb;
-  --text: #1d1c1a;
-  --muted: #625e57;
-  --accent: #2458d6;
-  --accent-hover: #1d49b5;
-  --accent-soft: #e6edfc;
-  --accent-fg: #ffffff;
-  --danger: #c42b2b;
-  --danger-soft: #fbe9e9;
+  --bg: #f6f1e7;
+  --surface: #fffdf8;
+  --surface-2: #f0e9dc;
+  --surface-3: #e6dccb;
+  --border: #e3dac8;
+  --border-strong: #cbbd9f;
+  --text: #191c1a;
+  --muted: #5b5a52;
+  --accent: #7a5a28;
+  --accent-hover: #654a20;
+  --accent-soft: #efe4cf;
+  --accent-fg: #fffdf8;
+  --primary: #191c1a;
+  --primary-hover: #2c302d;
+  --primary-fg: #f6f1e7;
+  --brass: #b08d57;
+  --danger: #b3261e;
+  --danger-soft: #f9e5e1;
   --success: #15793a;
-  --success-soft: #e5f5ea;
-  --warning: #a65b00;
-  --warning-soft: #fdf1dd;
-  --focus: #2458d6;
-  --overlay: rgb(20 20 19 / 0.45);
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  --success-soft: #e3f1e4;
+  --warning: #8a5300;
+  --warning-soft: #f8ebd2;
+  --focus: #b08d57;
+  --overlay: rgb(25 28 26 / 0.45);
+  --shadow: 0 1px 2px rgb(25 28 26 / 0.06), 0 8px 24px rgb(25 28 26 / 0.08);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #141413;
-    --surface: #1c1c1a;
-    --surface-2: #242421;
-    --surface-3: #2e2e2a;
-    --border: #33322e;
-    --border-strong: #4a4943;
-    --text: #edebe6;
-    --muted: #a8a49b;
-    --accent: #7ea2ff;
-    --accent-hover: #9ab6ff;
-    --accent-soft: #1f2a44;
-    --accent-fg: #0d1426;
-    --danger: #ff7b7b;
-    --danger-soft: #3a1c1c;
-    --success: #5fd38a;
-    --success-soft: #16301f;
-    --warning: #f5b949;
+    --bg: #111814;
+    --surface: #18221c;
+    --surface-2: #1f2b24;
+    --surface-3: #29372e;
+    --border: #2c3a31;
+    --border-strong: #41534a;
+    --text: #efe8da;
+    --muted: #b1ab9c;
+    --accent: #c9aa74;
+    --accent-hover: #d9bf8f;
+    --accent-soft: #2a2b20;
+    --accent-fg: #111814;
+    --primary: #efe8da;
+    --primary-hover: #ffffff;
+    --primary-fg: #111814;
+    --brass: #c9aa74;
+    --danger: #ff8a7a;
+    --danger-soft: #3a1d19;
+    --success: #6fd394;
+    --success-soft: #15301f;
+    --warning: #f0bd5e;
     --warning-soft: #33280f;
-    --focus: #7ea2ff;
+    --focus: #c9aa74;
     --overlay: rgb(0 0 0 / 0.6);
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
     color-scheme: dark;
@@ -57,25 +65,29 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #141413;
-  --surface: #1c1c1a;
-  --surface-2: #242421;
-  --surface-3: #2e2e2a;
-  --border: #33322e;
-  --border-strong: #4a4943;
-  --text: #edebe6;
-  --muted: #a8a49b;
-  --accent: #7ea2ff;
-  --accent-hover: #9ab6ff;
-  --accent-soft: #1f2a44;
-  --accent-fg: #0d1426;
-  --danger: #ff7b7b;
-  --danger-soft: #3a1c1c;
-  --success: #5fd38a;
-  --success-soft: #16301f;
-  --warning: #f5b949;
+  --bg: #111814;
+  --surface: #18221c;
+  --surface-2: #1f2b24;
+  --surface-3: #29372e;
+  --border: #2c3a31;
+  --border-strong: #41534a;
+  --text: #efe8da;
+  --muted: #b1ab9c;
+  --accent: #c9aa74;
+  --accent-hover: #d9bf8f;
+  --accent-soft: #2a2b20;
+  --accent-fg: #111814;
+  --primary: #efe8da;
+  --primary-hover: #ffffff;
+  --primary-fg: #111814;
+  --brass: #c9aa74;
+  --danger: #ff8a7a;
+  --danger-soft: #3a1d19;
+  --success: #6fd394;
+  --success-soft: #15301f;
+  --warning: #f0bd5e;
   --warning-soft: #33280f;
-  --focus: #7ea2ff;
+  --focus: #c9aa74;
   --overlay: rgb(0 0 0 / 0.6);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
   color-scheme: dark;
@@ -94,6 +106,10 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-fg: var(--accent-fg);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-brass: var(--brass);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-success: var(--success);
@@ -105,7 +121,27 @@
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-display:
+    "Didot", "Bodoni 72", "Bodoni MT", "Iowan Old Style", "Palatino Linotype", ui-serif, Georgia,
+    serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/*
+ * Phones: no accidental zooming. iOS zooms into any field under 16px when it's focused, and
+ * double-tap zooms the page; both are what made the app jump around. Unlayered, so it wins
+ * over the text-sm utilities on inputs. Pinch-zoom is untouched (accessibility).
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+html {
+  touch-action: manipulation;
 }
 
 @layer base {

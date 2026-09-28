@@ -26,7 +26,8 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/auth/setup-status` | `{needsSetup, appName}`: public |
+| GET | `/auth/setup-status` | `{needsSetup, appName, wordmark, logoVersion, homeUrl}`: public |
+| GET | `/auth/storage` | `{usedBytes, quotaBytes, availableBytes}`: space left, after quota, family limit and disks |
 | POST | `/auth/setup` | Create the first admin (needs the setup token) |
 | POST | `/auth/login` | `{email, password}` → `{status:"ok", user}` or `{status:"mfa_required", mfaToken}` |
 | POST | `/auth/login/totp` | `{mfaToken, code}` → `{status:"ok", user}` |
@@ -107,6 +108,9 @@ Chunks may be sent in any order and in parallel; re-sending one is harmless. Eve
 | POST / PATCH | `/admin/volumes[/:id]` | Add a disk / change limits or pause |
 | POST | `/admin/volumes/:id/drain`, `/cancel-drain` | Move files off a disk and retire it |
 | GET / PATCH | `/admin/settings` | Family limit, max file size, trash retention, default quota |
+| GET / PATCH | `/admin/branding` | Word beside the logo and a link to the family's website |
+| POST / DELETE | `/admin/branding/logo` | `{mimeType, data}` (base64 SVG/PNG/WebP, ≤256 KB) / back to the built-in logo |
+| GET | `/brand/logo`, `/brand/icon/:size` | Public: the logo, and PNG app icons made from it (`180`, `192`, `512`, `maskable`) |
 | GET | `/admin/audit` | Audit log (`?before=&limit=`) |
 
 ### Health

@@ -1,6 +1,7 @@
-import { Cloud } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useSetupStatus } from '../../api/queries';
+import { Logo } from '../../app/Logo';
 
 /** Centered card used by sign-in, first-run setup and invite acceptance. */
 export function AuthLayout({
@@ -12,26 +13,33 @@ export function AuthLayout({
   subtitle?: ReactNode;
   children: ReactNode;
 }) {
-  const setup = useSetupStatus();
+  const home = useSetupStatus().data?.homeUrl;
   return (
-    <main className="flex min-h-dvh items-center justify-center px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center text-center">
-          <span
-            aria-hidden="true"
-            className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-fg"
+    <div className="flex min-h-dvh flex-col px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <main className="flex flex-1 items-center justify-center py-8">
+        <div className="w-full max-w-sm">
+          <div className="mb-7 flex flex-col items-center text-center">
+            <Logo size="lg" className="mb-6" />
+            <h1 className="font-serif text-[32px] leading-tight">{title}</h1>
+            {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-5 shadow-pop sm:p-6">
+            {children}
+          </div>
+        </div>
+      </main>
+      {home && (
+        <footer className="flex justify-center">
+          <a
+            href={home}
+            className="inline-flex min-h-11 items-center gap-1.5 text-sm text-muted hover:text-text"
           >
-            <Cloud size={24} />
-          </span>
-          <p className="text-sm font-medium text-muted">{setup.data?.appName ?? 'Family Cloud'}</p>
-          <h1 className="mt-1 text-2xl font-semibold">{title}</h1>
-          {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
-        </div>
-        <div className="rounded-2xl border border-border bg-surface p-5 shadow-pop sm:p-6">
-          {children}
-        </div>
-      </div>
-    </main>
+            <ArrowLeft size={14} aria-hidden />
+            {new URL(home).host}
+          </a>
+        </footer>
+      )}
+    </div>
   );
 }
 

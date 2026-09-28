@@ -4,16 +4,9 @@ import { ErrorCode, guessMimeType, nameProblem, normalizeName } from '@familyclo
 import { and, asc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../../context';
-import {
-  blobs,
-  type NodeRow,
-  nodes,
-  shares,
-  storageVolumes,
-  type UserRow,
-  users,
-} from '../../db/schema';
+import { blobs, type NodeRow, nodes, shares, type UserRow, users } from '../../db/schema';
 import { AppError } from '../../lib/errors';
+import { storageFor } from '../../lib/space';
 import { loadAccess, type NodeAccess, satisfies } from '../files/access';
 import { etagMatches, listTree, sendBlob } from '../files/serve';
 import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
@@ -146,20 +139,10 @@ async function resolve(ctx: AppContext, user: UserRow, segments: string[]): Prom
 
 async function quotaFor(ctx: AppContext, userId: string) {
   const [u] = await ctx.db.select().from(users).where(eq(users.id, userId));
-  const used = u?.usedBytes ?? 0;
-  if (u?.quotaBytes != null)
-    return { used, available: u.quotaBytes - used - (u.reservedBytes ?? 0) };
-  // Unlimited: report what the disks can actually still take.
-  const vols = await ctx.db
-    .select()
-    .from(storageVolumes)
-    .where(eq(storageVolumes.status, 'active'));
-  let free = 0;
-  for (const v of vols) {
-    const rt = await ctx.volumes.status(v);
-    if (rt.online && rt.disk) free += Math.max(0, rt.disk.freeBytes - v.reserveBytes);
-  }
-  return { used, available: free };
+  if (!u) return { used: 0, available: 0 };
+  // The same "space left" the web app shows: quota, family limit and disks all apply.
+  const s = await storageFor(ctx, u);
+  return { used: s.usedBytes, available: s.availableBytes };
 }
 
 function nodeEntry(n: NodeRow, segments: string[]): DavEntry {

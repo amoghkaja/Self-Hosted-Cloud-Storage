@@ -11,6 +11,7 @@ import {
   Copy,
   EllipsisVertical,
   HardDrive,
+  PieChart,
   Plus,
   ScrollText,
   TriangleAlert,
@@ -49,7 +50,9 @@ import {
 import { copyText } from '../../lib/clipboard';
 import { formatDate, formatDateTime, formatRelative } from '../../lib/format';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { BrandingCard } from './BrandingCard';
 import { ByteSizeInput } from './ByteSizeInput';
+import { AllocateDialog, DiskBreakdown, FamilyBreakdown } from './StorageOverview';
 
 /** Runs a fire-and-forget admin action, confirming success and surfacing failures. */
 function run(p: Promise<unknown>, success?: string) {
@@ -93,73 +96,116 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 function Overview() {
   const q = useAdminOverview();
+  const m = useAdminMutations();
+  const [, setParams] = useSearchParams();
+  const [allocating, setAllocating] = useState(false);
   return (
     <QueryState query={q} loading={<Skeleton className="h-64" />}>
-      {(d) => (
-        <div className="flex flex-col gap-4">
-          {d.warnings.length > 0 && (
-            <ul className="flex flex-col gap-2" aria-label="Warnings">
-              {d.warnings.map((w) => (
-                <li
-                  key={w}
-                  className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+      {(d) => {
+        const t = d.totals;
+        const familyFree = Math.max(0, t.familyCapacityBytes - t.usedBytes - t.reservedBytes);
+        const capped = d.settings.globalCapacityBytes !== null;
+        return (
+          <div className="flex flex-col gap-4">
+            {d.warnings.length > 0 && (
+              <ul className="flex flex-col gap-2" aria-label="Warnings">
+                {d.warnings.map((w) => (
+                  <li
+                    key={w}
+                    className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+                  >
+                    <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Stat
+                label="Used by family"
+                value={formatBytes(t.usedBytes)}
+                sub={t.reservedBytes ? `+${formatBytes(t.reservedBytes)} uploading` : undefined}
+              />
+              <Stat
+                label="Family space left"
+                value={formatBytes(familyFree)}
+                sub={`of ${formatBytes(t.familyCapacityBytes)} for the family`}
+              />
+              <Stat
+                label="Given to people"
+                value={formatBytes(t.allocatedQuotaBytes)}
+                sub={
+                  t.unlimitedUsers
+                    ? `${t.unlimitedUsers} ${t.unlimitedUsers === 1 ? 'person has' : 'people have'} no personal limit`
+                    : 'Everyone has an allowance'
+                }
+              />
+            </div>
+            <Card
+              title="Family storage"
+              action={
+                <Button
+                  variant="primary"
+                  icon={<PieChart size={16} />}
+                  onClick={() => setAllocating(true)}
                 >
-                  <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Stat
-              label="Used by family"
-              value={formatBytes(d.totals.usedBytes)}
-              sub={
-                d.totals.reservedBytes
-                  ? `+${formatBytes(d.totals.reservedBytes)} uploading`
-                  : undefined
+                  Allocate space
+                </Button>
               }
-            />
-            <Stat
-              label="Free on disks"
-              value={formatBytes(d.totals.physicalFreeBytes)}
-              sub={`of ${formatBytes(d.totals.physicalTotalBytes)} total`}
-            />
-            <Stat
-              label="Family limit"
-              value={
-                d.settings.globalCapacityBytes === null
-                  ? 'Disks only'
-                  : formatBytes(d.settings.globalCapacityBytes)
-              }
-              sub={`${formatBytes(d.totals.allocatedQuotaBytes)} promised in quotas${d.totals.unlimitedUsers ? ` · ${d.totals.unlimitedUsers} unlimited` : ''}`}
-            />
+            >
+              <p className="mb-4 text-sm text-muted">
+                {capped
+                  ? `The family may use up to ${formatBytes(d.settings.globalCapacityBytes ?? 0)} in total${
+                      t.familyCapacityBytes < (d.settings.globalCapacityBytes ?? 0)
+                        ? `, but the disks only have room for ${formatBytes(t.familyCapacityBytes)}`
+                        : ''
+                    }.`
+                  : `The family can use all the space the disks allow: ${formatBytes(t.familyCapacityBytes)}.`}
+              </p>
+              <FamilyBreakdown d={d} />
+              <div className="mt-4 flex flex-wrap gap-2">
+                {capped && (
+                  <Button
+                    size="sm"
+                    loading={m.updateSettings.isPending}
+                    onClick={() =>
+                      run(
+                        m.updateSettings.mutateAsync({ globalCapacityBytes: null }),
+                        'The family can now use all available space',
+                      )
+                    }
+                  >
+                    Give the family all available space
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setParams({ tab: 'settings' }, { replace: true })}
+                >
+                  {capped ? 'Change the family limit' : 'Set a family limit'}
+                </Button>
+              </div>
+            </Card>
+            <Card title="This computer’s disks">
+              <p className="mb-4 text-sm text-muted">
+                {formatBytes(t.diskTotalBytes)} in total. Only the green part can take new family
+                files.
+              </p>
+              <DiskBreakdown d={d} />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-4"
+                onClick={() => setParams({ tab: 'storage' }, { replace: true })}
+              >
+                Manage disks and limits
+              </Button>
+            </Card>
+            {allocating && <AllocateDialog d={d} onClose={() => setAllocating(false)} />}
           </div>
-          <Card title="Usage by person">
-            <ul className="flex flex-col gap-4">
-              {d.users.map((u) => (
-                <li key={u.id} className="flex items-center gap-3">
-                  <Avatar name={u.displayName} />
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <p className="truncate text-sm font-medium">{u.displayName}</p>
-                      <p className="shrink-0 text-xs text-muted tabular-nums">
-                        {formatBytes(u.usedBytes)} / {formatQuota(u.quotaBytes)}
-                      </p>
-                    </div>
-                    <UsageBar
-                      used={u.usedBytes}
-                      total={u.quotaBytes}
-                      label={`${u.displayName} storage`}
-                      showText={false}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
-      )}
+        );
+      }}
     </QueryState>
   );
 }
@@ -489,7 +535,6 @@ function People() {
 function VolumeCard({ v, onEdit }: { v: Volume; onEdit: () => void }) {
   const m = useAdminMutations();
   const [drainOpen, setDrainOpen] = useState(false);
-  const used = v.disk ? v.disk.totalBytes - v.disk.freeBytes : 0;
   const tone = {
     active: 'success',
     draining: 'warning',
@@ -504,18 +549,22 @@ function VolumeCard({ v, onEdit }: { v: Volume; onEdit: () => void }) {
         <Badge tone={v.online ? tone[v.status] : 'danger'}>{v.online ? v.status : 'offline'}</Badge>
         <code className="ml-auto truncate text-xs text-muted">{v.path}</code>
       </div>
-      {v.disk && (
+      {v.disk && v.usable && (
         <div className="mt-3">
           <UsageBar
-            used={used}
-            total={v.disk.totalBytes}
-            label={`Disk ${v.name} usage`}
+            used={v.usedByAppBytes}
+            total={v.usable.totalBytes}
+            label={`Family space on ${v.name}`}
             showText={false}
           />
           <p className="mt-1.5 text-xs text-muted tabular-nums">
-            {formatBytes(v.disk.freeBytes)} free of {formatBytes(v.disk.totalBytes)} · family files:{' '}
-            {formatBytes(v.usedByAppBytes)} ({v.blobCount} files)
-            {v.capacityLimitBytes !== null && ` · limit ${formatBytes(v.capacityLimitBytes)}`}
+            Family files {formatBytes(v.usedByAppBytes)} ({v.blobCount} files) ·{' '}
+            {formatBytes(v.usable.freeBytes)} free for the family
+            {v.capacityLimitBytes !== null && ` (limit ${formatBytes(v.capacityLimitBytes)})`}
+          </p>
+          <p className="text-xs text-muted tabular-nums">
+            Whole disk: {formatBytes(v.disk.freeBytes)} free of {formatBytes(v.disk.totalBytes)}
+            {v.reserveBytes > 0 && `, ${formatBytes(v.reserveBytes)} always kept free`}
           </p>
         </div>
       )}
@@ -757,7 +806,7 @@ function Storage() {
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
-function SettingsForm({ initial }: { initial: Settings }) {
+function SettingsForm({ initial, usable }: { initial: Settings; usable: number }) {
   const m = useAdminMutations();
   const [s, setS] = useState(initial);
   // Raw text, so the field can be cleared and retyped (a number state would snap back to 1).
@@ -784,7 +833,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
         value={s.globalCapacityBytes}
         onChange={(v) => setS({ ...s, globalCapacityBytes: v })}
         unlimitedLabel="Only limited by the disks"
-        hint="Caps everyone combined, e.g. to keep space free for this PC."
+        hint={`Caps everyone combined. The disks have room for ${formatBytes(usable)}; with no limit the family can use all of it.`}
       />
       <ByteSizeInput
         label="Default quota for new invites"
@@ -824,11 +873,14 @@ function SettingsForm({ initial }: { initial: Settings }) {
 function AppSettings() {
   const q = useAdminOverview();
   return (
-    <Card title="Settings">
-      <QueryState query={q} loading={<Skeleton className="h-64" />}>
-        {(d) => <SettingsForm initial={d.settings} />}
-      </QueryState>
-    </Card>
+    <div className="flex flex-col gap-4">
+      <Card title="Settings">
+        <QueryState query={q} loading={<Skeleton className="h-64" />}>
+          {(d) => <SettingsForm initial={d.settings} usable={d.totals.usableTotalBytes} />}
+        </QueryState>
+      </Card>
+      <BrandingCard />
+    </div>
   );
 }
 

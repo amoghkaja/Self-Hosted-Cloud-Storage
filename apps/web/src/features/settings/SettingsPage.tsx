@@ -5,8 +5,10 @@ import {
   KeyRound,
   Laptop,
   Monitor,
+  Moon,
   ShieldCheck,
   Smartphone,
+  Sun,
   Trash2,
 } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -15,6 +17,7 @@ import { useLocation } from 'react-router';
 import { ApiError, api, errorMessage } from '../../api/client';
 import { qk, useAppPasswordMutations, useAppPasswords, useSessions } from '../../api/queries';
 import { useShell } from '../../app/guards';
+import { StorageSummary } from '../../app/StorageSummary';
 import {
   Badge,
   Button,
@@ -28,10 +31,10 @@ import {
   Tabs,
   TextField,
   toast,
-  UsageBar,
 } from '../../components/ui';
 import { copyText } from '../../lib/clipboard';
 import { describeUserAgent, formatRelative } from '../../lib/format';
+import { type ThemeChoice, useTheme } from '../../lib/theme';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 function Section({
@@ -99,7 +102,7 @@ function ProfileSection({ me }: { me: Me }) {
       </form>
       <div className="mt-5">
         <p className="mb-2 text-sm font-medium">Your storage</p>
-        <UsageBar used={me.usedBytes} total={me.quotaBytes} label="Your storage use" />
+        <StorageSummary detailed />
       </div>
     </Section>
   );
@@ -556,6 +559,39 @@ function SessionsSection() {
   );
 }
 
+function AppearanceSection() {
+  const [theme, setTheme] = useTheme();
+  const options: { id: ThemeChoice; label: string; icon: ReactNode }[] = [
+    { id: 'system', label: 'Match device', icon: <Monitor size={16} aria-hidden /> },
+    { id: 'light', label: 'Light', icon: <Sun size={16} aria-hidden /> },
+    { id: 'dark', label: 'Dark', icon: <Moon size={16} aria-hidden /> },
+  ];
+  return (
+    <Section title="Appearance" description="Saved on this device.">
+      <fieldset className="flex flex-wrap gap-2">
+        <legend className="sr-only">Theme</legend>
+        {options.map((o) => (
+          <label
+            key={o.id}
+            className="flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-border px-4 text-sm has-[:checked]:border-accent has-[:checked]:bg-accent-soft has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus"
+          >
+            <input
+              type="radio"
+              name="theme"
+              value={o.id}
+              checked={theme === o.id}
+              onChange={() => setTheme(o.id)}
+              className="sr-only"
+            />
+            {o.icon}
+            {o.label}
+          </label>
+        ))}
+      </fieldset>
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const { me } = useShell();
   const { hash } = useLocation();
@@ -569,6 +605,7 @@ export function SettingsPage() {
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
       <h1 className="text-xl font-semibold">Settings</h1>
       <ProfileSection me={me} />
+      <AppearanceSection />
       <DevicesSection />
       <TwoFactorSection me={me} />
       <PasswordSection />

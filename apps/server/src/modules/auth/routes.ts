@@ -12,6 +12,7 @@ import {
   SessionInfo,
   SetupBody,
   SetupStatus,
+  StorageInfo,
   TokenParams,
   TotpDisableBody,
   TotpEnableBody,
@@ -29,9 +30,11 @@ import { safeEqual, sha256 } from '../../lib/crypto';
 import { toMe } from '../../lib/dto';
 import { AppError, conflict, forbidden, notFound } from '../../lib/errors';
 import { hashPassword, verifyPassword } from '../../lib/passwords';
+import { storageFor } from '../../lib/space';
 import { toIso } from '../../lib/time';
 import { clearSessionCookie, requestMeta, requireUser, setSessionCookie } from '../../plugins/auth';
 import { strictLimit } from '../../plugins/security';
+import { loadBranding, publicBranding } from '../admin/branding';
 import { checkTotp, createUserWithRoot, newTotp } from './service';
 
 const LOCK_AFTER = 5;
@@ -121,7 +124,17 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.get('/auth/setup-status', { schema: { response: { 200: SetupStatus } } }, async () => {
     const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(users);
-    return { needsSetup: (row?.n ?? 0) === 0, appName: ctx.config.appName };
+    return {
+      needsSetup: (row?.n ?? 0) === 0,
+      appName: ctx.config.appName,
+      ...publicBranding(ctx, await loadBranding(ctx)),
+    };
+  });
+
+  app.get('/auth/storage', { schema: { response: { 200: StorageInfo } } }, async (req) => {
+    const { user } = requireUser(req);
+    const [row] = await db.select().from(users).where(eq(users.id, user.id));
+    return storageFor(ctx, row!);
   });
 
   app.post(

@@ -4,6 +4,7 @@ import { ApiError } from '../api/client';
 import { qk } from '../api/queries';
 import { httpTransport, UploadManager } from '../api/upload-manager';
 import { Announcer, Toaster, TooltipProvider } from '../components/ui';
+import { BrandIcons } from './Logo';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +44,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={400}>
         {children}
+        <BrandIcons />
         <Toaster />
         <Announcer />
       </TooltipProvider>

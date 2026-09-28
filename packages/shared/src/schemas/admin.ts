@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GiB, TiB } from '../constants';
+import { BRAND_LOGO_MAX_BYTES, BRAND_LOGO_TYPES, GiB, TiB } from '../constants';
 import { Bytes, DisplayName, Email, Id, IsoDate, UserRef, UserRole } from './common';
 
 const MAX_BYTES = 1024 * TiB;
@@ -21,6 +21,8 @@ export const Volume = z.object({
   usedByAppBytes: Bytes,
   blobCount: z.number().int(),
   disk: DiskStats.nullable(),
+  /** Room for family files here after the reserve and capacity limit (null while offline). */
+  usable: z.object({ totalBytes: Bytes, freeBytes: Bytes }).nullable(),
   statusMessage: z.string().nullable(),
   createdAt: IsoDate,
 });
@@ -60,13 +62,43 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const UpdateSettingsBody = Settings.partial();
 
+export const Branding = z.object({
+  /** Text beside the logo, e.g. "Cloud". Null = the app name. */
+  wordmark: z.string().trim().min(1).max(40).nullable(),
+  /** Link back to the family's main website, shown on sign-in and in the menu. */
+  homeUrl: z
+    .string()
+    .trim()
+    .max(200)
+    .regex(/^https?:\/\/[^\s/]+(\/\S*)?$/, 'Must be an http(s) address')
+    .nullable(),
+  hasLogo: z.boolean(),
+});
+export type Branding = z.infer<typeof Branding>;
+
+export const UpdateBrandingBody = Branding.omit({ hasLogo: true }).partial();
+
+export const UploadLogoBody = z.object({
+  mimeType: z.enum(BRAND_LOGO_TYPES),
+  /** Base64 file contents. */
+  data: z.string().max(Math.ceil((BRAND_LOGO_MAX_BYTES * 4) / 3) + 4),
+});
+
 export const AdminOverview = z.object({
   volumes: z.array(Volume),
   users: z.array(AdminUser),
   settings: Settings,
   totals: z.object({
-    physicalTotalBytes: Bytes,
-    physicalFreeBytes: Bytes,
+    /** Whole disks, each filesystem counted once. */
+    diskTotalBytes: Bytes,
+    diskFreeBytes: Bytes,
+    /** Always-keep-free reserves on those disks. */
+    reserveBytes: Bytes,
+    /** Room for family files: stored + still free, after reserves and capacity limits. */
+    usableTotalBytes: Bytes,
+    usableFreeBytes: Bytes,
+    /** What the family can use in total: the family limit, or the usable space if lower. */
+    familyCapacityBytes: Bytes,
     usedBytes: Bytes,
     reservedBytes: Bytes,
     allocatedQuotaBytes: Bytes,
