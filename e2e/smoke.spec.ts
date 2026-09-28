@@ -27,7 +27,7 @@ async function login(page: import('@playwright/test').Page) {
   await page.goto('/login');
   await page.getByLabel('Email').fill(ADMIN.email);
   await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/files$/);
 }
 

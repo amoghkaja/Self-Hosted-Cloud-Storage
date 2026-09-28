@@ -11,7 +11,7 @@ test('large folder renders fast and stays virtualized', async ({ page }) => {
   await page
     .getByLabel('Password', { exact: true })
     .fill(process.env.E2E_PASSWORD ?? 'correct horse battery staple');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/files$/);
 
   const start = Date.now();
