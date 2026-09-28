@@ -6,6 +6,7 @@ coverage/
 .env.*
 !.env.example
 deploy/.env
+deploy/backup.env
 .data/
 .dev-data/
 playwright-report/
