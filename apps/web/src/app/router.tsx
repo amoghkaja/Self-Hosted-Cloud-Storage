@@ -51,6 +51,16 @@ export const router = createBrowserRouter([
       { path: 'files/:folderId', element: <FilesPage /> },
       { path: 'shared', element: <SharedPage /> },
       { path: 'trash', element: <TrashPage /> },
+      {
+        path: 'photos',
+        lazy: () =>
+          import('../features/photos/PhotosPage').then((m) => ({ Component: m.PhotosPage })),
+      },
+      {
+        path: 'photos/:albumId',
+        lazy: () =>
+          import('../features/photos/AlbumPage').then((m) => ({ Component: m.AlbumPage })),
+      },
       { path: 'search', element: <SearchPage /> },
       {
         path: 'settings',

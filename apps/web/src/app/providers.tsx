@@ -32,6 +32,8 @@ uploadManager.onFolderChanged = (folderId) => {
       void queryClient.invalidateQueries({ queryKey: qk.children(id) });
     pendingFolders.clear();
     void queryClient.invalidateQueries({ queryKey: qk.me });
+    // Trip photos are uploaded into trip folders: refresh the albums too.
+    void queryClient.invalidateQueries({ queryKey: qk.albums });
   }, 400);
 };
 

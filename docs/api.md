@@ -88,6 +88,20 @@ Chunks may be sent in any order and in parallel; re-sending one is harmless. Eve
 | GET / POST | `/nodes/:id/links` | Public links: `{password?, expiresAt?, allowDownload}`. `url` is `null` for links made before a `SECRET_KEY` change (they can still be revoked) |
 | DELETE | `/links/:id` | Revoke a link |
 
+### Photos (trip albums)
+
+An album is a trip: a name, dates and who went. Each person's photos live in a folder in their own space (`Trips/<album>`), so they use that person's quota and also appear in My Files and on the network drive. Every family member can see every album; people on the trip can add photos.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/albums` | All trips, newest first (`?person=<userId>` to filter) |
+| POST | `/albums` | `{title, startDate, endDate?, note?, peopleIds}` |
+| GET / PATCH / DELETE | `/albums/:id` | Album details / edit (starter or admin; also `coverNodeId`) / delete (photos stay in people's folders) |
+| POST | `/albums/:id/folder` | Your upload folder for the album (created on first use); then upload with `POST /uploads` |
+| GET | `/albums/:id/photos` | Photos and videos, oldest first (`?cursor&limit`) |
+| GET | `/albums/:id/photos/:nodeId/content`, `/thumbnail` | A photo, or its thumbnail (`?size=256\|1600`) |
+| GET | `/albums/:id/zip` | Every photo in one zip |
+
 ### Public links (no account)
 
 | Method | Path | Description |

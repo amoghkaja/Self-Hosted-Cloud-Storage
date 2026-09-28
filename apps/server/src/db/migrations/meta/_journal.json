@@ -36,6 +36,13 @@
       "when": 1790589494118,
       "tag": "0004_passkeys",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790589802016,
+      "tag": "0005_albums",
+      "breakpoints": true
     }
   ]
 }

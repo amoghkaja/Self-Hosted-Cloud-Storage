@@ -1,0 +1,328 @@
+import type { AlbumPhoto } from '@familycloud/shared';
+import {
+  ArrowLeft,
+  Download,
+  EllipsisVertical,
+  ImagePlus,
+  Images,
+  Pencil,
+  Play,
+  Trash2,
+} from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { apiUrl, errorMessage } from '../../api/client';
+import { albumFolder, useAlbum, useAlbumMutations, useAlbumPhotos } from '../../api/queries';
+import { useShell } from '../../app/guards';
+import { uploadManager } from '../../app/providers';
+import {
+  Avatar,
+  Button,
+  ConfirmDialog,
+  DropdownMenu,
+  EmptyState,
+  IconButton,
+  QueryState,
+  Skeleton,
+  toast,
+} from '../../components/ui';
+import { usePageTitle } from '../../lib/usePageTitle';
+import { triggerDownload } from '../files/actions';
+import type { PreviewItem, PreviewSource } from '../files/PreviewModal';
+import { TripDialog, tripDates } from './TripForm';
+
+const PreviewModal = lazy(() => import('../files/PreviewModal'));
+
+function Tile({ p, albumId, onOpen }: { p: AlbumPhoto; albumId: string; onOpen: () => void }) {
+  const video = p.mimeType?.startsWith('video/');
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${p.name}, added by ${p.addedBy.displayName}`}
+        className="group relative block aspect-square w-full overflow-hidden bg-surface-2"
+      >
+        {p.thumb === 'ready' ? (
+          <img
+            src={apiUrl(`/albums/${albumId}/photos/${p.id}/thumbnail`, { size: '256' })}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          />
+        ) : (
+          <span className="flex size-full items-center justify-center text-muted">
+            <Images
+              size={22}
+              aria-hidden
+              className={p.thumb === 'pending' ? 'animate-pulse' : ''}
+            />
+          </span>
+        )}
+        {video && (
+          <span className="absolute right-1.5 bottom-1.5 flex size-6 items-center justify-center rounded-full bg-black/55 text-white">
+            <Play size={12} aria-hidden fill="currentColor" />
+          </span>
+        )}
+      </button>
+    </li>
+  );
+}
+
+export function AlbumPage() {
+  const { albumId = '' } = useParams();
+  const { me } = useShell();
+  const navigate = useNavigate();
+  const album = useAlbum(albumId);
+  const photos = useAlbumPhotos(albumId);
+  const m = useAlbumMutations();
+  const picker = useRef<HTMLInputElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [adding, setAdding] = useState(false);
+  usePageTitle(album.data?.title ?? 'Photos');
+
+  const items = useMemo(() => photos.data?.pages.flatMap((p) => p.items) ?? [], [photos.data]);
+  const previewItems: PreviewItem[] = useMemo(
+    () => items.map((p) => ({ ...p, type: 'file' as const })),
+    [items],
+  );
+  const source: PreviewSource = useMemo(
+    () => ({
+      content: (id, inline) =>
+        apiUrl(`/albums/${albumId}/photos/${id}/content`, inline ? { inline: '1' } : undefined),
+      thumb: (id, size) =>
+        apiUrl(`/albums/${albumId}/photos/${id}/thumbnail`, { size: String(size) }),
+      canDownload: true,
+    }),
+    [albumId],
+  );
+
+  // Load more as the end of the grid scrolls into view.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = photos;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasNextPage) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
+      },
+      { rootMargin: '600px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Takes an array, not the input's FileList: that list empties as soon as the input is reset.
+  const addPhotos = async (files: File[]) => {
+    if (!files.length) return;
+    setAdding(true);
+    try {
+      const { folderId } = await albumFolder(albumId);
+      uploadManager.add(
+        folderId,
+        files.map((file) => ({ file, relativeDir: '' })),
+      );
+      toast.success(
+        `Uploading ${files.length} ${files.length === 1 ? 'photo' : 'photos'}. They appear here as they finish.`,
+      );
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const previewIndex = previewId ? items.findIndex((p) => p.id === previewId) : -1;
+
+  return (
+    <QueryState query={album} loading={<Skeleton className="h-72" />}>
+      {(a) => (
+        <div className="mx-auto flex max-w-6xl flex-col gap-5">
+          <Link
+            to="/photos"
+            className="inline-flex min-h-11 items-center gap-1.5 self-start text-sm text-muted hover:text-text"
+          >
+            <ArrowLeft size={16} aria-hidden /> All trips
+          </Link>
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="min-w-0 sm:flex-1">
+              <p className="text-xs font-medium tracking-[0.22em] text-accent uppercase">
+                {tripDates(a.startDate, a.endDate)}
+              </p>
+              <h1 className="font-display text-4xl leading-tight break-words sm:text-5xl">
+                {a.title}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted">
+                {a.people.map((p) => (
+                  <span
+                    key={p.id}
+                    className="flex items-center gap-1.5 rounded-full bg-surface-2 py-1 pr-3 pl-1"
+                  >
+                    <Avatar name={p.displayName} size={22} />
+                    {p.id === me.id ? 'You' : p.displayName}
+                  </span>
+                ))}
+                <span>
+                  · {a.photoCount} {a.photoCount === 1 ? 'photo' : 'photos'}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {a.canContribute && (
+                <>
+                  <input
+                    ref={picker}
+                    type="file"
+                    // iPhone opens the photo library (and camera) for this.
+                    accept="image/*,video/*"
+                    multiple
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onChange={(e) => {
+                      void addPhotos([...(e.target.files ?? [])]);
+                      e.target.value = '';
+                    }}
+                  />
+                  <Button
+                    variant="primary"
+                    icon={<ImagePlus size={16} />}
+                    loading={adding}
+                    className="flex-1 sm:flex-none"
+                    onClick={() => picker.current?.click()}
+                  >
+                    Add photos
+                  </Button>
+                </>
+              )}
+              <DropdownMenu
+                label="Album actions"
+                trigger={<IconButton label="More" icon={<EllipsisVertical />} />}
+                actions={[
+                  {
+                    id: 'download',
+                    label: 'Download all',
+                    icon: <Download />,
+                    disabled: a.photoCount === 0,
+                    onSelect: () => triggerDownload(apiUrl(`/albums/${a.id}/zip`)),
+                  },
+                  ...(a.canEdit
+                    ? [
+                        {
+                          id: 'edit',
+                          label: 'Edit trip',
+                          icon: <Pencil />,
+                          onSelect: () => setEditing(true),
+                        },
+                        {
+                          id: 'delete',
+                          label: 'Delete album',
+                          icon: <Trash2 />,
+                          tone: 'danger' as const,
+                          separatorBefore: true,
+                          onSelect: () => setDeleting(true),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </div>
+          </header>
+
+          <QueryState
+            query={photos}
+            loading={<Skeleton className="h-64" />}
+            isEmpty={() => items.length === 0}
+            empty={
+              <EmptyState
+                icon={<ImagePlus />}
+                title="No photos yet"
+                description={
+                  a.canContribute
+                    ? 'Add photos straight from your phone. Everyone on the trip can add theirs.'
+                    : 'Photos appear here when people on the trip add them.'
+                }
+                action={
+                  a.canContribute ? (
+                    <Button
+                      variant="primary"
+                      icon={<ImagePlus size={16} />}
+                      onClick={() => picker.current?.click()}
+                    >
+                      Add photos
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+          >
+            {() => (
+              <>
+                <ul className="-mx-3 grid grid-cols-3 gap-0.5 sm:mx-0 sm:grid-cols-4 sm:gap-1 lg:grid-cols-6">
+                  {items.map((p) => (
+                    <Tile key={p.id} p={p} albumId={a.id} onOpen={() => setPreviewId(p.id)} />
+                  ))}
+                </ul>
+                <div ref={sentinel} aria-hidden="true" />
+                {isFetchingNextPage && <Skeleton className="h-24" />}
+              </>
+            )}
+          </QueryState>
+
+          {previewIndex >= 0 && (
+            <Suspense fallback={null}>
+              <PreviewModal
+                items={previewItems}
+                index={previewIndex}
+                onIndexChange={(i) => setPreviewId(previewItems[i]?.id ?? null)}
+                onClose={() => setPreviewId(null)}
+                source={source}
+              />
+            </Suspense>
+          )}
+          {editing && (
+            <TripDialog
+              me={me}
+              title="Edit trip"
+              submitLabel="Save"
+              initial={{
+                title: a.title,
+                startDate: a.startDate,
+                endDate: a.endDate,
+                peopleIds: a.people.map((p) => p.id),
+              }}
+              onClose={() => setEditing(false)}
+              onSubmit={async (input) => {
+                await m.update.mutateAsync({ id: a.id, ...input });
+                setEditing(false);
+                toast.success('Trip updated');
+              }}
+            />
+          )}
+          {deleting && (
+            <ConfirmDialog
+              open
+              onOpenChange={(o) => !o && setDeleting(false)}
+              title={`Delete the album “${a.title}”?`}
+              description="The photos stay where they are, in each person’s Trips folder in their files. Only the album goes."
+              confirmLabel="Delete album"
+              tone="danger"
+              onConfirm={async () => {
+                try {
+                  await m.remove.mutateAsync(a.id);
+                  navigate('/photos', { replace: true });
+                } catch (err) {
+                  toast.error(errorMessage(err));
+                }
+              }}
+            />
+          )}
+        </div>
+      )}
+    </QueryState>
+  );
+}

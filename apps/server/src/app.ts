@@ -18,6 +18,7 @@ import { adminRoutes } from './modules/admin/routes';
 import { passkeyRoutes } from './modules/auth/passkeys';
 import { authRoutes } from './modules/auth/routes';
 import { fileRoutes } from './modules/files/routes';
+import { photoRoutes } from './modules/photos/routes';
 import { linkRoutes } from './modules/sharing/links';
 import { sharingRoutes } from './modules/sharing/routes';
 import { uploadRoutes } from './modules/uploads/routes';
@@ -96,6 +97,7 @@ export async function buildApp(
       await api.register(sharingRoutes);
       await api.register(linkRoutes);
       await api.register(adminRoutes);
+      await api.register(photoRoutes);
       await api.register(brandingRoutes);
       await api.register(appPasswordRoutes);
     },

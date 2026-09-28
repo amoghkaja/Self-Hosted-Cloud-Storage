@@ -2,6 +2,7 @@ import type { Me } from '@familycloud/shared';
 import {
   ArrowLeft,
   HardDrive,
+  Images,
   LogOut,
   Menu,
   Search,
@@ -28,6 +29,7 @@ import { StorageSummary } from './StorageSummary';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
+  { to: '/photos', label: 'Photos', icon: Images, end: false },
   { to: '/shared', label: 'Shared with me', icon: Users, end: true },
   { to: '/trash', label: 'Trash', icon: Trash2, end: true },
 ];

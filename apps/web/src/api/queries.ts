@@ -2,6 +2,9 @@ import type {
   AdminInvite,
   AdminOverview,
   AdminUser,
+  AlbumDetail,
+  AlbumList,
+  AlbumPhotoPage,
   AppPassword,
   AuditPage,
   Branding,
@@ -62,6 +65,10 @@ export const qk = {
   sessions: ['sessions'] as const,
   appPasswords: ['app-passwords'] as const,
   passkeys: ['passkeys'] as const,
+  albums: ['albums'] as const,
+  albumList: (person: string | null) => ['albums', 'list', person ?? 'all'] as const,
+  album: (id: string) => ['albums', 'detail', id] as const,
+  albumPhotos: (id: string) => ['albums', 'photos', id] as const,
   admin: ['admin'] as const,
   adminOverview: ['admin', 'overview'] as const,
   adminInvites: ['admin', 'invites'] as const,
@@ -615,3 +622,62 @@ export function useAdminMutations() {
     }),
   };
 }
+
+// ── photos (trip albums) ────────────────────────────────────────────────────
+
+export interface AlbumInput {
+  title: string;
+  startDate: string;
+  endDate: string | null;
+  note?: string | null;
+  peopleIds: string[];
+}
+
+export function useAlbums(person: string | null) {
+  return useQuery({
+    queryKey: qk.albumList(person),
+    queryFn: () => api<AlbumList>('/albums', { query: { person: person ?? undefined } }),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useAlbum(id: string) {
+  return useQuery({ queryKey: qk.album(id), queryFn: () => api<AlbumDetail>(`/albums/${id}`) });
+}
+
+export function useAlbumPhotos(id: string) {
+  return useInfiniteQuery({
+    queryKey: qk.albumPhotos(id),
+    queryFn: ({ pageParam, signal }) =>
+      api<AlbumPhotoPage>(`/albums/${id}/photos`, { query: { cursor: pageParam }, signal }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function useAlbumMutations() {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: qk.albums });
+  return {
+    create: useMutation({
+      mutationFn: (body: AlbumInput) => api<AlbumDetail>('/albums', { json: body }),
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: ({
+        id,
+        ...body
+      }: Partial<AlbumInput> & { id: string; coverNodeId?: string | null }) =>
+        api<AlbumDetail>(`/albums/${id}`, { method: 'PATCH', json: body }),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api(`/albums/${id}`, { method: 'DELETE' }),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+/** The caller's upload folder for an album, created on first use. */
+export const albumFolder = (id: string) =>
+  api<{ folderId: string }>(`/albums/${id}/folder`, { json: {} });

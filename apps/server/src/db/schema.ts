@@ -5,6 +5,7 @@ import {
   bigserial,
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -318,6 +319,69 @@ export const passkeys = pgTable(
   ],
 );
 export type PasskeyRow = typeof passkeys.$inferSelect;
+
+/**
+ * Trip albums (the Photos section). An album owns no files itself: each person on the trip gets
+ * a folder in their own space ("Trips/<album>"), so their photos count against their own quota
+ * and show up in My Files and the network drive too. The album is everything in those folders.
+ */
+export const albums = pgTable(
+  'albums',
+  {
+    id: id(),
+    title: text('title').notNull(),
+    startDate: date('start_date', { mode: 'string' }).notNull(),
+    endDate: date('end_date', { mode: 'string' }),
+    note: text('note'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Chosen cover photo; falls back to the first photo. */
+    coverNodeId: uuid('cover_node_id').references(() => nodes.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('albums_start_idx').on(t.startDate),
+    check('albums_dates_check', sql`${t.endDate} IS NULL OR ${t.endDate} >= ${t.startDate}`),
+  ],
+);
+export type AlbumRow = typeof albums.$inferSelect;
+
+/** Who was on the trip: shown on the album and allowed to add photos. */
+export const albumPeople = pgTable(
+  'album_people',
+  {
+    albumId: uuid('album_id')
+      .notNull()
+      .references(() => albums.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.albumId, t.userId] }),
+    index('album_people_user_idx').on(t.userId),
+  ],
+);
+
+/** Each contributor's folder for an album. Deleting the folder removes their photos from it. */
+export const albumFolders = pgTable(
+  'album_folders',
+  {
+    albumId: uuid('album_id')
+      .notNull()
+      .references(() => albums.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    folderId: uuid('folder_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.albumId, t.userId] }),
+    uniqueIndex('album_folders_folder_key').on(t.folderId),
+  ],
+);
 
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
