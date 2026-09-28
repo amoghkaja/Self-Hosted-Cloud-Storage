@@ -27,6 +27,9 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/auth/setup-status` | `{needsSetup, appName, wordmark, logoVersion, homeUrl}`: public |
+| GET / POST | `/auth/passkeys` | List your passkeys / add one (after `POST /auth/passkeys/register/options`) |
+| PATCH / DELETE | `/auth/passkeys/:id` | Rename / remove a passkey |
+| POST | `/auth/passkeys/login/options`, `/auth/passkeys/login` | Sign in with a passkey (no email needed; counts as two-factor) |
 | GET | `/auth/storage` | `{usedBytes, quotaBytes, availableBytes}`: space left, after quota, family limit and disks |
 | POST | `/auth/setup` | Create the first admin (needs the setup token) |
 | POST | `/auth/login` | `{email, password}` → `{status:"ok", user}` or `{status:"mfa_required", mfaToken}` |

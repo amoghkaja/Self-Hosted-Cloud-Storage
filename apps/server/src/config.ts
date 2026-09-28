@@ -29,6 +29,14 @@ const Env = z.object({
     .string()
     .min(32, 'SECRET_KEY must be at least 32 characters (use: openssl rand -hex 32)'),
   APP_NAME: z.string().min(1).max(60).default('Family Cloud'),
+  /**
+   * Domain passkeys belong to. Defaults to PUBLIC_URL's host; set the parent domain
+   * (e.g. example.com for cloud.example.com) to share passkeys across its subdomains.
+   */
+  PASSKEY_RP_ID: z
+    .string()
+    .regex(/^[a-z0-9.-]+$/i)
+    .optional(),
   /** proxy-addr trust list: which peers may set X-Forwarded-For / CF-Connecting-IP. */
   TRUSTED_PROXIES: z.string().default('loopback,uniquelocal'),
   /** Directory with the built web app. When unset the API runs headless (dev uses Vite). */
@@ -63,6 +71,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   const e = parsed.data;
   const publicUrl = new URL(e.PUBLIC_URL);
+  if (
+    e.PASSKEY_RP_ID &&
+    publicUrl.hostname !== e.PASSKEY_RP_ID &&
+    !publicUrl.hostname.endsWith(`.${e.PASSKEY_RP_ID}`)
+  ) {
+    throw new Error(
+      `Invalid environment configuration:\n  PASSKEY_RP_ID: must be ${publicUrl.hostname} or a parent domain of it`,
+    );
+  }
   const dataDir = path.resolve(e.DATA_DIR);
   return {
     env: e.NODE_ENV,
@@ -79,6 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     cacheDir: path.join(dataDir, 'cache'),
     secretKey: e.SECRET_KEY,
     appName: e.APP_NAME,
+    passkeyRpId: e.PASSKEY_RP_ID ?? publicUrl.hostname,
     trustedProxies: e.TRUSTED_PROXIES.split(',')
       .map((s) => s.trim())
       .filter(Boolean),

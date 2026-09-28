@@ -1,8 +1,18 @@
-import { type FormEvent, useState } from 'react';
+import type { LoginResponse, Me } from '@familycloud/shared';
+import { useQueryClient } from '@tanstack/react-query';
+import { Fingerprint } from 'lucide-react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import { errorMessage } from '../../api/client';
-import { useLogin, useLoginTotp, useMe, useSetupStatus } from '../../api/queries';
+import { qk, useLogin, useLoginTotp, useMe, useSetupStatus } from '../../api/queries';
 import { Button, PasswordField, TextField } from '../../components/ui';
+import {
+  cancelPasskeyRequest,
+  passkeyAutofillSupported,
+  passkeyError,
+  passkeysSupported,
+  signInWithPasskey,
+} from '../../lib/passkeys';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { AuthLayout, FormError } from './AuthLayout';
 
@@ -24,8 +34,36 @@ export function LoginPage() {
   const [code, setCode] = useState('');
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const qc = useQueryClient();
+  const signedIn = me.data !== undefined;
+  const needsSetup = setup.data?.needsSetup;
 
   usePageTitle('Sign in');
+
+  const finish = (res: LoginResponse) => {
+    if (res.status !== 'ok') return;
+    qc.setQueryData<Me>(qk.me, res.user);
+    navigate(next, { replace: true });
+  };
+
+  // Offer saved passkeys right in the email field's suggestions (iOS/macOS/Chrome autofill).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per visit to the page
+  useEffect(() => {
+    if (signedIn || needsSetup) return;
+    let active = true;
+    void passkeyAutofillSupported().then((ok) => {
+      if (!ok || !active) return;
+      signInWithPasskey(true).then(finish, (err) => {
+        const message = passkeyError(err);
+        if (active && message) setError(message);
+      });
+    });
+    return () => {
+      active = false;
+      cancelPasskeyRequest();
+    };
+  }, [signedIn, needsSetup]);
 
   if (setup.data?.needsSetup) return <Navigate to="/setup" replace />;
   if (me.data) return <Navigate to={next} replace />;
@@ -39,6 +77,18 @@ export function LoginPage() {
       else navigate(next, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
+    }
+  };
+
+  const passkeySignIn = async () => {
+    setError(null);
+    setPasskeyBusy(true);
+    try {
+      finish(await signInWithPasskey());
+    } catch (err) {
+      setError(passkeyError(err));
+    } finally {
+      setPasskeyBusy(false);
     }
   };
 
@@ -97,7 +147,8 @@ export function LoginPage() {
         <TextField
           label="Email"
           type="email"
-          autoComplete="username"
+          // "webauthn" lets the browser list saved passkeys among the email suggestions.
+          autoComplete="username webauthn"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoFocus
@@ -113,6 +164,16 @@ export function LoginPage() {
         <Button type="submit" variant="primary" size="lg" loading={login.isPending}>
           Sign in
         </Button>
+        {passkeysSupported() && (
+          <Button
+            size="lg"
+            icon={<Fingerprint size={18} />}
+            loading={passkeyBusy}
+            onClick={passkeySignIn}
+          >
+            Sign in with a passkey
+          </Button>
+        )}
         <p className="text-center text-xs text-muted">
           Forgot your password? Ask a family admin to reset it.
         </p>

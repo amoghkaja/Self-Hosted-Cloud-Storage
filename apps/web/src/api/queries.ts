@@ -12,6 +12,7 @@ import type {
   Me,
   NodeDetail,
   NodePage,
+  Passkey,
   SessionInfo,
   Settings,
   SetupStatus,
@@ -35,6 +36,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import { addPasskey } from '../lib/passkeys';
 import { api } from './client';
 
 /**
@@ -59,6 +61,7 @@ export const qk = {
   directory: ['directory'] as const,
   sessions: ['sessions'] as const,
   appPasswords: ['app-passwords'] as const,
+  passkeys: ['passkeys'] as const,
   admin: ['admin'] as const,
   adminOverview: ['admin', 'overview'] as const,
   adminInvites: ['admin', 'invites'] as const,
@@ -110,6 +113,27 @@ export function useBrandingMutations() {
     }),
     removeLogo: useMutation({
       mutationFn: () => api<Branding>('/admin/branding/logo', { method: 'DELETE' }),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+export function usePasskeys() {
+  return useQuery({ queryKey: qk.passkeys, queryFn: () => api<Passkey[]>('/auth/passkeys') });
+}
+
+export function usePasskeyMutations() {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: qk.passkeys });
+  return {
+    add: useMutation({ mutationFn: addPasskey, onSuccess: refresh }),
+    rename: useMutation({
+      mutationFn: ({ id, name }: { id: string; name: string }) =>
+        api<Passkey>(`/auth/passkeys/${id}`, { method: 'PATCH', json: { name } }),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api(`/auth/passkeys/${id}`, { method: 'DELETE' }),
       onSuccess: refresh,
     }),
   };

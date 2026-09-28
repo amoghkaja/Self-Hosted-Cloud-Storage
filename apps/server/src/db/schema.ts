@@ -292,6 +292,33 @@ export const appPasswords = pgTable(
   ],
 );
 
+/** WebAuthn passkeys: public keys only, so a database leak reveals nothing that signs in. */
+export const passkeys = pgTable(
+  'passkeys',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** base64url credential id, as the browser reports it. */
+    credentialId: text('credential_id').notNull(),
+    /** base64url COSE public key. */
+    publicKey: text('public_key').notNull(),
+    counter: bigint('counter', { mode: 'number' }).notNull().default(0),
+    transports: jsonb('transports').$type<string[]>(),
+    /** Synced passkey (iCloud Keychain etc.) rather than one bound to a single device. */
+    backedUp: boolean('backed_up').notNull().default(false),
+    lastUsedAt: ts('last_used_at'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('passkeys_credential_id_key').on(t.credentialId),
+    index('passkeys_user_idx').on(t.userId),
+  ],
+);
+export type PasskeyRow = typeof passkeys.$inferSelect;
+
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: jsonb('value').notNull(),

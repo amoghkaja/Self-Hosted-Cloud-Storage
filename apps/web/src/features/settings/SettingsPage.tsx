@@ -1,6 +1,7 @@
-import type { CreateAppPasswordResponse, Me } from '@familycloud/shared';
+import type { CreateAppPasswordResponse, Me, Passkey } from '@familycloud/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  Fingerprint,
   HardDrive,
   KeyRound,
   Laptop,
@@ -15,7 +16,14 @@ import QRCode from 'qrcode';
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
 import { useLocation } from 'react-router';
 import { ApiError, api, errorMessage } from '../../api/client';
-import { qk, useAppPasswordMutations, useAppPasswords, useSessions } from '../../api/queries';
+import {
+  qk,
+  useAppPasswordMutations,
+  useAppPasswords,
+  usePasskeyMutations,
+  usePasskeys,
+  useSessions,
+} from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { StorageSummary } from '../../app/StorageSummary';
 import {
@@ -34,6 +42,7 @@ import {
 } from '../../components/ui';
 import { copyText } from '../../lib/clipboard';
 import { describeUserAgent, formatRelative } from '../../lib/format';
+import { passkeyError, passkeysSupported } from '../../lib/passkeys';
 import { type ThemeChoice, useTheme } from '../../lib/theme';
 import { usePageTitle } from '../../lib/usePageTitle';
 
@@ -559,6 +568,89 @@ function SessionsSection() {
   );
 }
 
+function PasskeysSection() {
+  const q = usePasskeys();
+  const m = usePasskeyMutations();
+  const [removing, setRemoving] = useState<Passkey | null>(null);
+  const supported = passkeysSupported();
+  const add = async () => {
+    try {
+      const p = await m.add.mutateAsync();
+      toast.success(`Passkey added for ${p.name}. Next time, sign in with Face ID or Touch ID.`);
+    } catch (err) {
+      const message = passkeyError(err);
+      if (message) toast.error(message);
+    }
+  };
+  return (
+    <Section
+      id="passkeys"
+      title="Passkeys"
+      description="Sign in with Face ID, Touch ID or your device PIN instead of typing a password. A passkey saved in iCloud Keychain works on all your Apple devices."
+    >
+      <QueryState
+        query={q}
+        loading={<Skeleton className="h-16" />}
+        isEmpty={(items) => items.length === 0}
+        empty={
+          <p className="mb-3 text-sm text-muted">
+            {supported
+              ? 'No passkeys yet.'
+              : 'This browser can’t create passkeys. Try Safari on your iPhone or Mac.'}
+          </p>
+        }
+      >
+        {(items) => (
+          <ul className="mb-3 divide-y divide-border">
+            {items.map((p) => (
+              <li key={p.id} className="flex items-center gap-3 py-2.5">
+                <Fingerprint size={18} className="shrink-0 text-muted" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{p.name}</p>
+                  <p className="text-xs text-muted">
+                    {p.backedUp ? 'Synced across your devices' : 'This device only'} · added{' '}
+                    {formatRelative(p.createdAt)}
+                    {p.lastUsedAt && ` · last used ${formatRelative(p.lastUsedAt)}`}
+                  </p>
+                </div>
+                <IconButton
+                  label={`Remove passkey ${p.name}`}
+                  icon={<Trash2 />}
+                  onClick={() => setRemoving(p)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </QueryState>
+      {supported && (
+        <Button icon={<Fingerprint size={16} />} loading={m.add.isPending} onClick={add}>
+          Add a passkey
+        </Button>
+      )}
+      {removing && (
+        <ConfirmDialog
+          open
+          onOpenChange={(o) => !o && setRemoving(null)}
+          title={`Remove the passkey “${removing.name}”?`}
+          description="It won’t sign you in any more. Also delete it from your device’s passwords list to tidy up."
+          confirmLabel="Remove"
+          tone="danger"
+          onConfirm={async () => {
+            try {
+              await m.remove.mutateAsync(removing.id);
+              setRemoving(null);
+              toast.success('Passkey removed');
+            } catch (err) {
+              toast.error(errorMessage(err));
+            }
+          }}
+        />
+      )}
+    </Section>
+  );
+}
+
 function AppearanceSection() {
   const [theme, setTheme] = useTheme();
   const options: { id: ThemeChoice; label: string; icon: ReactNode }[] = [
@@ -606,6 +698,7 @@ export function SettingsPage() {
       <h1 className="text-xl font-semibold">Settings</h1>
       <ProfileSection me={me} />
       <AppearanceSection />
+      <PasskeysSection />
       <DevicesSection />
       <TwoFactorSection me={me} />
       <PasswordSection />

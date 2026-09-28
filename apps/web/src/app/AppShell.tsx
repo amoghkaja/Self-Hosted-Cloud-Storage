@@ -22,6 +22,7 @@ import { cn } from '../lib/cn';
 import { type ThemeChoice, useTheme } from '../lib/theme';
 import type { ShellContext } from './guards';
 import { Logo, LogoMark } from './Logo';
+import { PasskeyNudge } from './PasskeyNudge';
 import { uploadManager } from './providers';
 import { StorageSummary } from './StorageSummary';
 
@@ -245,6 +246,7 @@ export function AppShell({ me }: { me: Me }) {
             <UserMenu me={me} />
           </div>
         </header>
+        <PasskeyNudge />
         {me.role === 'admin' && !me.totpEnabled && (
           <section
             aria-label="Security reminder"

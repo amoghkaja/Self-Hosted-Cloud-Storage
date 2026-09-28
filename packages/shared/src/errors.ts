@@ -13,6 +13,8 @@ export const ErrorCode = {
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
   MFA_INVALID: 'MFA_INVALID',
+  /** A passkey sign-in or registration could not be verified. */
+  PASSKEY_INVALID: 'PASSKEY_INVALID',
   /** Stored two-factor secrets can't be decrypted (SECRET_KEY changed); an admin must reset 2FA. */
   MFA_UNAVAILABLE: 'MFA_UNAVAILABLE',
   SETUP_COMPLETE: 'SETUP_COMPLETE',

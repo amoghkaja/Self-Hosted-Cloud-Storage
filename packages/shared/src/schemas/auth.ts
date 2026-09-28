@@ -115,3 +115,40 @@ export const CreateAppPasswordResponse = z.object({
   username: z.string(),
 });
 export type CreateAppPasswordResponse = z.infer<typeof CreateAppPasswordResponse>;
+
+// ── passkeys ────────────────────────────────────────────────────────────────
+
+export const Passkey = z.object({
+  id: Id,
+  name: z.string(),
+  /** Synced across the person's devices (e.g. iCloud Keychain). */
+  backedUp: z.boolean(),
+  createdAt: IsoDate,
+  lastUsedAt: IsoDate.nullable(),
+});
+export type Passkey = z.infer<typeof Passkey>;
+
+export const PasskeyName = z.string().trim().min(1).max(60);
+
+/** WebAuthn options for the browser plus a signed token that carries the challenge. */
+export const PasskeyOptions = z.object({
+  options: z.record(z.string(), z.unknown()),
+  token: z.string(),
+});
+export type PasskeyOptions = z.infer<typeof PasskeyOptions>;
+
+/** The browser's credential JSON; its structure is checked by the WebAuthn verifier. */
+const CredentialJson = z.record(z.string(), z.unknown());
+
+export const RegisterPasskeyBody = z.object({
+  token: z.string().max(2000),
+  response: CredentialJson,
+  name: PasskeyName.optional(),
+});
+
+export const PasskeyLoginBody = z.object({
+  token: z.string().max(2000),
+  response: CredentialJson,
+});
+
+export const RenamePasskeyBody = z.object({ name: PasskeyName });

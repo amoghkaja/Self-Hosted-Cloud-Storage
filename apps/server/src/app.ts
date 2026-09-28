@@ -15,6 +15,7 @@ import { storageVolumes } from './db/schema';
 import { createClientIpResolver } from './lib/client-ip';
 import { brandingRoutes, loadBranding } from './modules/admin/branding';
 import { adminRoutes } from './modules/admin/routes';
+import { passkeyRoutes } from './modules/auth/passkeys';
 import { authRoutes } from './modules/auth/routes';
 import { fileRoutes } from './modules/files/routes';
 import { linkRoutes } from './modules/sharing/links';
@@ -89,6 +90,7 @@ export async function buildApp(
   await app.register(
     async (api) => {
       await api.register(authRoutes);
+      await api.register(passkeyRoutes);
       await api.register(fileRoutes);
       await api.register(uploadRoutes);
       await api.register(sharingRoutes);
