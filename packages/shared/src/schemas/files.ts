@@ -35,6 +35,8 @@ export const NodeDetail = z.object({
   /** Path from the top-most node the caller may see (their root or a share root) to this node. */
   breadcrumbs: z.array(Breadcrumb),
   isRoot: z.boolean(),
+  /** Set when this folder feeds a trip album: everything in it is visible to the whole family. */
+  album: z.object({ id: Id, title: z.string() }).nullable(),
 });
 export type NodeDetail = z.infer<typeof NodeDetail>;
 

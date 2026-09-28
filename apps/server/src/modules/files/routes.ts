@@ -18,7 +18,7 @@ import {
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { blobs, nodes, users } from '../../db/schema';
+import { albumFolders, albums, blobs, nodes, users } from '../../db/schema';
 import { audit } from '../../lib/audit';
 import { toFileNode } from '../../lib/dto';
 import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
@@ -46,16 +46,24 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       const a = await requireAccess(db, user.id, req.params.id, 'view');
-      const [owner] = await db
-        .select({ id: users.id, displayName: users.displayName })
-        .from(users)
-        .where(eq(users.id, a.node.ownerId));
+      const [[owner], [album]] = await Promise.all([
+        db
+          .select({ id: users.id, displayName: users.displayName })
+          .from(users)
+          .where(eq(users.id, a.node.ownerId)),
+        db
+          .select({ id: albums.id, title: albums.title })
+          .from(albumFolders)
+          .innerJoin(albums, eq(albums.id, albumFolders.albumId))
+          .where(eq(albumFolders.folderId, a.node.id)),
+      ]);
       return {
         node: toFileNode(a.node),
         access: a.access,
         owner: owner!,
         breadcrumbs: a.breadcrumbs,
         isRoot: a.isRoot,
+        album: album ?? null,
       };
     },
   );

@@ -1,5 +1,5 @@
 import type { Album } from '@familycloud/shared';
-import { Images, Plus } from 'lucide-react';
+import { Images, Plus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { apiUrl } from '../../api/client';
@@ -79,7 +79,7 @@ export function PhotosPage() {
   const directory = useDirectory();
   const m = useAlbumMutations();
   const [creating, setCreating] = useState(false);
-  usePageTitle('Photos');
+  usePageTitle('Family Photos');
 
   const family = [{ id: me.id, displayName: me.displayName }, ...(directory.data?.items ?? [])];
   const years = useMemo(() => {
@@ -101,10 +101,15 @@ export function PhotosPage() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium tracking-[0.22em] text-accent uppercase">
-            Family trips
+          <p className="text-xs font-medium tracking-[0.22em] text-accent uppercase">Trip albums</p>
+          <h1 className="font-display text-4xl leading-tight sm:text-5xl">Family Photos</h1>
+          <p className="mt-2 flex items-start gap-1.5 text-sm text-muted">
+            <Users size={16} aria-hidden className="mt-0.5 shrink-0 text-accent" />
+            <span>
+              Everyone in the family can see every album here. Your own files stay private in My
+              Files.
+            </span>
           </p>
-          <h1 className="font-display text-4xl leading-tight sm:text-5xl">Photos</h1>
         </div>
         <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>
           New trip

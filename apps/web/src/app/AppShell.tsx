@@ -29,7 +29,7 @@ import { StorageSummary } from './StorageSummary';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
-  { to: '/photos', label: 'Photos', icon: Images, end: false },
+  { to: '/photos', label: 'Family Photos', icon: Images, end: false },
   { to: '/shared', label: 'Shared with me', icon: Users, end: true },
   { to: '/trash', label: 'Trash', icon: Trash2, end: true },
 ];

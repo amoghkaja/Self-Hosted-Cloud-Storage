@@ -8,8 +8,10 @@ import {
   FolderUp,
   LayoutGrid,
   List,
+  Lock,
   Trash2,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -23,7 +25,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { ApiError, contentUrl, errorMessage, thumbUrl } from '../../api/client';
 import { qk, useChildren, useNode } from '../../api/queries';
 import { useShell } from '../../app/guards';
@@ -190,6 +192,12 @@ function FileBrowser({ folderId }: { folderId: string }) {
               {access === 'edit' ? 'Shared with you · can edit' : 'Shared with you · view only'}
             </p>
           )}
+          {access === 'owner' && !detail.data?.album && (
+            <p className="flex items-center gap-1.5 px-1.5 text-xs text-muted">
+              <Lock size={12} aria-hidden />
+              Private: only you can see these, unless you share them.
+            </p>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-1">
           {canEdit && (
@@ -252,6 +260,22 @@ function FileBrowser({ folderId }: { folderId: string }) {
           />
         </div>
       </div>
+
+      {detail.data?.album && (
+        <p className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-accent/30 bg-accent-soft px-3 py-2 text-sm">
+          <Users size={16} aria-hidden className="shrink-0 text-accent" />
+          <span className="min-w-0 flex-1">
+            Photos here are part of the family album “{detail.data.album.title}”. The whole family
+            can see them.
+          </span>
+          <Link
+            to={`/photos/${detail.data.album.id}`}
+            className="font-medium text-accent underline-offset-2 hover:underline"
+          >
+            Open album
+          </Link>
+        </p>
+      )}
 
       {selecting && (
         <div

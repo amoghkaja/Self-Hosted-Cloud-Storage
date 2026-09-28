@@ -8,6 +8,7 @@ import {
   Pencil,
   Play,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -127,7 +128,7 @@ export function AlbumPage() {
         files.map((file) => ({ file, relativeDir: '' })),
       );
       toast.success(
-        `Uploading ${files.length} ${files.length === 1 ? 'photo' : 'photos'}. They appear here as they finish.`,
+        `Uploading ${files.length} ${files.length === 1 ? 'photo' : 'photos'} to the family album. They appear here as they finish.`,
       );
     } catch (err) {
       toast.error(errorMessage(err));
@@ -170,6 +171,10 @@ export function AlbumPage() {
                   · {a.photoCount} {a.photoCount === 1 ? 'photo' : 'photos'}
                 </span>
               </div>
+              <p className="mt-3 flex items-center gap-1.5 text-sm text-muted">
+                <Users size={16} aria-hidden className="shrink-0 text-accent" />
+                Family album: everyone in the family can see these photos.
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {a.canContribute && (

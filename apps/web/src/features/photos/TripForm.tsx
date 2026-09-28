@@ -72,7 +72,7 @@ export function TripDialog({
       open
       onOpenChange={(o) => !o && onClose()}
       title={title}
-      description="Everyone you tick can add their photos. The whole family can see the album."
+      description="The whole family will see this album. Everyone you tick can add their photos to it."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>

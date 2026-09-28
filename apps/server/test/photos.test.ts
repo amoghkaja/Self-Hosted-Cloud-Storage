@@ -73,6 +73,12 @@ describe('trip albums', () => {
     // …but still not through the file API, which is private to the owner.
     expect((await kid.get(`/nodes/${b}/content`)).status).toBe(404);
 
+    // Their trip folder says it feeds a family album; ordinary folders don't.
+    const tripFolder = (await dad.get(`/nodes/${folderId}`)).body;
+    expect(tripFolder.album).toEqual({ id: album.id, title: 'Goa' });
+    const home = (await dad.get(`/nodes/${tripFolder.breadcrumbs[0].id}`)).body;
+    expect(home.album).toBeNull();
+
     // Each person's photos count against their own quota and live in their own Trips folder.
     const dadMe = (await dad.get('/auth/me')).body;
     expect(dadMe.usedBytes).toBeGreaterThanOrEqual(500);
