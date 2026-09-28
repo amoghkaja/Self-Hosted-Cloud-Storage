@@ -10,13 +10,20 @@ import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { toFileNode } from '../../lib/dto';
-import { badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
+import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
 import { thumbPaths } from '../../storage/thumbs';
 
 /** Advisory lock guarding usage counters: exclusive for sum checks/reconcile, shared otherwise. */
 export const QUOTA_LOCK = 727_002;
 
 // ── listing ─────────────────────────────────────────────────────────────────
+
+/**
+ * Name order for listings: case-insensitive with numbers compared by value, like Finder and
+ * Explorer ("IMG_2" before "IMG_10"). Matches nodes_children_idx; the collation is created by
+ * migration 0003.
+ */
+export const nameSortKey = sql`(lower(${nodes.name}) COLLATE "natural")`;
 
 type Cursor = [type: 'folder' | 'file', key: string | number, id: string];
 
@@ -51,7 +58,7 @@ export async function listChildren(
 ): Promise<NodePage> {
   const key: SQL =
     q.sort === 'name'
-      ? sql`lower(${nodes.name})`
+      ? nameSortKey
       : q.sort === 'updated'
         ? sql`date_trunc('milliseconds', ${nodes.updatedAt})`
         : sql`${nodes.size}`;
@@ -74,7 +81,7 @@ export async function listChildren(
   }
 
   const rows = await exec
-    .select({ node: nodes, thumb: blobs.thumbStatus })
+    .select({ node: nodes, thumb: blobs.thumbStatus, nameKey: sql<string>`lower(${nodes.name})` })
     .from(nodes)
     .leftJoin(blobs, eq(blobs.id, nodes.blobId))
     .where(and(...conditions))
@@ -86,12 +93,10 @@ export async function listChildren(
   let nextCursor: string | null = null;
   if (rows.length > q.limit && last) {
     const n = last.node;
+    // The name key comes from Postgres: JS toLowerCase() differs from lower() for some letters,
+    // which would skip or repeat rows at a page boundary.
     const k =
-      q.sort === 'name'
-        ? n.name.toLowerCase()
-        : q.sort === 'updated'
-          ? n.updatedAt.toISOString()
-          : n.size;
+      q.sort === 'name' ? last.nameKey : q.sort === 'updated' ? n.updatedAt.toISOString() : n.size;
     nextCursor = encodeCursor([n.type, k, n.id]);
   }
   return { items: page.map((r) => toFileNode({ ...r.node, thumb: r.thumb })), nextCursor };
@@ -211,19 +216,77 @@ export async function updateNode(
   }
 }
 
+/**
+ * Renames and/or moves a node. Moves are serialized per tree owner and re-check the target
+ * under that lock: two concurrent moves (A into B, B into A) could otherwise both pass the
+ * cycle check and detach both folders from the tree. The target is share-locked so a
+ * concurrent trash of it waits and then takes the moved node along. `replaceId` (WebDAV MOVE
+ * with Overwrite) is trashed in the same transaction, so a failed move leaves it in place.
+ */
+export async function moveNode(
+  exec: Executor,
+  node: { id: string; ownerId: string },
+  patch: { name?: string; parentId?: string },
+  replaceId?: string,
+): Promise<NodeRow> {
+  return exec.transaction(async (tx) => {
+    if (patch.parentId !== undefined) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`move:${node.ownerId}`}))`);
+      const [target] = await tx
+        .select({
+          id: nodes.id,
+          ownerId: nodes.ownerId,
+          type: nodes.type,
+          deletedAt: nodes.deletedAt,
+        })
+        .from(nodes)
+        .where(eq(nodes.id, patch.parentId))
+        .for('share');
+      if (!target || target.deletedAt || target.type !== 'folder') throw notFound('Folder');
+      if (target.ownerId !== node.ownerId) {
+        throw new AppError(
+          400,
+          ErrorCode.INVALID_MOVE,
+          "Items can only be moved within the same person's files",
+        );
+      }
+      if (target.id === node.id || (await isAncestor(tx, node.id, target.id))) {
+        throw new AppError(400, ErrorCode.INVALID_MOVE, 'A folder cannot be moved into itself');
+      }
+    }
+    if (replaceId) await trashSubtree(tx, replaceId);
+    return updateNode(tx, node.id, patch);
+  });
+}
+
 // ── trash ───────────────────────────────────────────────────────────────────
 
-/** Moves a node and its live descendants to the trash as one restorable unit. */
+/**
+ * Moves a node and its live descendants to the trash as one restorable unit.
+ * The subtree's folders are locked first: an upload committing into one of them holds that
+ * folder (lockWriteAccess), so it finishes before the trash, and the UPDATE (a new statement,
+ * with a fresh snapshot) then takes its file along instead of leaving it live in a trashed
+ * folder.
+ */
 export async function trashSubtree(exec: Executor, nodeId: string): Promise<void> {
-  await exec.execute(sql`
+  const subtree = sql`
     WITH RECURSIVE sub AS (
       SELECT id FROM nodes WHERE id = ${nodeId} AND deleted_at IS NULL
       UNION ALL
       SELECT n.id FROM nodes n JOIN sub s ON n.parent_id = s.id WHERE n.deleted_at IS NULL
     )
-    UPDATE nodes SET deleted_at = now(), trash_root_id = ${nodeId}
-    WHERE id IN (SELECT id FROM sub)
-  `);
+    SELECT id FROM sub
+  `;
+  await exec.transaction(async (tx) => {
+    await tx.execute(sql`
+      SELECT id FROM nodes WHERE type = 'folder' AND id IN (${subtree})
+      ORDER BY id FOR NO KEY UPDATE
+    `);
+    await tx.execute(sql`
+      UPDATE nodes SET deleted_at = now(), trash_root_id = ${nodeId}
+      WHERE id IN (${subtree}) AND deleted_at IS NULL
+    `);
+  });
 }
 
 /** Restores a trashed unit into its original folder, or the owner's root if that folder is gone. */
@@ -290,12 +353,25 @@ export async function purgeTrashRoots(
         )
         .for('update');
       if (!root) return null;
-      const fileRows = (await tx.execute(sql`
+      // The unit, stopping at items that were trashed on their own before this folder was:
+      // those are separate trash entries.
+      const unit = sql`
         WITH RECURSIVE sub AS (
           SELECT id, type, blob_id, size FROM nodes WHERE id = ${rootId}
           UNION ALL
           SELECT n.id, n.type, n.blob_id, n.size FROM nodes n JOIN sub s ON n.parent_id = s.id
+          WHERE n.trash_root_id IS DISTINCT FROM n.id
         )
+      `;
+      // Keep those entries restorable instead of letting the cascade delete them with this
+      // unit: they move to the owner's root, which is where restoring them leads anyway.
+      await tx.execute(sql`
+        ${unit}
+        UPDATE nodes SET parent_id = (SELECT root_node_id FROM users WHERE id = ${root.ownerId})
+        WHERE trash_root_id = id AND id <> ${rootId} AND parent_id IN (SELECT id FROM sub)
+      `);
+      const fileRows = (await tx.execute(sql`
+        ${unit}
         SELECT blob_id AS "blobId", size FROM sub WHERE type = 'file' AND blob_id IS NOT NULL
       `)) as unknown as { blobId: string; size: number }[];
       await tx.delete(nodes).where(eq(nodes.id, rootId));

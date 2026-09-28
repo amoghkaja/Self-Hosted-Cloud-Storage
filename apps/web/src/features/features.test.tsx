@@ -1,7 +1,11 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { GiB } from '@familycloud/shared';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '../components/ui';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
+import { ByteSizeInput } from './admin/ByteSizeInput';
 import { LoginPage } from './auth/LoginPage';
 import { FileView, type ViewItem } from './files/FileView';
 
@@ -58,6 +62,76 @@ describe('FileView', () => {
     await userEvent.keyboard('{Enter}');
     expect(onOpen).toHaveBeenCalledWith(items[3]);
     await expectAccessible(grid);
+  });
+
+  it('Shift+arrows extend from the current item even before anything was selected', async () => {
+    const onSelection = vi.fn();
+    renderWithProviders(
+      <FileView
+        items={items}
+        view="list"
+        label="Files"
+        onOpen={() => {}}
+        onSelectionChange={onSelection}
+        actionsFor={() => []}
+      />,
+    );
+    const grid = await screen.findByRole('grid', { name: 'Files' });
+    const rows = within(grid).getAllByRole('row').slice(1);
+    rows[0]!.focus(); // tabbing in: no click, no anchor yet
+    await userEvent.keyboard('{Shift>}{ArrowDown}{ArrowDown}{/Shift}');
+    await waitFor(() => expect(rows[2]).toHaveAttribute('aria-selected', 'true'));
+    expect(rows[0]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('opens the item menu from the keyboard and offers Select', async () => {
+    const onSelection = vi.fn();
+    renderWithProviders(
+      <FileView
+        items={items}
+        view="list"
+        label="Files"
+        onOpen={() => {}}
+        onSelectionChange={onSelection}
+        actionsFor={() => [{ id: 'open', label: 'Open', onSelect: () => {} }]}
+      />,
+    );
+    const rows = within(await screen.findByRole('grid'))
+      .getAllByRole('row')
+      .slice(1);
+    rows[1]!.focus();
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}');
+    const menu = await screen.findByRole('menu', { name: /Recipes/ });
+    // Opened from the keyboard: focus goes into the menu.
+    expect(within(menu).getByRole('menuitem', { name: 'Open' })).toHaveFocus();
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Select' }));
+    await waitFor(() => expect(rows[1]).toHaveAttribute('aria-selected', 'true'));
+  });
+
+  it('keeps keyboard focus in the list when the focused item is removed', async () => {
+    function Harness() {
+      const [list, setList] = useState(items);
+      return (
+        <FileView
+          items={list}
+          view="list"
+          label="Files"
+          onOpen={() => {}}
+          onDelete={(ids) => setList((l) => l.filter((i) => !ids.includes(i.id)))}
+          actionsFor={() => []}
+        />
+      );
+    }
+    renderWithProviders(<Harness />);
+    const grid = await screen.findByRole('grid');
+    within(grid).getAllByRole('row')[2]!.focus(); // "Recipes"
+    await userEvent.keyboard('{Delete}');
+    await waitFor(() =>
+      expect(within(grid).getByRole('row', { name: /notes\.txt/ })).toHaveFocus(),
+    );
+    // No actions (e.g. a view-only public link): no empty menu button.
+    expect(within(grid).queryByRole('button', { name: /More actions/ })).toBeNull();
   });
 
   it('sort headers announce the current order', async () => {
@@ -131,5 +205,36 @@ describe('LoginPage', () => {
       mfaToken: 'tok',
       code: '123456',
     });
+  });
+});
+
+describe('ByteSizeInput', () => {
+  it('keeps what is being typed instead of re-deriving it from bytes', async () => {
+    const onChange = vi.fn();
+    function Harness() {
+      const [v, setV] = useState<number | null>(50 * GiB);
+      return (
+        <ByteSizeInput
+          label="Quota"
+          value={v}
+          onChange={(b) => {
+            onChange(b);
+            setV(b);
+          }}
+        />
+      );
+    }
+    const { container } = render(
+      <TooltipProvider>
+        <Harness />
+      </TooltipProvider>,
+    );
+    const amount = screen.getByLabelText('Quota amount');
+    await userEvent.clear(amount);
+    expect(amount).toHaveValue(null); // not snapped back to "0"
+    await userEvent.type(amount, '0.125');
+    expect(amount).toHaveValue(0.125);
+    expect(onChange).toHaveBeenLastCalledWith(Math.round(0.125 * GiB));
+    await expectAccessible(container);
   });
 });

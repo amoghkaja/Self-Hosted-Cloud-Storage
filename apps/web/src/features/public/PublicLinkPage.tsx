@@ -1,9 +1,10 @@
 import type { PublicFolder, PublicLinkInfo, PublicNode } from '@familycloud/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cloud, Download, FolderOpen, Lock } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ApiError, api, apiUrl, errorMessage } from '../../api/client';
+import { useSetupStatus } from '../../api/queries';
 import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { triggerDownload } from '../files/actions';
@@ -12,6 +13,7 @@ import { FileView } from '../files/FileView';
 const PreviewModal = lazy(() => import('../files/PreviewModal'));
 
 function Frame({ sharedBy, children }: { sharedBy?: string; children: React.ReactNode }) {
+  const appName = useSetupStatus().data?.appName ?? 'Family Cloud';
   return (
     <div className="min-h-dvh">
       <header className="flex h-14 items-center gap-2 border-b border-border px-4">
@@ -21,8 +23,10 @@ function Frame({ sharedBy, children }: { sharedBy?: string; children: React.Reac
         >
           <Cloud size={16} />
         </span>
-        <span className="text-sm font-semibold">Family Cloud</span>
-        {sharedBy && <span className="ml-auto text-xs text-muted">Shared by {sharedBy}</span>}
+        <span className="truncate text-sm font-semibold">{appName}</span>
+        {sharedBy && (
+          <span className="ml-auto shrink-0 text-xs text-muted">Shared by {sharedBy}</span>
+        )}
       </header>
       <main className="mx-auto max-w-5xl px-3 py-5 md:px-6">{children}</main>
     </div>
@@ -43,15 +47,24 @@ export function PublicLinkPage() {
     retry: false,
   });
   const isFolder = info.data?.node?.type === 'folder';
-  const folder = useQuery({
+  const folder = useInfiniteQuery({
     queryKey: ['public', token, 'folder', folderId ?? ''],
-    queryFn: () => api<PublicFolder>(`${base}/folder`, { query: { folderId } }),
+    queryFn: ({ pageParam, signal }) =>
+      api<PublicFolder>(`${base}/folder`, { query: { folderId, cursor: pageParam }, signal }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!info.data && !info.data.locked && isFolder,
   });
+  const listing = folder.data?.pages[0];
+  const items: PublicNode[] = useMemo(
+    () => folder.data?.pages.flatMap((pg) => pg.items) ?? [],
+    [folder.data],
+  );
   const [password, setPassword] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
-  const [preview, setPreview] = useState<number | null>(null);
+  // By id: the index would drift if the listing refreshes while a preview is open.
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   usePageTitle(info.data?.node ? info.data.node.name : 'Shared with you');
 
@@ -136,7 +149,11 @@ export function PublicLinkPage() {
         <div className="flex flex-col items-center gap-4 py-10 text-center">
           <h1 className="text-xl font-semibold break-all">{root.name}</h1>
           <div className="flex gap-2">
-            <Button variant="primary" icon={<FolderOpen size={16} />} onClick={() => setPreview(0)}>
+            <Button
+              variant="primary"
+              icon={<FolderOpen size={16} />}
+              onClick={() => setPreviewId(root.id)}
+            >
               Preview
             </Button>
             {data.allowDownload && (
@@ -149,13 +166,13 @@ export function PublicLinkPage() {
             )}
           </div>
         </div>
-        {preview !== null && (
+        {previewId !== null && (
           <Suspense fallback={null}>
             <PreviewModal
               items={[root]}
               index={0}
               onIndexChange={() => {}}
-              onClose={() => setPreview(null)}
+              onClose={() => setPreviewId(null)}
               source={source}
             />
           </Suspense>
@@ -164,13 +181,14 @@ export function PublicLinkPage() {
     );
   }
 
-  const items: PublicNode[] = folder.data?.items ?? [];
   const files = items.filter((i) => i.type === 'file');
+  const previewIndex = previewId ? files.findIndex((f) => f.id === previewId) : -1;
   return (
     <Frame sharedBy={data.sharedBy}>
+      <h1 className="sr-only">{listing?.folder.name ?? root.name}</h1>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <nav aria-label="Folder path" className="min-w-0 flex-1 text-sm">
-          {folder.data?.breadcrumbs.map((b, i, arr) => (
+          {listing?.breadcrumbs.map((b, i, arr) => (
             <span key={b.id}>
               {i > 0 && <span className="px-1 text-muted">/</span>}
               {i === arr.length - 1 ? (
@@ -189,10 +207,10 @@ export function PublicLinkPage() {
             </span>
           ))}
         </nav>
-        {data.allowDownload && folder.data && (
+        {data.allowDownload && listing && (
           <Button
             icon={<Download size={16} />}
-            onClick={() => triggerDownload(apiUrl(`${base}/zip/${folder.data.folder.id}`))}
+            onClick={() => triggerDownload(apiUrl(`${base}/zip/${listing.folder.id}`))}
           >
             Download all
           </Button>
@@ -200,18 +218,25 @@ export function PublicLinkPage() {
       </div>
       {folder.isPending ? (
         <Skeleton className="h-64" />
+      ) : folder.isError ? (
+        <ErrorState
+          title="Couldn't open this folder"
+          error={folder.error}
+          onRetry={() => void folder.refetch()}
+        />
       ) : items.length === 0 ? (
         <EmptyState icon={<FolderOpen />} title="This folder is empty" />
       ) : (
         <FileView<PublicNode>
+          // A fresh list per folder: focus, selection and scroll don't carry over.
+          key={folderId ?? 'root'}
           items={items}
+          hasMore={folder.hasNextPage}
+          loadingMore={folder.isFetchingNextPage}
+          onLoadMore={() => void folder.fetchNextPage()}
           view="list"
-          label={`Contents of ${folder.data?.folder.name ?? root.name}`}
-          onOpen={(n) =>
-            n.type === 'folder'
-              ? setParams({ folder: n.id })
-              : setPreview(files.findIndex((f) => f.id === n.id))
-          }
+          label={`Contents of ${listing?.folder.name ?? root.name}`}
+          onOpen={(n) => (n.type === 'folder' ? setParams({ folder: n.id }) : setPreviewId(n.id))}
           thumbSrc={(n) => (n.thumb === 'ready' ? source.thumb(n.id, 256) : undefined)}
           actionsFor={(n) =>
             data.allowDownload
@@ -232,13 +257,13 @@ export function PublicLinkPage() {
           }
         />
       )}
-      {preview !== null && preview >= 0 && (
+      {previewIndex >= 0 && (
         <Suspense fallback={null}>
           <PreviewModal
             items={files}
-            index={preview}
-            onIndexChange={setPreview}
-            onClose={() => setPreview(null)}
+            index={previewIndex}
+            onIndexChange={(i) => setPreviewId(files[i]?.id ?? null)}
+            onClose={() => setPreviewId(null)}
             source={source}
           />
         </Suspense>

@@ -147,6 +147,126 @@ describe('UploadManager', () => {
     expect(m.getSnapshot()[0]!.status).toBe('canceled');
   });
 
+  it('cancelling while the session is being created sends nothing and releases it', async () => {
+    const { t } = fakeTransport();
+    let createDone!: () => void;
+    const created = new Promise<void>((r) => (createDone = r));
+    const create = vi.mocked(t.createUpload);
+    const real = create.getMockImplementation()!;
+    create.mockImplementation(async (body) => {
+      await created;
+      return real(body);
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('p', [{ file: new File(['abcdef'], 'late.bin'), relativeDir: '' }]);
+    await settle();
+    m.cancel(m.getSnapshot()[0]!.id);
+    createDone();
+    await waitIdle(m);
+    for (let i = 0; i < 5; i++) await settle();
+    expect(t.putChunk).not.toHaveBeenCalled();
+    expect(t.abortUpload).toHaveBeenCalledWith('s-late.bin');
+    expect(m.getSnapshot()[0]!.status).toBe('canceled');
+  });
+
+  it('retrying a failed upload resumes the server session instead of starting over', async () => {
+    const { t, put } = fakeTransport();
+    const chunk = t.putChunk as ReturnType<typeof vi.fn>;
+    const real = chunk.getMockImplementation()!;
+    chunk.mockImplementationOnce(async () => {
+      throw new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected');
+    });
+    const get = t.getUpload as ReturnType<typeof vi.fn>;
+    const m = new UploadManager(t, { retryBaseMs: 1, chunkConcurrency: 1 });
+    m.add('p', [{ file: new File(['abcdefgh'], 'r.bin'), relativeDir: '' }]); // 2 chunks
+    await waitIdle(m);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'error', error: 'Chunk rejected' });
+
+    chunk.mockImplementation(real);
+    // The server still has the session open, with chunk 1 already received.
+    get.mockImplementation(async (id: string) =>
+      put.length === 0
+        ? { id, chunkSize: 4, totalChunks: 2, receivedChunks: [1], status: 'uploading', node: null }
+        : { id, status: 'completed', node: node('r') },
+    );
+    m.retry(m.getSnapshot()[0]!.id);
+    await waitIdle(m);
+    expect(t.createUpload).toHaveBeenCalledTimes(1);
+    expect(put).toEqual([0]);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'r' });
+  });
+
+  it('closing the panel dismisses failures and releases their reserved space', async () => {
+    const { t } = fakeTransport();
+    (t.putChunk as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected'),
+    );
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('p', [{ file: new File(['abc'], 'f.bin'), relativeDir: '' }]);
+    await waitIdle(m);
+    expect(m.getSnapshot()[0]!.status).toBe('error');
+    m.clearFinished();
+    expect(m.getSnapshot()).toEqual([]);
+    expect(t.abortUpload).toHaveBeenCalledWith('s-f.bin');
+  });
+
+  it('refreshes the folder a folder upload creates its first folder in', async () => {
+    const { t } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('x'),
+      status: 'completed',
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    const changed: string[] = [];
+    m.onFolderChanged = (id) => changed.push(id);
+    m.add('root', [{ file: new File(['1'], '1.jpg'), relativeDir: 'Trip/Day 1' }]);
+    await waitIdle(m);
+    // "Trip" appears in the folder the user is looking at, not just "Day 1" deep inside.
+    expect(changed).toContain('root');
+    expect(changed).toContain('root/Trip/Day 1');
+  });
+
+  it('reset stops everything and forgets the list', async () => {
+    const { t } = fakeTransport();
+    (t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(
+      (_s: string, _i: number, _d: Blob, _p: unknown, signal: AbortSignal) =>
+        new Promise((_res, rej) =>
+          signal.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError'))),
+        ),
+    );
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('p', [{ file: new File(['abcdef'], 'g.bin'), relativeDir: '' }]);
+    await settle();
+    await settle();
+    m.reset();
+    await waitIdle(m);
+    expect(m.getSnapshot()).toEqual([]);
+    expect(m.busy).toBe(false);
+  });
+
+  it('keeps unchanged items identical between snapshots', async () => {
+    const { t } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('n'),
+      status: 'completed',
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, fileConcurrency: 1 });
+    m.add('p', [
+      { file: new File(['a'], 'one.bin'), relativeDir: '' },
+      { file: new File(['b'], 'two.bin'), relativeDir: '' },
+    ]);
+    const first = m.getSnapshot();
+    await waitIdle(m);
+    const done = m.getSnapshot();
+    expect(done[0]).not.toBe(first[0]);
+    m.add('p', [{ file: new File(['c'], 'three.bin'), relativeDir: '' }]);
+    const next = m.getSnapshot();
+    expect(next).toHaveLength(3);
+    expect(next[0]).toBe(done[0]);
+    expect(next[1]).toBe(done[1]);
+    await waitIdle(m);
+  });
+
   it('batches progress notifications instead of emitting per byte', async () => {
     const { t } = fakeTransport({ chunkSize: 1 });
     (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({

@@ -66,9 +66,10 @@ function TextPreview({ url }: { url: string }) {
 }
 
 function Viewer({ item, source }: { item: PreviewItem; source: PreviewSource }) {
-  const [loaded, setLoaded] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset the spinner whenever the shown file changes
-  useEffect(() => setLoaded(false), [item.id]);
+  // Keyed by file rather than reset in an effect: a cached image can finish loading before an
+  // effect runs, which left the spinner stuck on top of it.
+  const [image, setImage] = useState<{ id: string; state: 'loaded' | 'error' } | null>(null);
+  const imageState = image?.id === item.id ? image.state : 'loading';
   const kind = kindOf(item);
   const mime = (item.mimeType ?? '').toLowerCase();
 
@@ -80,15 +81,21 @@ function Viewer({ item, source }: { item: PreviewItem; source: PreviewSource }) 
         : BROWSER_IMAGES.has(mime)
           ? source.content(item.id, true)
           : null;
+    if (src && imageState === 'error') {
+      return <p className="text-white/80">Could not load this image.</p>;
+    }
     if (src) {
       return (
         <>
-          {!loaded && <Spinner size={28} label="Loading image" className="absolute text-white" />}
+          {imageState === 'loading' && (
+            <Spinner size={28} label="Loading image" className="absolute text-white" />
+          )}
           <img
             key={item.id}
             src={src}
             alt={item.name}
-            onLoad={() => setLoaded(true)}
+            onLoad={() => setImage({ id: item.id, state: 'loaded' })}
+            onError={() => setImage({ id: item.id, state: 'error' })}
             className="max-h-full max-w-full object-contain"
           />
         </>

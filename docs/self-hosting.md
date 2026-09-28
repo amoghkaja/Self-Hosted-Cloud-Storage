@@ -32,7 +32,7 @@ It then:
 
 1. creates `/srv/familycloud/{volumes/disk1,db,cache,backups}` owned by your user,
 2. writes `deploy/.env` with freshly generated secrets (readable only by you),
-3. pulls (or builds) the image and starts the database, app and worker,
+3. pulls (or builds) the image and starts the database, app and worker (plus `cloudflared` if you gave a tunnel token),
 4. prints a **setup token**.
 
 The app is now running at `http://127.0.0.1:3080` on that machine.
@@ -51,10 +51,10 @@ Pick one:
 
 ### Cloudflare Tunnel
 
-Follow [cloudflare-tunnel.md](cloudflare-tunnel.md), put the token in `deploy/.env` as `CLOUDFLARE_TUNNEL_TOKEN`, then:
+Follow [cloudflare-tunnel.md](cloudflare-tunnel.md), put the token in `deploy/.env` as `CLOUDFLARE_TUNNEL_TOKEN`, then re-run the installer. It keeps your settings and turns on the tunnel (it sets `COMPOSE_PROFILES=tunnel` in `deploy/.env`, so later `docker compose` commands include it):
 
 ```bash
-cd deploy && docker compose --profile tunnel up -d
+./scripts/install.sh
 ```
 
 ### Port forwarding + Caddy
@@ -62,11 +62,11 @@ cd deploy && docker compose --profile tunnel up -d
 1. Point a DNS `A` record for `cloud.example.com` at your home IP (use dynamic DNS if it changes).
 2. Forward TCP 80 and 443 (and UDP 443) on your router to this machine.
 3. Set `DOMAIN=cloud.example.com` and `PUBLIC_URL=https://cloud.example.com` in `deploy/.env`.
-4. `cd deploy && docker compose --profile caddy up -d`. Caddy fetches the certificate automatically.
+4. Re-run `./scripts/install.sh`. It keeps your settings and adds Caddy (`COMPOSE_PROFILES=caddy`). Caddy fetches the certificate automatically.
 
 ### Tailscale only
 
-Install Tailscale on the server and each device, then run `sudo tailscale serve --bg 3080` on the server. Set `PUBLIC_URL` to the `https://<machine>.<tailnet>.ts.net` address it prints, and restart with `docker compose up -d`.
+Install Tailscale on the server and each device, then run `sudo tailscale serve --bg 3080` on the server. Set `PUBLIC_URL` in `deploy/.env` to the `https://<machine>.<tailnet>.ts.net` address it prints, and restart with `cd deploy && docker compose up -d`.
 
 ## 4. First sign-in
 
@@ -94,10 +94,10 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 
 ```bash
 cd familycloud && git pull
-cd deploy && docker compose pull && docker compose --profile tunnel up -d
+cd deploy && docker compose pull && docker compose up -d
 ```
 
-Database changes are applied automatically on start. To stay on a specific release, set `IMAGE=ghcr.io/amoghkaja/cloud-storage:v0.1.0` in `deploy/.env`.
+If the installer built the image on this machine (it couldn't pull one), rebuild instead: `docker compose up -d --build`. Database changes are applied automatically on start. To stay on a specific release, set `IMAGE=ghcr.io/amoghkaja/cloud-storage:v0.1.0` in `deploy/.env`.
 
 ## Everyday commands
 
@@ -108,7 +108,7 @@ Run these from the `deploy/` folder.
 | See status | `docker compose ps` |
 | Follow logs | `docker compose logs -f app worker` |
 | Restart | `docker compose restart app worker` |
-| Stop everything | `docker compose --profile tunnel down` |
+| Stop everything | `docker compose down` |
 | Reset someone's password | `docker compose exec app node dist/cli.js reset-password --email them@example.com` |
 | Turn off someone's two-factor | `docker compose exec app node dist/cli.js reset-totp --email them@example.com` |
 | Recount storage usage | `docker compose exec app node dist/cli.js reconcile` |
@@ -118,7 +118,7 @@ Run these from the `deploy/` folder.
 | Symptom | Likely cause and fix |
 | --- | --- |
 | Browser shows "Cross-site request rejected" | `PUBLIC_URL` doesn't match the address in the browser bar. Fix it in `deploy/.env` and run `docker compose up -d`. |
-| Site unreachable from outside, fine at home | Tunnel not running (`docker compose --profile tunnel ps`) or the public hostname isn't set in Cloudflare. |
+| Site unreachable from outside, fine at home | Tunnel not running (`docker compose ps`; if `cloudflared` is missing, check `COMPOSE_PROFILES=tunnel` in `deploy/.env`; errors: `docker compose logs cloudflared`) or the public hostname isn't set in Cloudflare. |
 | "Storage is offline" when uploading | A disk isn't mounted. Check **Admin → Storage** and `lsblk`; see [storage-and-disks.md](storage-and-disks.md). |
 | Uploads over 100 MB fail through the network drive | Cloudflare's per-request limit. Use the web app's Upload button (it sends files in pieces), or connect over your LAN/Tailscale. |
 | No thumbnails | Check `docker compose logs worker`. Thumbnails are made in the background a few seconds after upload. |

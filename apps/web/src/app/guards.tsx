@@ -1,10 +1,11 @@
 import type { Me } from '@familycloud/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useEffect } from 'react';
-import { Navigate, useLocation, useNavigate, useOutletContext } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate, useOutletContext } from 'react-router';
 import { onUnauthorized } from '../api/client';
 import { qk, useMe, useSetupStatus } from '../api/queries';
 import { Button, ErrorState, Spinner } from '../components/ui';
+import { usePageTitle } from '../lib/usePageTitle';
 
 export function FullPageSpinner({ label = 'Loading' }: { label?: string }) {
   return (
@@ -78,12 +79,13 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
 }
 
 export function NotFound() {
+  usePageTitle('Page not found');
   return (
     <div className="flex flex-col items-center py-24 text-center">
       <h1 className="text-xl font-semibold">Page not found</h1>
       <p className="mt-1 text-sm text-muted">That link may be old or mistyped.</p>
       <Button asChild className="mt-5">
-        <a href="/files">Go to My Files</a>
+        <Link to="/files">Go to My Files</Link>
       </Button>
     </div>
   );

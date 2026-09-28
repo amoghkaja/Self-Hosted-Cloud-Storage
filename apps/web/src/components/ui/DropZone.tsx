@@ -1,8 +1,8 @@
 import { CloudUpload } from 'lucide-react';
-import { type DragEvent, type ReactNode, useRef, useState } from 'react';
+import { type ComponentProps, type DragEvent, type ReactNode, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 
-export interface DropZoneProps {
+export interface DropZoneProps extends Omit<ComponentProps<'div'>, 'onDrop'> {
   /** Called with the raw DataTransfer so folders can be walked (see collectDroppedFiles). */
   onDrop: (data: DataTransfer) => void;
   disabled?: boolean;
@@ -18,13 +18,21 @@ const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).inclu
  * Drag-and-drop target for files and folders. Mouse-only by nature, so it always sits next to
  * a keyboard-accessible Upload button; it never replaces one.
  */
-export function DropZone({ onDrop, disabled, label, children, className }: DropZoneProps) {
+export function DropZone({
+  onDrop,
+  disabled,
+  label,
+  children,
+  className,
+  ...props
+}: DropZoneProps) {
   const [active, setActive] = useState(false);
   const depth = useRef(0); // dragenter/leave fire for every child element
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop is a mouse enhancement; the Upload button is the accessible path
     <div
+      {...props}
       className={cn('relative', className)}
       onDragEnter={(e) => {
         if (disabled || !hasFiles(e)) return;
@@ -33,9 +41,11 @@ export function DropZone({ onDrop, disabled, label, children, className }: DropZ
         setActive(true);
       }}
       onDragOver={(e) => {
-        if (disabled || !hasFiles(e)) return;
+        if (!hasFiles(e)) return;
+        // Even when uploads aren't allowed here, take over the drag: otherwise the browser
+        // "drops" by navigating away from the app to open the file.
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
+        e.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
       }}
       onDragLeave={() => {
         if (disabled) return;
@@ -43,8 +53,9 @@ export function DropZone({ onDrop, disabled, label, children, className }: DropZ
         if (depth.current === 0) setActive(false);
       }}
       onDrop={(e) => {
-        if (disabled || !hasFiles(e)) return;
+        if (!hasFiles(e)) return;
         e.preventDefault();
+        if (disabled) return;
         depth.current = 0;
         setActive(false);
         onDrop(e.dataTransfer);

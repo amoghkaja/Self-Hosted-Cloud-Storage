@@ -1,6 +1,8 @@
+import { Check } from 'lucide-react';
 import { ContextMenu as CM, DropdownMenu as DM } from 'radix-ui';
-import type { ReactElement, ReactNode } from 'react';
+import { Fragment, type ReactElement, type ReactNode, useRef } from 'react';
 import { cn } from '../../lib/cn';
+import { rememberInvoker } from './focusReturn';
 
 /**
  * One action model rendered as either a dropdown (kebab button) or a right-click / long-press
@@ -13,6 +15,11 @@ export interface MenuAction {
   shortcut?: string;
   tone?: 'default' | 'danger';
   disabled?: boolean;
+  /**
+   * Marks the item as one choice of a set (e.g. a sort order). Announced as a checked/unchecked
+   * radio item and shows a check mark, instead of the icon.
+   */
+  checked?: boolean;
   onSelect: () => void;
   /** Visual separator before this item. */
   separatorBefore?: boolean;
@@ -36,8 +43,8 @@ const item =
 function ItemBody({ a }: { a: MenuAction }) {
   return (
     <>
-      <span aria-hidden="true" className="text-muted [&>svg]:size-4">
-        {a.icon}
+      <span aria-hidden="true" className="flex w-4 justify-center text-muted [&>svg]:size-4">
+        {a.checked === undefined ? a.icon : a.checked ? <Check /> : null}
       </span>
       <span className="flex-1">{a.label}</span>
       {a.shortcut && <kbd className="font-sans text-xs text-muted">{a.shortcut}</kbd>}
@@ -45,36 +52,65 @@ function ItemBody({ a }: { a: MenuAction }) {
   );
 }
 
+/** Props shared by both menus' items: radio semantics for `checked`, and focus bookkeeping. */
+function itemProps(a: MenuAction, invoker: () => HTMLElement | null) {
+  return {
+    disabled: a.disabled,
+    onSelect: () => {
+      // If this opens a dialog, focus returns to what opened the menu when it closes.
+      rememberInvoker(invoker());
+      a.onSelect();
+    },
+    className: cn(item, a.tone === 'danger' && 'text-danger'),
+    ...(a.checked === undefined
+      ? {}
+      : { role: 'menuitemradio' as const, 'aria-checked': a.checked }),
+  };
+}
+
 export interface DropdownMenuProps {
   trigger: ReactElement;
   actions: MenuAction[];
   align?: 'start' | 'end';
   label?: string;
+  /** Controlled open state (e.g. opened from a keyboard shortcut instead of the trigger). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Override where focus goes when the menu closes (default: back to the trigger). */
+  onCloseAutoFocus?: (e: Event) => void;
 }
 
-export function DropdownMenu({ trigger, actions, align = 'end', label }: DropdownMenuProps) {
+export function DropdownMenu({
+  trigger,
+  actions,
+  align = 'end',
+  label,
+  open,
+  onOpenChange,
+  onCloseAutoFocus,
+}: DropdownMenuProps) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
-    <DM.Root modal={false}>
-      <DM.Trigger asChild>{trigger}</DM.Trigger>
+    <DM.Root modal={false} open={open} onOpenChange={onOpenChange}>
+      <DM.Trigger asChild ref={triggerRef}>
+        {trigger}
+      </DM.Trigger>
       <DM.Portal>
         <DM.Content
           align={align}
           sideOffset={4}
           className={content}
           aria-label={label}
+          onCloseAutoFocus={onCloseAutoFocus}
           {...isolate}
         >
           {actions.map((a) => (
-            <div key={a.id}>
+            <Fragment key={a.id}>
               {a.separatorBefore && <DM.Separator className="my-1 h-px bg-border" />}
-              <DM.Item
-                disabled={a.disabled}
-                onSelect={a.onSelect}
-                className={cn(item, a.tone === 'danger' && 'text-danger')}
-              >
+              <DM.Item {...itemProps(a, () => triggerRef.current)}>
                 <ItemBody a={a} />
               </DM.Item>
-            </div>
+            </Fragment>
           ))}
         </DM.Content>
       </DM.Portal>
@@ -86,25 +122,31 @@ export interface ContextMenuProps {
   children: ReactElement;
   actions: MenuAction[];
   onOpenChange?: (open: boolean) => void;
+  /** Override where focus goes when the menu closes. */
+  onCloseAutoFocus?: (e: Event) => void;
 }
 
-export function ContextMenu({ children, actions, onOpenChange }: ContextMenuProps) {
+export function ContextMenu({
+  children,
+  actions,
+  onOpenChange,
+  onCloseAutoFocus,
+}: ContextMenuProps) {
+  const triggerRef = useRef<HTMLElement>(null);
   return (
     <CM.Root modal={false} onOpenChange={onOpenChange}>
-      <CM.Trigger asChild>{children}</CM.Trigger>
+      <CM.Trigger asChild ref={triggerRef}>
+        {children}
+      </CM.Trigger>
       <CM.Portal>
-        <CM.Content className={content} {...isolate}>
+        <CM.Content className={content} onCloseAutoFocus={onCloseAutoFocus} {...isolate}>
           {actions.map((a) => (
-            <div key={a.id}>
+            <Fragment key={a.id}>
               {a.separatorBefore && <CM.Separator className="my-1 h-px bg-border" />}
-              <CM.Item
-                disabled={a.disabled}
-                onSelect={a.onSelect}
-                className={cn(item, a.tone === 'danger' && 'text-danger')}
-              >
+              <CM.Item {...itemProps(a, () => triggerRef.current)}>
                 <ItemBody a={a} />
               </CM.Item>
-            </div>
+            </Fragment>
           ))}
         </CM.Content>
       </CM.Portal>

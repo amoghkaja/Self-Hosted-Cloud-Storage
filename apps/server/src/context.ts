@@ -29,7 +29,7 @@ export interface AppContext {
 export function scrubUrl(url: string): string {
   return url
     .replace(/(\/public\/links\/)[^/?#]+/g, '$1[token]')
-    .replace(/(\/invites\/)[^/?#]+/g, '$1[token]')
+    .replace(/(\/invites?\/)[^/?#]+/g, '$1[token]') // API /invites/… and the web page /invite/…
     .replace(/(\/s\/)[^/?#]+/g, '$1[token]');
 }
 
@@ -114,10 +114,10 @@ export async function ensureSetupToken(ctx: AppContext): Promise<string | null> 
   const [row] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(users);
   if ((row?.n ?? 0) > 0) return null;
   if (ctx.config.setupToken) return ctx.config.setupToken;
-  let token = await ctx.settings.getRaw<string>('setupToken');
-  if (!token) {
-    token = randomToken(18);
-    await ctx.settings.setRaw('setupToken', token);
-  }
-  return token;
+  // The app, a second replica and `cli setup-token` may all get here at once: the first insert
+  // wins and everyone returns the stored token, so the one printed is always the one that works.
+  return (
+    (await ctx.settings.getRaw<string>('setupToken')) ??
+    (await ctx.settings.initRaw('setupToken', randomToken(18)))
+  );
 }

@@ -1,6 +1,6 @@
 import type { SharePermission } from '@familycloud/shared';
 import { Check, Copy, Link2, Trash2, Users } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import {
   useDirectory,
@@ -24,22 +24,27 @@ import {
   Tabs,
   toast,
 } from '../../components/ui';
+import { copyText } from '../../lib/clipboard';
 import { formatDate, formatRelative } from '../../lib/format';
+
+const onError = (err: unknown) => {
+  toast.error(errorMessage(err));
+};
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
   return (
     <IconButton
       label={copied ? 'Copied' : label}
       icon={copied ? <Check className="text-success" /> : <Copy />}
       onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        } catch {
-          toast.error('Copy failed. Select the link and copy it manually.');
-        }
+        if (await copyText(text)) setCopied(true);
+        else toast.error('Copy failed. Select the link and copy it manually.');
       }}
     />
   );
@@ -121,7 +126,10 @@ function FamilyTab({ nodeId }: { nodeId: string }) {
                   hideLabel
                   value={s.permission}
                   onChange={(e) =>
-                    m.update.mutate({ id: s.id, permission: e.target.value as SharePermission })
+                    m.update.mutate(
+                      { id: s.id, permission: e.target.value as SharePermission },
+                      { onError },
+                    )
                   }
                   className="h-9 w-28"
                 >
@@ -131,7 +139,8 @@ function FamilyTab({ nodeId }: { nodeId: string }) {
                 <IconButton
                   label={`Stop sharing with ${s.grantee.displayName}`}
                   icon={<Trash2 />}
-                  onClick={() => m.remove.mutate(s.id)}
+                  disabled={m.remove.isPending && m.remove.variables === s.id}
+                  onClick={() => m.remove.mutate(s.id, { onError })}
                 />
               </li>
             ))}
@@ -168,9 +177,10 @@ function LinkTab({ nodeId }: { nodeId: string }) {
         ...(usePassword && password ? { password } : {}),
         expiresAt: days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null,
       });
-      await navigator.clipboard?.writeText(link.url).catch(() => {});
-      toast.success('Link created and copied');
       setPassword('');
+      toast.success(
+        link.url && (await copyText(link.url)) ? 'Link created and copied' : 'Link created',
+      );
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -233,7 +243,13 @@ function LinkTab({ nodeId }: { nodeId: string }) {
                 className="flex items-center gap-2 rounded-xl border border-border px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-xs">{l.url}</p>
+                  {l.url ? (
+                    <p className="truncate font-mono text-xs select-all">{l.url}</p>
+                  ) : (
+                    <p className="text-xs text-muted">
+                      Address unavailable after a server key change. Delete and recreate it.
+                    </p>
+                  )}
                   <div className="mt-1 flex flex-wrap gap-1">
                     {l.hasPassword && <Badge>Password</Badge>}
                     {!l.allowDownload && <Badge>View only</Badge>}
@@ -245,11 +261,12 @@ function LinkTab({ nodeId }: { nodeId: string }) {
                     )}
                   </div>
                 </div>
-                <CopyButton text={l.url} label="Copy link" />
+                {l.url && <CopyButton text={l.url} label="Copy link" />}
                 <IconButton
                   label="Delete link"
                   icon={<Trash2 />}
-                  onClick={() => m.revoke.mutate(l.id)}
+                  disabled={m.revoke.isPending && m.revoke.variables === l.id}
+                  onClick={() => m.revoke.mutate(l.id, { onError })}
                 />
               </li>
             ))}

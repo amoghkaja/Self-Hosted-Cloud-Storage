@@ -46,9 +46,18 @@ import {
   toast,
   UsageBar,
 } from '../../components/ui';
+import { copyText } from '../../lib/clipboard';
 import { formatDate, formatDateTime, formatRelative } from '../../lib/format';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { ByteSizeInput } from './ByteSizeInput';
+
+/** Runs a fire-and-forget admin action, confirming success and surfacing failures. */
+function run(p: Promise<unknown>, success?: string) {
+  p.then(
+    () => success && toast.success(success),
+    (err) => toast.error(errorMessage(err)),
+  );
+}
 
 function Card({
   title,
@@ -269,9 +278,10 @@ function InviteDialog({
             <IconButton
               label="Copy invite link"
               icon={<Copy />}
-              onClick={() =>
-                navigator.clipboard?.writeText(url).then(() => toast.success('Copied'))
-              }
+              onClick={async () => {
+                if (await copyText(url)) toast.success('Copied');
+                else toast.error('Copy failed. Select the link and copy it manually.');
+              }}
             />
           </div>
         </div>
@@ -396,10 +406,7 @@ function People() {
                         {
                           id: 'signout',
                           label: 'Sign out everywhere',
-                          onSelect: () =>
-                            void m.signOut
-                              .mutateAsync(u.id)
-                              .then(() => toast.success('Signed out')),
+                          onSelect: () => run(m.signOut.mutateAsync(u.id), 'Signed out'),
                         },
                         ...(u.totpEnabled
                           ? [
@@ -407,9 +414,7 @@ function People() {
                                 id: 'totp',
                                 label: 'Reset two-factor',
                                 onSelect: () =>
-                                  void m.resetTotp
-                                    .mutateAsync(u.id)
-                                    .then(() => toast.success('Two-factor reset')),
+                                  run(m.resetTotp.mutateAsync(u.id), 'Two-factor reset'),
                               },
                             ]
                           : []),
@@ -439,7 +444,11 @@ function People() {
                       {i.role} · {formatQuota(i.quotaBytes)} · expires {formatDate(i.expiresAt)}
                     </p>
                   </div>
-                  <Button size="sm" onClick={() => void m.revokeInvite.mutateAsync(i.id)}>
+                  <Button
+                    size="sm"
+                    loading={m.revokeInvite.isPending && m.revokeInvite.variables === i.id}
+                    onClick={() => run(m.revokeInvite.mutateAsync(i.id), 'Invite revoked')}
+                  >
                     Revoke
                   </Button>
                 </li>
@@ -523,7 +532,8 @@ function VolumeCard({ v, onEdit }: { v: Volume; onEdit: () => void }) {
           {v.status === 'active' && (
             <Button
               size="sm"
-              onClick={() => void m.updateVolume.mutateAsync({ id: v.id, status: 'readonly' })}
+              loading={m.updateVolume.isPending}
+              onClick={() => run(m.updateVolume.mutateAsync({ id: v.id, status: 'readonly' }))}
             >
               Pause new files
             </Button>
@@ -531,13 +541,18 @@ function VolumeCard({ v, onEdit }: { v: Volume; onEdit: () => void }) {
           {v.status === 'readonly' && (
             <Button
               size="sm"
-              onClick={() => void m.updateVolume.mutateAsync({ id: v.id, status: 'active' })}
+              loading={m.updateVolume.isPending}
+              onClick={() => run(m.updateVolume.mutateAsync({ id: v.id, status: 'active' }))}
             >
               Accept new files
             </Button>
           )}
           {v.status === 'draining' ? (
-            <Button size="sm" onClick={() => void m.cancelDrain.mutateAsync(v.id)}>
+            <Button
+              size="sm"
+              loading={m.cancelDrain.isPending}
+              onClick={() => run(m.cancelDrain.mutateAsync(v.id))}
+            >
               Stop moving
             </Button>
           ) : (
@@ -745,10 +760,18 @@ function Storage() {
 function SettingsForm({ initial }: { initial: Settings }) {
   const m = useAdminMutations();
   const [s, setS] = useState(initial);
+  // Raw text, so the field can be cleared and retyped (a number state would snap back to 1).
+  const [retention, setRetention] = useState(String(initial.trashRetentionDays));
+  const retentionDays = Number(retention);
+  const retentionError =
+    Number.isInteger(retentionDays) && retentionDays >= 1 && retentionDays <= 365
+      ? null
+      : 'Enter a whole number of days from 1 to 365.';
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    if (retentionError) return;
     try {
-      await m.updateSettings.mutateAsync(s);
+      await m.updateSettings.mutateAsync({ ...s, trashRetentionDays: retentionDays });
       toast.success('Settings saved');
     } catch (err) {
       toast.error(errorMessage(err));
@@ -780,8 +803,11 @@ function SettingsForm({ initial }: { initial: Settings }) {
         type="number"
         min={1}
         max={365}
-        value={s.trashRetentionDays}
-        onChange={(e) => setS({ ...s, trashRetentionDays: Number(e.target.value) || 1 })}
+        step={1}
+        value={retention}
+        onChange={(e) => setRetention(e.target.value)}
+        error={retention === '' ? null : retentionError}
+        required
       />
       <Button
         type="submit"

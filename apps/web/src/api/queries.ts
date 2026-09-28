@@ -41,11 +41,13 @@ import { api } from './client';
 export const qk = {
   me: ['me'] as const,
   setup: ['setup-status'] as const,
+  nodes: ['node'] as const,
   node: (id: string) => ['node', id] as const,
   children: (id: string) => ['children', id] as const,
   childrenSorted: (id: string, sort: SortKey, dir: SortDir) => ['children', id, sort, dir] as const,
   trash: ['trash'] as const,
   shared: ['shared-with-me'] as const,
+  searches: ['search'] as const,
   search: (q: string) => ['search', q] as const,
   shares: (id: string) => ['shares', id] as const,
   links: (id: string) => ['links', id] as const,
@@ -133,7 +135,41 @@ export function useChildren(id: string | undefined, sort: SortKey, dir: SortDir)
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!id,
     staleTime: 30_000,
+    // Re-sorting the same folder keeps showing (and keeps the selection in) the current list
+    // until the new order arrives. A different folder must not show the old one's contents.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === id ? prev : undefined),
   });
+}
+
+/** Runs `fn` over `items`, a few at a time, collecting failures instead of stopping at one. */
+async function eachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>) {
+  const failed: { item: T; error: unknown }[] = [];
+  const queue = [...items];
+  const worker = async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+      try {
+        await fn(item);
+      } catch (error) {
+        failed.push({ item, error });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return failed;
+}
+
+export interface BatchResult {
+  done: string[];
+  failed: { id: string; error: unknown }[];
+}
+
+/** Anything that shows node names or paths and may be affected by a rename/move/trash. */
+function invalidateNodeViews(qc: QueryClient, folders: (string | null | undefined)[]) {
+  for (const id of new Set(folders)) {
+    if (id) void qc.invalidateQueries({ queryKey: qk.children(id) });
+  }
+  void qc.invalidateQueries({ queryKey: qk.nodes });
+  void qc.invalidateQueries({ queryKey: qk.searches });
 }
 
 /** Applies `fn` to every cached page of a folder listing (optimistic updates). */
@@ -172,7 +208,9 @@ export function useUpdateNode() {
         method: 'PATCH',
         json: { name: body.name, parentId: body.parentId },
       }),
-    onMutate: ({ id, name, parentId, fromParentId }) => {
+    onMutate: async ({ id, name, parentId, fromParentId }) => {
+      // A listing refetch already in flight would overwrite the optimistic change.
+      await qc.cancelQueries({ queryKey: qk.children(fromParentId) });
       // Optimistic: rename in place, or drop from the list when moved away.
       patchChildren(qc, fromParentId, (items) =>
         parentId && parentId !== fromParentId
@@ -180,26 +218,76 @@ export function useUpdateNode() {
           : items.map((n) => (n.id === id && name ? { ...n, name } : n)),
       );
     },
-    onSettled: (_d, _e, vars) => {
-      void qc.invalidateQueries({ queryKey: qk.children(vars.fromParentId) });
-      if (vars.parentId) void qc.invalidateQueries({ queryKey: qk.children(vars.parentId) });
-      void qc.invalidateQueries({ queryKey: qk.node(vars.id) });
-    },
+    // Renaming or moving a folder changes the breadcrumbs of everything inside it, and search
+    // results show names too; only the queries on screen actually refetch.
+    onSettled: (_d, _e, vars) => invalidateNodeViews(qc, [vars.fromParentId, vars.parentId]),
   });
 }
 
+/**
+ * Moves several items into one folder. One request per item (a few in parallel), but a single
+ * optimistic update and a single refresh at the end instead of one per item.
+ */
+export function useMoveNodes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      ids,
+      parentId,
+    }: {
+      ids: string[];
+      parentId: string;
+      fromParentId: string;
+    }): Promise<BatchResult> => {
+      const failed = await eachLimited(ids, 4, (id) =>
+        api<FileNode>(`/nodes/${id}`, { method: 'PATCH', json: { parentId } }),
+      );
+      const bad = new Set(failed.map((f) => f.item));
+      return {
+        done: ids.filter((id) => !bad.has(id)),
+        failed: failed.map((f) => ({ id: f.item, error: f.error })),
+      };
+    },
+    onMutate: async ({ ids, fromParentId }) => {
+      await qc.cancelQueries({ queryKey: qk.children(fromParentId) });
+      const gone = new Set(ids);
+      patchChildren(qc, fromParentId, (items) => items.filter((n) => !gone.has(n.id)));
+    },
+    onSettled: (_d, _e, vars) => invalidateNodeViews(qc, [vars.fromParentId, vars.parentId]),
+  });
+}
+
+/** Moves items to the trash. Items may come from different folders (e.g. search results). */
 export function useTrashNodes() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ ids }: { ids: string[]; parentId: string }) => {
-      for (const id of ids) await api(`/nodes/${id}`, { method: 'DELETE' });
+    mutationFn: async ({
+      items,
+    }: {
+      items: { id: string; parentId: string | null }[];
+    }): Promise<BatchResult> => {
+      const failed = await eachLimited(items, 4, (n) =>
+        api(`/nodes/${n.id}`, { method: 'DELETE' }),
+      );
+      const bad = new Set(failed.map((f) => f.item.id));
+      return {
+        done: items.filter((n) => !bad.has(n.id)).map((n) => n.id),
+        failed: failed.map((f) => ({ id: f.item.id, error: f.error })),
+      };
     },
-    onMutate: ({ ids, parentId }) => {
-      const gone = new Set(ids);
-      patchChildren(qc, parentId, (items) => items.filter((n) => !gone.has(n.id)));
+    onMutate: async ({ items }) => {
+      const gone = new Set(items.map((n) => n.id));
+      for (const parentId of new Set(items.map((n) => n.parentId))) {
+        if (!parentId) continue;
+        await qc.cancelQueries({ queryKey: qk.children(parentId) });
+        patchChildren(qc, parentId, (list) => list.filter((n) => !gone.has(n.id)));
+      }
     },
     onSettled: (_d, _e, vars) => {
-      void qc.invalidateQueries({ queryKey: qk.children(vars.parentId) });
+      invalidateNodeViews(
+        qc,
+        vars.items.map((n) => n.parentId),
+      );
       void qc.invalidateQueries({ queryKey: qk.trash });
     },
   });
@@ -227,8 +315,7 @@ export function useRestore() {
       api<{ node: FileNode }>(`/trash/${id}/restore`, { method: 'POST', json: {} }),
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: qk.trash });
-      if (res.node.parentId)
-        void qc.invalidateQueries({ queryKey: qk.children(res.node.parentId) });
+      invalidateNodeViews(qc, [res.node.parentId]);
     },
   });
 }

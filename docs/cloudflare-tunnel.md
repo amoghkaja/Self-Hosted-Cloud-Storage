@@ -18,7 +18,7 @@ A tunnel lets people reach Family Cloud at `https://cloud.example.com` without o
    CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoi...
    ```
 
-5. Start it: `cd deploy && docker compose --profile tunnel up -d`. The tunnel shows **Healthy** in the dashboard within a minute.
+5. Start it: re-run `./scripts/install.sh` (your other settings are kept). It sets `COMPOSE_PROFILES=tunnel` in `deploy/.env` and starts `cloudflared`. The tunnel shows **Healthy** in the dashboard within a minute.
 
 ## Route your hostname to the app
 
@@ -35,7 +35,7 @@ Save. Cloudflare creates the DNS record for `cloud.example.com` automatically.
 
 > **Don't create that DNS record yourself first.** If a record for the hostname already exists, this step fails with "An A, AAAA, or CNAME record with that host already exists". Delete the old record and try again.
 
-Make sure `PUBLIC_URL=https://cloud.example.com` in `deploy/.env` (then `docker compose up -d`).
+Make sure `PUBLIC_URL=https://cloud.example.com` in `deploy/.env` (then `cd deploy && docker compose up -d`).
 
 ## Recommended Cloudflare settings
 

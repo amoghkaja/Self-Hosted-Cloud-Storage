@@ -18,10 +18,9 @@ export const NodeName = z
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
   });
 
-export const Email = z
-  .email()
-  .max(254)
-  .transform((e) => e.trim().toLowerCase());
+// Trimmed and lowercased *before* the format check (a pasted " Mom@Example.com " is fine), so
+// accounts are unique case-insensitively and sign-in matches however the address is typed.
+export const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
 
 export const Password = z
   .string()

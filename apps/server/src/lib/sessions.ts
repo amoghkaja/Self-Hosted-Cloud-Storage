@@ -23,6 +23,11 @@ interface Cached extends AuthContext {
 
 export class SessionService {
   private readonly cache = new LRUCache<string, Cached>({ max: 10_000, ttl: CACHE_TTL_MS });
+  /**
+   * Bumped on every eviction. A lookup that read the database before a revoke/disable/role
+   * change must not put that stale row back into the cache after the eviction ran.
+   */
+  private generation = 0;
 
   constructor(private readonly db: Executor) {}
 
@@ -56,6 +61,7 @@ export class SessionService {
       if (now - hit.lastSeenAt > TOUCH_EVERY_MS) await this.touch(hash, hit);
       return { sessionId: hit.sessionId, user: hit.user };
     }
+    const generation = this.generation;
     const [row] = await this.db
       .select({ session: sessions, user: users })
       .from(sessions)
@@ -76,7 +82,7 @@ export class SessionService {
       lastSeenAt: row.session.lastSeenAt.getTime(),
     };
     if (now - entry.lastSeenAt > TOUCH_EVERY_MS) await this.touch(hash, entry);
-    this.cache.set(hash, entry);
+    if (generation === this.generation) this.cache.set(hash, entry);
     return { sessionId: entry.sessionId, user: entry.user };
   }
 
@@ -121,6 +127,7 @@ export class SessionService {
   }
 
   private evict(match: (c: Cached) => boolean): void {
+    this.generation++;
     for (const [key, value] of this.cache.entries()) {
       if (match(value)) this.cache.delete(key);
     }

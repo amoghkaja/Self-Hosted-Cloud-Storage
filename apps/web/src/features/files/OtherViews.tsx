@@ -48,9 +48,11 @@ function FlatList({
   const { me } = useShell();
   const [view] = usePref<'list' | 'grid'>('view', 'list');
   const files = useMemo(() => nodes.filter((n) => n.type === 'file'), [nodes]);
-  const [preview, setPreview] = useState<number | null>(null);
+  // By id: results refresh underneath an open preview (e.g. after a rename or trash).
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewIndex = previewId ? files.findIndex((f) => f.id === previewId) : -1;
   const actions = useFileActions({
-    onPreview: (n) => setPreview(files.findIndex((f) => f.id === n.id)),
+    onPreview: (n) => setPreviewId(n.id),
     canEdit: editable,
     canShare: (n) => n.ownerId === me.id,
     moveStartId: me.rootNodeId,
@@ -65,15 +67,22 @@ function FlatList({
         actionsFor={actions.actionsFor}
         thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id) : undefined)}
         subtitle={subtitle}
+        // Same keyboard shortcuts as a folder for the items the menus let you change.
+        onDelete={(ids) => {
+          const set = new Set(ids);
+          void actions.trashNodes(nodes.filter((n) => set.has(n.id) && editable(n)));
+        }}
+        onRename={(n) => editable(n) && actions.rename(n)}
+        scrollPaddingTop={64}
       />
       {actions.dialogs}
-      {preview !== null && preview >= 0 && (
+      {previewIndex >= 0 && (
         <Suspense fallback={null}>
           <PreviewModal
             items={files}
-            index={preview}
-            onIndexChange={setPreview}
-            onClose={() => setPreview(null)}
+            index={previewIndex}
+            onIndexChange={(i) => setPreviewId(files[i]?.id ?? null)}
+            onClose={() => setPreviewId(null)}
             source={{ content: contentUrl, thumb: thumbUrl, canDownload: true }}
           />
         </Suspense>

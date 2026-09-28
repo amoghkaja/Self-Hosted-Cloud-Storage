@@ -1,9 +1,12 @@
 # Family Cloud: production stack.
 #
 #   cp .env.example .env   # then fill it in (scripts/install.sh does this for you)
-#   docker compose --profile tunnel up -d     # behind a Cloudflare Tunnel (recommended)
-#   docker compose --profile caddy up -d      # or: port-forward 80/443 to Caddy
-#   docker compose up -d                      # or: LAN/Tailscale only, on 127.0.0.1:${APP_PORT}
+#   docker compose up -d
+#
+# COMPOSE_PROFILES in .env picks the optional services (scripts/install.sh sets it):
+#   tunnel   cloudflared, behind a Cloudflare Tunnel (recommended)
+#   caddy    Caddy with automatic HTTPS, for port-forwarding 80/443
+#   (empty)  LAN/Tailscale only, on 127.0.0.1:${APP_PORT}
 #
 # Storage lives under ${STORAGE_ROOT} on the host (default /srv/familycloud):
 #   volumes/<disk>/   file data, one directory (usually one mounted disk) per volume
@@ -23,9 +26,13 @@ x-app: &app
   environment:
     DATABASE_URL: postgres://familycloud:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/familycloud
     DATA_DIR: /data
+    # Read-only root filesystem: tools that cache in $HOME (fontconfig, via pdftoppm) use /tmp.
+    HOME: /tmp
     # Only the proxies on our own Docker network may set the client IP headers.
     TRUSTED_PROXIES: loopback,uniquelocal
   user: "${PUID:-1000}:${PGID:-1000}"
+  # The app and worker finish in-flight requests and jobs on SIGTERM (up to 15 s / 30 s).
+  stop_grace_period: 35s
   volumes:
     # rslave: disks mounted under ${STORAGE_ROOT}/volumes later appear inside the container
     # without a restart (add a disk, then register it in Admin → Storage).
@@ -83,8 +90,10 @@ services:
     profiles: [tunnel]
     restart: unless-stopped
     command: tunnel --no-autoupdate run
+    # Not ${VAR:?}: Compose checks required variables in every service, even ones whose profile
+    # is off, so that would break the whole stack for anyone not using this profile.
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env for the tunnel profile}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on: [app]
     read_only: true
     security_opt:
@@ -96,7 +105,7 @@ services:
     profiles: [caddy]
     restart: unless-stopped
     environment:
-      DOMAIN: ${DOMAIN:?set DOMAIN in .env for the caddy profile}
+      DOMAIN: ${DOMAIN:-}   # see the note on cloudflared above
     ports:
       - "80:80"
       - "443:443"

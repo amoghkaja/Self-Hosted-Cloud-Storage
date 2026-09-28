@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { cpus, tmpdir } from 'node:os';
 import path from 'node:path';
 import { splitExtension } from '@familycloud/shared/all';
@@ -83,7 +84,10 @@ async function toRaster(kind: Kind, src: string, work: string): Promise<string> 
         ]);
       } catch (err) {
         if (err instanceof ToolMissing) throw err;
-        // Clips shorter than a second: take the very first frame.
+      }
+      // Clips shorter than a second: seeking past the end fails, or exits 0 without writing
+      // a frame. Take the very first frame instead.
+      if (!(await stat(out).catch(() => null))) {
         await run('ffmpeg', [
           '-hide_banner',
           '-loglevel',
@@ -140,24 +144,30 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
   }
 
   const src = await ctx.volumes.blobFile(row.blob);
-  const work = path.join(tmpdir(), `fc-thumb-${blobId}`);
   const big = thumbPath(ctx.config.cacheDir, blobId, 1600);
   const small = thumbPath(ctx.config.cacheDir, blobId, 256);
+  // Private scratch names: the same blob can be queued twice (upload + recovery on start),
+  // and two runs sharing a work dir or .tmp file would break each other.
+  const tag = randomUUID();
+  const [bigTmp, smallTmp] = [`${big}.${tag}.tmp`, `${small}.${tag}.tmp`];
+  let work: string | null = null;
   try {
-    await mkdir(work, { recursive: true });
+    work = await mkdtemp(path.join(tmpdir(), `fc-thumb-${blobId}-`));
     await mkdir(path.dirname(big), { recursive: true });
     const raster = await toRaster(kind, src, work);
     await sharp(raster, { limitInputPixels: MAX_PIXELS, failOn: 'none', sequentialRead: true })
+      .timeout({ seconds: TOOL_TIMEOUT_MS / 1000 })
       .rotate() // honour EXIF orientation from phones
       .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 80 })
-      .toFile(`${big}.tmp`);
-    await rename(`${big}.tmp`, big);
+      .toFile(bigTmp);
+    await rename(bigTmp, big);
     await sharp(big)
+      .timeout({ seconds: TOOL_TIMEOUT_MS / 1000 })
       .resize(256, 256, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 72 })
-      .toFile(`${small}.tmp`);
-    await rename(`${small}.tmp`, small);
+      .toFile(smallTmp);
+    await rename(smallTmp, small);
     await setStatus('ready');
   } catch (err) {
     if (err instanceof ToolMissing) {
@@ -168,6 +178,7 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
       await setStatus('failed');
     }
   } finally {
-    await rm(work, { recursive: true, force: true }).catch(() => {});
+    if (work) await rm(work, { recursive: true, force: true }).catch(() => {});
+    await Promise.all([bigTmp, smallTmp].map((f) => rm(f, { force: true }).catch(() => {})));
   }
 }

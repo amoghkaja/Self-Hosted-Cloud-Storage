@@ -33,13 +33,13 @@
 | **Quota bypass by racing uploads** | Atomic conditional reservation under an advisory lock; nightly reconciliation. | `uploads.test.ts` "never over-commits under concurrent uploads" |
 | **Malicious media (decompression bombs, exploits in decoders)** | Decoding happens only in the worker, never the API. Pixel limit 16384². Each external tool has a 60 s timeout and SIGKILL. Arguments are passed as arrays (no shell). Containers run non-root with no capabilities. | Code review |
 | **Upload abuse** | Chunk lengths enforced while streaming, 100 open uploads per user, optional max file size, 24 h session expiry that releases reserved space. JSON bodies ≤ 1 MB. | `uploads.test.ts` chunk validation |
-| **Spoofed client IPs (to dodge rate limits)** | `CF-Connecting-IP` / `X-Forwarded-For` are honoured only from trusted proxy addresses on the Docker network; Caddy strips client-supplied `CF-Connecting-IP`. | Code review; finding 2 below |
-| **Secrets in logs** | Cookies and auth headers redacted. Share and invite tokens scrubbed from every logged URL. Passwords never logged. | `lib.test.ts` "never writes share or invite tokens to the logs" |
+| **Spoofed client IPs (to dodge rate limits)** | `CF-Connecting-IP` / `X-Forwarded-For` are honoured only from trusted proxy addresses on the Docker network; Caddy strips client-supplied `CF-Connecting-IP`. Per-IP limits group IPv6 clients by /64, so rotating addresses doesn't help. | Code review; finding 2 below |
+| **Secrets in logs** | Cookies and auth headers redacted. Share and invite tokens (API and web invite page) scrubbed from every logged URL. Passwords never logged. | `lib.test.ts` "never writes share or invite tokens to the logs" |
 | **Secrets at rest** | TOTP secrets and link tokens encrypted (AES-256-GCM, per-purpose keys derived with HKDF from `SECRET_KEY`). `deploy/.env` created with mode 600 and git-ignored. | `lib.test.ts` Keyring |
-| **Infrastructure** | App and worker run read-only, as the host user, with `cap_drop: ALL` and `no-new-privileges`. PostgreSQL and the worker sit on an `internal` network with no internet route. No host ports except `127.0.0.1:3080`. The tunnel needs no inbound ports. HSTS on HTTPS. | `deploy/docker-compose.yml` |
+| **Infrastructure** | App and worker run read-only, as the host user, with `cap_drop: ALL` and `no-new-privileges`. PostgreSQL and the worker sit on an `internal` network with no internet route. No host ports except `127.0.0.1:3080` (and 80/443 with the optional Caddy profile). The tunnel needs no inbound ports. HSTS on HTTPS. | `deploy/docker-compose.yml` |
 | **Clickjacking** | `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`. | Headers verified on the production build |
 | **Supply chain** | Lockfile with `--frozen-lockfile` builds. Install scripts allowed only for two named packages. `pnpm audit` in CI (no known vulnerabilities at review time). Dependabot for npm, Docker and Actions. Release images carry SBOM and provenance. | CI |
-| **Deleting the wrong disk** | `add-disk.sh` refuses the system disk, mounted devices and any whole disk with partitions (e.g. a Windows disk). It formats only after the device path is re-typed. | Checked against a dual-boot machine's real disks |
+| **Deleting the wrong disk** | `add-disk.sh` refuses the system disk, mounted devices and any whole disk with partitions (e.g. a Windows disk). It formats only a device with no filesystem or partition-table signature (probed with `wipefs`, not just udev), and only after the device path is re-typed. | Checked against a dual-boot machine's real disks |
 
 ## Findings from this review (all fixed)
 
@@ -64,6 +64,30 @@
 | 12 | Medium | Scripts `source`d `deploy/.env`, and values were written unquoted. | Re-running the installer with a name like "Family Cloud" failed. Executing a config file also runs any shell code placed in it. | `scripts/lib.sh` reads `.env` without executing it (`load_env`) and writes values quoted in the Compose-compatible subset (`env_line`). Tested with spaces, quotes, `$`, `=` and a `$(…)` injection. |
 | 13 | Medium | Device-password and open-upload limits were checked with read-then-insert. | Parallel requests exceed the limit (e.g. 26 devices). | Checked under a per-user advisory lock / the reservation lock. Regression test: 30 parallel creates → exactly 25. |
 | 14 | Medium | The installer printed "Done!" even when the app never became healthy. | An unusable install looks successful. | It exits with an error and shows container status and logs. The wait length is configurable (`WAIT_SECS`). |
+
+### Third review (full audit), all fixed
+
+| # | Severity | Finding | Fix |
+| --- | --- | --- | --- |
+| 15 | **High** | Two drain runs moving the same file could race, and the loser deleted the live copy. | Each attempt uses its own temp name; an existing copy is kept. |
+| 16 | **High** | Re-running `cli export` into the same folder wrote new bytes through hard links into live blobs. | The old entry is removed first; copies use `COPYFILE_EXCL`. |
+| 17 | **High** | `add-disk.sh` trusted udev's cached filesystem type before formatting. | It also probes the device with `wipefs -n` and refuses anything with a signature. |
+| 18 | Medium | A zip containing a missing or wrong-size file crashed the whole API process. | The stream error fails that download only. |
+| 19 | Medium | Two opposite moves at once (A into B, B into A) could detach both folders in a cycle. | Moves are serialised per owner and re-checked under the lock. |
+| 20 | Medium | A WebDAV save over an existing file could replace one that had since moved into a folder the uploader can't edit. | The replace must still be in the same folder, re-checked in the commit. |
+| 21 | Medium | Races around finalize (cancel, expiry, trash of the parent, late chunks) could double-release quota or leave a live file inside a trashed folder. | Commits require the session to still be `finalizing`; trashing locks the subtree first. WebDAV writes are upload sessions too. |
+| 22 | Medium | A disk unmounted in the last 10 s could still receive files in its empty mount point (hidden once remounted). | The volume marker is re-checked just before writing. |
+| 23 | Medium | A session lookup in flight during a revoke could put the revoked session back in the cache for 30 s. | An eviction counter discards stale lookups. |
+| 24 | Medium | `/auth/totp/setup` could replace the secret of an account that already had two-factor on. | Conditional updates on the stored state. |
+| 25 | Medium | Two admins demoting each other at the same time left no active admin. | The last-admin check runs under an advisory lock. |
+| 26 | Medium | Per-IP limits (including the device-password throttle) keyed on the full IPv6 address. | Grouped by /64. |
+| 27 | Medium | Invite tokens in the web page path `/invite/<token>` reached the request log. | Scrubbed like the API path. |
+| 28 | Medium | `deploy/backup.env` (restic password, cloud keys) was sent into the Docker build context. | Excluded in `.dockerignore`. |
+| 29 | Medium | `install.sh` would `chown`/`chmod` whatever storage path was typed, including `/`. Backup dumps (password hashes) were created with the default umask. | Unsafe paths refused; `backup.sh` uses `umask 077`. |
+| 30 | Low | A view-only link with `?inline=1` downloaded files that can't be previewed. | 403. |
+| 31 | Low | Past about 1000 failed sign-ins the lockout interval overflowed, and every later sign-in for that account returned 500. | The exponent is capped. |
+| 32 | Low | API responses had no `Cache-Control`. | `private, no-store` unless a route sets its own. |
+| 33 | Low | A `PUBLIC_URL` with another scheme or a path made the CSRF origin `"null"` or dropped the path from links. | Must be `http(s)://host[:port]` with no path. |
 
 ## Accepted risks
 

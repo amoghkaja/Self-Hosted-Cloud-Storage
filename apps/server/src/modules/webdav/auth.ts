@@ -3,6 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { LRUCache } from 'lru-cache';
 import type { Db } from '../../db/client';
 import { appPasswords, type UserRow, users } from '../../db/schema';
+import { rateLimitKey } from '../../lib/client-ip';
 import { sha256 } from '../../lib/crypto';
 
 // No 0/o/1/l/i so passwords are easy to read and type on a phone keyboard.
@@ -41,8 +42,9 @@ export class DavAuthenticator {
 
   constructor(private readonly db: Db) {}
 
+  /** Failures count per rateLimitKey: an IPv6 client could otherwise rotate within its /64. */
   isThrottled(ip: string): boolean {
-    return (this.failures.get(ip) ?? 0) >= MAX_FAILURES_PER_MINUTE;
+    return (this.failures.get(rateLimitKey(ip)) ?? 0) >= MAX_FAILURES_PER_MINUTE;
   }
 
   async authenticate(header: string | undefined, ip: string): Promise<UserRow | null> {
@@ -95,7 +97,8 @@ export class DavAuthenticator {
   }
 
   private fail(ip: string): null {
-    this.failures.set(ip, (this.failures.get(ip) ?? 0) + 1);
+    const key = rateLimitKey(ip);
+    this.failures.set(key, (this.failures.get(key) ?? 0) + 1);
     return null;
   }
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { loadConfig } from '../src/config';
 import { scrubUrl } from '../src/context';
+import { rateLimitKey } from '../src/lib/client-ip';
 import { Keyring } from '../src/lib/crypto';
 import { contentDisposition, isInlineSafe, parseRange } from '../src/lib/http';
 import { toIso } from '../src/lib/time';
@@ -58,11 +60,45 @@ describe('misc', () => {
       '/api/v1/public/links/[token]/content/x',
     );
     expect(scrubUrl('/api/v1/invites/tok/accept')).toBe('/api/v1/invites/[token]/accept');
+    // The invite link itself (web page served by the SPA fallback) carries the token too.
+    expect(scrubUrl('/invite/tok?x=1')).toBe('/invite/[token]?x=1');
+    expect(scrubUrl('/s/tok')).toBe('/s/[token]');
+  });
+
+  it('buckets IPv6 clients by /64 for rate limiting', () => {
+    expect(rateLimitKey('203.0.113.7')).toBe('203.0.113.7');
+    expect(rateLimitKey('::ffff:203.0.113.7')).toBe('203.0.113.7');
+    const a = rateLimitKey('2001:db8:aa:bb:1::1');
+    expect(a).toBe('2001:db8:aa:bb::/64');
+    expect(rateLimitKey('2001:DB8:AA:BB:ffff:ffff:ffff:ffff')).toBe(a);
+    expect(rateLimitKey('2001:0db8:00aa:00bb::9')).toBe(a);
+    expect(rateLimitKey('2001:db8:aa:bc::1')).not.toBe(a);
+    expect(rateLimitKey('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(rateLimitKey('::1')).toBe('0:0:0:0::/64');
+    expect(rateLimitKey('fe80::1%eth0')).toBe('fe80:0:0:0::/64');
+    expect(rateLimitKey('64:ff9b:1:2:3:4:1.2.3.4')).toBe('64:ff9b:1:2::/64');
+    expect(rateLimitKey('not an ip')).toBe('not an ip');
   });
 
   it('normalizes Postgres timestamps', () => {
     expect(toIso('2026-09-26 09:14:23.123456+00')).toBe('2026-09-26T09:14:23.123Z');
     expect(toIso('2026-09-26 11:14:23+02')).toBe('2026-09-26T09:14:23.000Z');
+  });
+});
+
+describe('config', () => {
+  const base = { DATABASE_URL: 'x', SECRET_KEY: 'k'.repeat(40) };
+  it('accepts an http(s) origin and rejects other schemes or a path', () => {
+    expect(loadConfig({ ...base, PUBLIC_URL: 'https://cloud.example.com/' }).publicOrigin).toBe(
+      'https://cloud.example.com',
+    );
+    expect(() => loadConfig({ ...base, PUBLIC_URL: 'ftp://cloud.example.com' })).toThrow(
+      /PUBLIC_URL/,
+    );
+    // A path would be silently dropped from links and cookies, so refuse it up front.
+    expect(() => loadConfig({ ...base, PUBLIC_URL: 'https://example.com/cloud' })).toThrow(
+      /must not contain a path/,
+    );
   });
 });
 
@@ -95,9 +131,11 @@ describe('request logging', () => {
       { req: { method: 'POST', url: '/api/v1/invites/INVITESECRET123456789/accept' } },
       'incoming request',
     );
+    log.info({ req: { method: 'GET', url: '/invite/INVITEPAGE123456789' } }, 'incoming request');
     const out = lines.join('');
     expect(out).not.toContain('SUPERSECRET');
     expect(out).not.toContain('INVITESECRET');
+    expect(out).not.toContain('INVITEPAGE');
     expect(out).toContain('/public/links/[token]');
   });
 });

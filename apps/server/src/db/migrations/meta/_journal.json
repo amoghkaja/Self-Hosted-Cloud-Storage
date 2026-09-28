@@ -22,6 +22,13 @@
       "when": 1790416336976,
       "tag": "0002_app_passwords",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790568400776,
+      "tag": "0003_natural_sort",
+      "breakpoints": true
     }
   ]
 }

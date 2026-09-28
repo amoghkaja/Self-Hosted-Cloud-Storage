@@ -3,9 +3,13 @@
 .git
 .github
 .dev-data
-.env
-deploy/.env
+.claude
+# Secrets: .env files (and installer temp files such as deploy/.env.XXXXXX), deploy/backup.env
+**/.env
+**/.env.*
+deploy/*.env
 deploy/cloudflare
+coverage
 test-results
 playwright-report
 **/*.log

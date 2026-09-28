@@ -13,7 +13,13 @@ const Env = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   /** The URL family members type in the browser. Used for Origin checks, cookies and links. */
-  PUBLIC_URL: z.url().default('http://localhost:5173'),
+  PUBLIC_URL: z
+    .url({ protocol: /^https?$/, error: 'PUBLIC_URL must be an http:// or https:// URL' })
+    // Links, cookies and the web app all assume the site root; a path would be silently dropped.
+    .refine((u) => ['', '/'].includes(new URL(u).pathname), {
+      error: 'PUBLIC_URL must not contain a path (e.g. https://cloud.example.com)',
+    })
+    .default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1),
   DB_POOL_SIZE: z.coerce.number().int().min(1).max(100).default(10),
   /** Root for volumes (<DATA_DIR>/volumes/*) and derived data such as thumbnails (<DATA_DIR>/cache). */

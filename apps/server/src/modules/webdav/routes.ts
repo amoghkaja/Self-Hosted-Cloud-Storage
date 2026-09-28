@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { ErrorCode, guessMimeType, nameProblem, normalizeName } from '@familycloud/shared/all';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../../context';
 import {
@@ -14,10 +15,20 @@ import {
 } from '../../db/schema';
 import { AppError } from '../../lib/errors';
 import { loadAccess, type NodeAccess, satisfies } from '../files/access';
-import { listTree, sendBlob } from '../files/serve';
-import { insertNode, isAncestor, trashSubtree, updateNode } from '../files/tree';
+import { etagMatches, listTree, sendBlob } from '../files/serve';
+import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
 import { ingest } from '../uploads/ingest';
-import { type DavEntry, davHref, lockXml, multistatus, proppatchXml, responseXml } from './xml';
+import {
+  type DavEntry,
+  davHref,
+  lockXml,
+  MULTISTATUS_HEAD,
+  MULTISTATUS_TAIL,
+  multistatus,
+  proppatchNames,
+  proppatchXml,
+  responseXml,
+} from './xml';
 
 export const MY_FILES = 'My Files';
 export const SHARED = 'Shared with me';
@@ -176,13 +187,23 @@ function virtualEntry(segments: string[], name: string, created: Date): DavEntry
   };
 }
 
-async function childrenOf(ctx: AppContext, folderId: string) {
-  return ctx.db
-    .select()
-    .from(nodes)
-    .where(and(eq(nodes.parentId, folderId), isNull(nodes.deletedAt)))
-    .orderBy(asc(nodes.type), asc(sql`lower(${nodes.name})`))
-    .limit(20_000);
+const CHILD_BATCH = 1000;
+
+/** A folder's children in keyset batches (nodes_children_idx), so no folder is too big to list. */
+async function* childrenOf(ctx: AppContext, folderId: string) {
+  let after: SQL | undefined;
+  for (;;) {
+    const rows = await ctx.db
+      .select({ node: nodes, key: sql<string>`lower(${nodes.name})` })
+      .from(nodes)
+      .where(and(eq(nodes.parentId, folderId), isNull(nodes.deletedAt), after))
+      .orderBy(asc(nodes.type), asc(nameSortKey), asc(nodes.id))
+      .limit(CHILD_BATCH);
+    for (const r of rows) yield r.node;
+    const last = rows.at(-1);
+    if (!last || rows.length < CHILD_BATCH) return;
+    after = sql`(${nodes.type}, ${nameSortKey}, ${nodes.id}) > (${last.node.type}::node_type, ${last.key}, ${last.node.id})`;
+  }
 }
 
 function sendXml(reply: FastifyReply, status: number, body: string) {
@@ -212,6 +233,17 @@ function destinationSegments(req: FastifyRequest): string[] {
   }
   if (!pathname.startsWith('/dav/')) throw davError(403, 'Destination must be inside /dav/');
   return parseDavPath(pathname);
+}
+
+async function readBody(req: FastifyRequest, limit: number): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req.raw as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > limit) throw new AppError(413, ErrorCode.VALIDATION, 'Request body is too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** A real folder the caller may add to, plus the name to use there. */
@@ -296,9 +328,24 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
           if (n.type === 'folder') self.quota = await quotaFor(ctx, n.ownerId);
           out.push(responseXml(self));
           if (depth && n.type === 'folder') {
-            for (const child of await childrenOf(ctx, n.id)) {
-              out.push(responseXml(nodeEntry(child, [...target.segments, child.name])));
+            // Streamed: a folder with many thousands of items never becomes one giant string.
+            const segs = target.segments;
+            async function* body() {
+              yield MULTISTATUS_HEAD + out.join('');
+              let chunk: string[] = [];
+              for await (const child of childrenOf(ctx, n.id)) {
+                chunk.push(responseXml(nodeEntry(child, [...segs, child.name])));
+                if (chunk.length === CHILD_BATCH) {
+                  yield chunk.join('');
+                  chunk = [];
+                }
+              }
+              yield chunk.join('') + MULTISTATUS_TAIL;
             }
+            return reply
+              .status(207)
+              .header('Content-Type', 'application/xml; charset=utf-8')
+              .send(Readable.from(body(), { objectMode: false }));
           }
         } else {
           throw davError(404, 'Not found');
@@ -337,24 +384,44 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
         const length = declaredLength(req);
         if (length === null)
           throw new AppError(411, ErrorCode.VALIDATION, 'Content-Length required');
-        const t = writableTarget(target);
-        if (t.existing && t.existing.node.type === 'folder')
-          throw davError(405, 'Cannot overwrite a folder');
-        const parentNode = t.existing
-          ? { id: t.existing.node.parentId!, ownerId: t.existing.node.ownerId }
-          : { id: t.parent!.node.id, ownerId: t.parent!.node.ownerId };
+        let existing: NodeRow | null = null;
+        let parentNode: { id: string; ownerId: string };
+        let name: string;
+        if (target.kind === 'node') {
+          existing = target.a.node;
+          if (existing.type === 'folder') throw davError(405, 'Cannot overwrite a folder');
+          // Saving over a file changes the file, not its folder: edit access on the file is
+          // enough (e.g. a file shared directly with edit permission).
+          if (!satisfies(target.a.access, 'edit')) throw davError(403, 'Read-only file');
+          parentNode = { id: existing.parentId!, ownerId: existing.ownerId };
+          name = existing.name;
+        } else {
+          const t = writableTarget(target);
+          parentNode = { id: t.parent!.node.id, ownerId: t.parent!.node.ownerId };
+          name = t.name;
+        }
+        // Clients that avoid lost updates send these; last-write-wins only for those that don't.
+        const etag = existing ? `"${existing.blobId}"` : null;
+        const ifMatch = req.headers['if-match'];
+        if (ifMatch !== undefined && !(etag && etagMatches(ifMatch, etag, true))) {
+          throw new AppError(412, ErrorCode.CONFLICT, 'The file changed since it was read');
+        }
+        if (etag && etagMatches(req.headers['if-none-match'], etag)) {
+          throw new AppError(412, ErrorCode.CONFLICT, 'The file already exists');
+        }
         const contentType = req.headers['content-type'];
         const { node, created } = await ingest(ctx, {
           uploaderId: user.id,
           parent: parentNode,
-          name: t.name,
+          name,
           size: length,
           mimeType: guessMimeType(
-            t.name,
+            name,
             typeof contentType === 'string' ? contentType.split(';')[0] : null,
           ),
           source: { kind: 'stream', body: req.raw },
-          replaceNodeId: t.existing?.node.id ?? null,
+          replaceNodeId: existing?.id ?? null,
+          expectBlobId: ifMatch !== undefined && ifMatch.trim() !== '*' ? existing?.blobId : null,
           onConflict: 'fail',
         });
         return reply
@@ -403,8 +470,18 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
         const destSegs = destinationSegments(req);
         const dest = await resolve(ctx, user, destSegs);
         const overwrite = String(req.headers.overwrite ?? 'T').toUpperCase() !== 'F';
-        if (dest.kind === 'node' && dest.a.node.id === src.node.id)
-          throw davError(403, 'Source and destination are the same');
+        if (dest.kind === 'node' && dest.a.node.id === src.node.id) {
+          // Names are case-insensitive, so Finder renaming "photo.jpg" to "Photo.jpg" lands here.
+          const name = destSegs[destSegs.length - 1]!;
+          if (method === 'COPY' || name === src.node.name)
+            throw davError(403, 'Source and destination are the same');
+          if (src.isRoot || !satisfies(src.parentAccess, 'edit'))
+            throw davError(403, 'Not allowed');
+          const problem = nameProblem(name);
+          if (problem) throw new AppError(400, ErrorCode.VALIDATION, problem);
+          await moveNode(ctx.db, src.node, { name });
+          return reply.status(201).send();
+        }
         const d = writableTarget(dest);
         const destParent = d.existing
           ? await loadAccess(ctx.db, user.id, d.existing.node.parentId!)
@@ -412,6 +489,11 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
         if (!destParent) throw davError(409, 'Destination folder not found');
         if (d.existing && !overwrite)
           throw new AppError(412, ErrorCode.CONFLICT, 'Destination exists');
+        // Overwriting a folder that holds the source would trash the source along with it.
+        if (d.existing && (await isAncestor(ctx.db, d.existing.node.id, src.node.id)))
+          throw davError(403, 'The destination contains the source');
+        if (await isAncestor(ctx.db, src.node.id, destParent.node.id))
+          throw davError(403, 'A folder cannot be moved or copied into itself');
 
         if (method === 'MOVE') {
           if (src.isRoot || !satisfies(src.parentAccess, 'edit'))
@@ -419,17 +501,23 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
           if (destParent.node.ownerId !== src.node.ownerId) {
             throw davError(403, "Items can only be moved within the same person's files");
           }
-          if (
-            destParent.node.id === src.node.id ||
-            (await isAncestor(ctx.db, src.node.id, destParent.node.id))
-          ) {
-            throw davError(403, 'A folder cannot be moved into itself');
-          }
-          if (d.existing) await trashSubtree(ctx.db, d.existing.node.id);
-          await updateNode(ctx.db, src.node.id, { name: d.name, parentId: destParent.node.id });
+          // One transaction: if the move fails, the destination is not left in the trash.
+          await moveNode(
+            ctx.db,
+            src.node,
+            { name: d.name, parentId: destParent.node.id },
+            d.existing?.node.id,
+          );
           return reply.status(d.existing ? 204 : 201).send();
         }
 
+        // Checked before anything changes, so a refused copy leaves the destination alone.
+        const tree =
+          src.node.type === 'folder' && req.headers.depth !== '0'
+            ? await listTree(ctx.db, src.node.id, MAX_COPY_ENTRIES + 1)
+            : [];
+        if (tree.length > MAX_COPY_ENTRIES)
+          throw new AppError(413, ErrorCode.VALIDATION, 'Folder is too large to copy in one go');
         if (d.existing) await trashSubtree(ctx.db, d.existing.node.id);
         await copyInto(
           ctx,
@@ -437,14 +525,17 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
           src.node,
           { id: destParent.node.id, ownerId: destParent.node.ownerId },
           d.name,
-          req.headers.depth === '0',
+          tree,
         );
         return reply.status(d.existing ? 204 : 201).send();
       }
 
       case 'LOCK': {
+        if (target.kind === 'conflict') throw davError(409, 'Parent folder does not exist');
         // Advisory only: Finder and Windows refuse to mount read-write without LOCK support.
-        const token = `opaquelocktoken:${randomUUID()}`;
+        // A refresh names its lock in the If header; keep that token rather than minting one.
+        const held = /<(opaquelocktoken:[\w-]+)>/.exec(String(req.headers.if ?? ''))?.[1];
+        const token = held ?? `opaquelocktoken:${randomUUID()}`;
         const href = davHref(
           segments,
           target.kind === 'node' ? target.a.node.type === 'folder' : false,
@@ -460,10 +551,13 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
       case 'UNLOCK':
         return reply.status(204).send();
 
-      case 'PROPPATCH':
+      case 'PROPPATCH': {
         if (target.kind === 'missing' || target.kind === 'conflict')
           throw davError(404, 'Not found');
-        return sendXml(reply, 207, proppatchXml(davHref(segments, false)));
+        const props = proppatchNames(await readBody(req, 64 * 1024));
+        const collection = target.kind !== 'node' || target.a.node.type === 'folder';
+        return sendXml(reply, 207, proppatchXml(davHref(segments, collection), props));
+      }
 
       default:
         return reply.status(405).header('Allow', ALLOW).send();
@@ -488,7 +582,8 @@ async function copyInto(
   src: NodeRow,
   destParent: { id: string; ownerId: string },
   name: string,
-  shallow: boolean,
+  /** The source folder's contents (listTree), or [] for a Depth: 0 copy. */
+  tree: Awaited<ReturnType<typeof listTree>>,
 ) {
   const copyFile = async (
     blobId: string,
@@ -525,10 +620,6 @@ async function copyInto(
     },
     'fail',
   );
-  if (shallow) return;
-  const tree = await listTree(ctx.db, src.id, MAX_COPY_ENTRIES + 1);
-  if (tree.length > MAX_COPY_ENTRIES)
-    throw new AppError(413, ErrorCode.VALIDATION, 'Folder is too large to copy in one go');
   const folderIds = new Map<string, string>([['', root.id]]);
   for (const e of tree) {
     const slash = e.path.lastIndexOf('/');
@@ -544,11 +635,7 @@ async function copyInto(
       );
       folderIds.set(e.path, f.id);
     } else if (e.blobId) {
-      const [n] = await ctx.db
-        .select({ mimeType: nodes.mimeType })
-        .from(nodes)
-        .where(eq(nodes.id, e.id));
-      await copyFile(e.blobId, parentId, leaf, Number(e.size), n?.mimeType ?? null);
+      await copyFile(e.blobId, parentId, leaf, Number(e.size), e.mimeType);
     }
   }
 }

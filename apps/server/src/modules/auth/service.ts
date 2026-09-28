@@ -1,10 +1,10 @@
-import type { UserRole } from '@familycloud/shared/all';
+import { ErrorCode, type UserRole } from '@familycloud/shared/all';
 import { eq } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
 import { nodes, type UserRow, users } from '../../db/schema';
-import { conflict, isUniqueViolation } from '../../lib/errors';
+import { AppError, conflict, isUniqueViolation } from '../../lib/errors';
 
 /** Creates an account together with its root folder ("My Files"). */
 export async function createUserWithRoot(
@@ -72,15 +72,30 @@ export function checkTotp(
   code: string,
   lastStep: number | null,
 ): number | null {
+  let secret: string;
+  try {
+    secret = ctx.keys.decrypt('totp', secretEnc);
+  } catch {
+    // Encrypted under a different SECRET_KEY (restored database, regenerated .env): no code can
+    // ever match, so say what's wrong instead of a bare 500.
+    throw new AppError(
+      500,
+      ErrorCode.MFA_UNAVAILABLE,
+      "Two-factor codes can't be checked because the server's secret key changed. Ask your admin to reset two-factor for your account.",
+    );
+  }
   const totp = new OTPAuth.TOTP({
     algorithm: 'SHA1',
     digits: 6,
     period: PERIOD,
-    secret: OTPAuth.Secret.fromBase32(ctx.keys.decrypt('totp', secretEnc)),
+    secret: OTPAuth.Secret.fromBase32(secret),
   });
-  const delta = totp.validate({ token: code, window: 1 });
+  // One clock reading for both the check and the step: if a 30 s boundary passed between two
+  // readings, the recorded step would be one ahead and the user's next valid code rejected.
+  const now = Date.now();
+  const delta = totp.validate({ token: code, window: 1, timestamp: now });
   if (delta === null) return null;
-  const step = Math.floor(Date.now() / 1000 / PERIOD) + delta;
+  const step = Math.floor(now / 1000 / PERIOD) + delta;
   if (lastStep !== null && step <= lastStep) return null;
   return step;
 }

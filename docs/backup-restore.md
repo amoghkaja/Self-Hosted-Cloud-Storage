@@ -60,6 +60,9 @@ On a fresh install (or the same machine after a disk failure):
 ./scripts/install.sh           # same PUBLIC_URL; then stop the app and worker:
 cd deploy && docker compose stop app worker
 
+# restic needs the settings from your deploy/backup.env in this shell:
+export RESTIC_REPOSITORY=... RESTIC_PASSWORD=...   # plus the provider keys, e.g. B2_ACCOUNT_ID/B2_ACCOUNT_KEY
+
 # 1. Files
 restic restore latest --target / --include /srv/familycloud/volumes
 
@@ -70,16 +73,16 @@ docker compose exec -T db dropdb -U familycloud familycloud
 docker compose exec -T db createdb -U familycloud familycloud
 docker compose exec -T db pg_restore -U familycloud -d familycloud < "$DUMP"
 
-docker compose --profile tunnel up -d
+docker compose up -d
 ```
 
-**Also restore the old `SECRET_KEY`** from your previous `deploy/.env` (keep a copy of that file in your password manager). With a different key, everyone has to set up two-factor again and existing share links stop working. Files and accounts are unaffected.
+**Also restore the old `SECRET_KEY`** from your previous `deploy/.env` (keep a copy of that file in your password manager). With a different key, two-factor codes stop working (an admin has to turn two-factor off for each person with `docker compose exec app node dist/cli.js reset-totp --email …`, and they set it up again), and the addresses of existing share links can't be shown again. Files, accounts and sign-ins are unaffected.
 
 ## Moving to new hardware
 
 For example, moving from a desktop to a low-power mini PC:
 
-1. **On the old machine:** `./scripts/backup.sh`, then `cd deploy && docker compose --profile tunnel down`.
+1. **On the old machine:** `./scripts/backup.sh`, then `cd deploy && docker compose down`.
 2. **Copy** `deploy/.env` and the whole `/srv/familycloud` folder to the new machine:
 
    ```bash
@@ -87,6 +90,6 @@ For example, moving from a desktop to a low-power mini PC:
    ```
 
    Or move the disks themselves: plug them into the new machine and mount them at the same paths (`scripts/add-disk.sh` can add the fstab entries).
-3. **On the new machine:** clone the repository, put `deploy/.env` back, fix `PUID`/`PGID` if your user ID differs (`id -u`), and run `cd deploy && docker compose --profile tunnel up -d`.
+3. **On the new machine:** clone the repository, put `deploy/.env` back, fix `PUID`/`PGID` if your user ID differs (`id -u`), and run `cd deploy && docker compose up -d`.
 
 The Cloudflare Tunnel token moves with `.env`, so the address stays the same. The image is built for both Intel/AMD (`amd64`) and ARM (`arm64`), so moving to a Raspberry Pi works the same way.

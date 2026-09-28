@@ -22,12 +22,25 @@ export interface JobPayloads {
 }
 
 export interface JobQueue {
-  send<N extends JobName>(
-    name: N,
-    data: JobPayloads[N],
-    opts?: { singletonKey?: string },
-  ): Promise<void>;
+  send<N extends JobName>(name: N, data: JobPayloads[N]): Promise<void>;
   stop(): Promise<void>;
+}
+
+/**
+ * Jobs about one blob or volume are de-duplicated per blob/volume id: a thumbnail or hash job
+ * waiting in the queue already covers a second request, and a volume is drained by one job at a
+ * time. Every job on these queues carries its key, since a keyless job would collide with all
+ * the other keyless ones.
+ */
+const POLICY: Partial<Record<JobName, 'short' | 'exclusive'>> = {
+  thumbnail: 'short',
+  hash: 'short',
+  'drain-volume': 'exclusive',
+};
+
+function singletonKey(data: object): string | undefined {
+  const d = data as { blobId?: string; volumeId?: string };
+  return d.blobId ?? d.volumeId;
 }
 
 /** Job queue backed by pg-boss: jobs live in Postgres, so no Redis is needed. */
@@ -50,6 +63,7 @@ export class PgBossQueue implements JobQueue {
     for (const name of Object.values(JOBS)) {
       if (!(await boss.getQueue(name))) {
         await boss.createQueue(name, {
+          policy: POLICY[name] ?? 'standard',
           retryLimit: name === JOBS.drainVolume ? 1 : 3,
           retryBackoff: true,
           expireInSeconds: name === JOBS.drainVolume ? 24 * 3600 : 30 * 60,
@@ -59,8 +73,9 @@ export class PgBossQueue implements JobQueue {
     return new PgBossQueue(boss);
   }
 
-  async send<N extends JobName>(name: N, data: JobPayloads[N], opts?: { singletonKey?: string }) {
-    await this.boss.send(name, data, opts?.singletonKey ? { singletonKey: opts.singletonKey } : {});
+  async send<N extends JobName>(name: N, data: JobPayloads[N]) {
+    const key = POLICY[name] ? singletonKey(data) : undefined;
+    await this.boss.send(name, data, key ? { singletonKey: key } : {});
   }
 
   async stop() {

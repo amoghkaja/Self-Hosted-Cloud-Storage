@@ -5,6 +5,7 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 import { api, errorMessage } from '../../api/client';
 import { qk, useSetupStatus } from '../../api/queries';
 import { Button, ErrorState, PasswordField, Skeleton, TextField } from '../../components/ui';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { AuthLayout, FormError } from './AuthLayout';
 
 const passwordHint = `At least ${PASSWORD_MIN_LENGTH} characters. A short sentence is easy to remember and hard to guess.`;
@@ -88,6 +89,7 @@ export function SetupPage() {
   const navigate = useNavigate();
   const f = useAccountForm();
   const [token, setToken] = useState('');
+  usePageTitle('Set up');
 
   if (setup.data && !setup.data.needsSetup) return <Navigate to="/login" replace />;
 
@@ -154,6 +156,7 @@ export function AcceptInvitePage() {
     queryFn: () => api<InviteInfo>(`/invites/${token}`),
     retry: false,
   });
+  usePageTitle('Join');
 
   if (invite.isPending) {
     return (

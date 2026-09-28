@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX } from '../constants';
 import { Bytes, Id, IsoDate, UserRef } from './common';
 import { Breadcrumb, FileNode, NodeType, ThumbStatus } from './files';
 
@@ -34,7 +35,8 @@ export type SharedWithMeItem = z.infer<typeof SharedWithMeItem>;
 export const ShareLink = z.object({
   id: Id,
   nodeId: Id,
-  url: z.string(),
+  /** Null when the link was made under an earlier SECRET_KEY: it can still be revoked. */
+  url: z.string().nullable(),
   hasPassword: z.boolean(),
   allowDownload: z.boolean(),
   expiresAt: IsoDate.nullable(),
@@ -74,12 +76,17 @@ export const PublicFolder = z.object({
   folder: PublicNode,
   breadcrumbs: z.array(Breadcrumb),
   items: z.array(PublicNode),
+  nextCursor: z.string().nullable(),
 });
 export type PublicFolder = z.infer<typeof PublicFolder>;
 
 export const UnlockLinkBody = z.object({ password: z.string().min(1).max(128) });
 
-export const PublicFolderQuery = z.object({ folderId: Id.optional() });
+export const PublicFolderQuery = z.object({
+  folderId: Id.optional(),
+  cursor: z.string().max(1000).optional(),
+  limit: z.coerce.number().int().min(1).max(PAGE_SIZE_MAX).default(PAGE_SIZE_DEFAULT),
+});
 
 export const PublicNodeParams = z.object({
   token: z.string().min(16).max(200),

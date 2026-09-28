@@ -16,7 +16,13 @@ Each disk is a folder under `/srv/familycloud/volumes/` (for example `disk1`, `d
 
 Each disk folder contains a small `.familycloud-volume` marker file. If a disk isn't mounted, its folder is empty (no marker), so Family Cloud marks it **offline** instead of accidentally filling up the main disk. Nothing is written to an offline disk.
 
-> Because files aren't stored under their names, don't edit the `volumes/` folders by hand. To get a normal folder tree out (for example to recover files without the app), use `node dist/cli.js export --out /some/folder`.
+> Because files aren't stored under their names, don't edit the `volumes/` folders by hand. To get a normal folder tree out (for example to recover files without the app), export it into a folder your user can write to, such as a backup disk mounted at `/mnt/recovery`:
+>
+> ```bash
+> cd deploy && docker compose run --rm -v /mnt/recovery:/export app node dist/cli.js export --out /export
+> ```
+>
+> Each person's files land in `/mnt/recovery/<their email>/`. Add `--email them@example.com` to export one person.
 
 ## Adding a disk
 

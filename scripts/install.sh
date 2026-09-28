@@ -41,6 +41,7 @@ bold "Family Cloud installer"
 
 [[ "$(uname -s)" == "Linux" ]] || die "This installer supports Linux hosts."
 command -v openssl >/dev/null || die "openssl is required (sudo apt install openssl)."
+command -v curl >/dev/null || die "curl is required (sudo apt install curl)."
 
 if ! command -v docker >/dev/null; then
   if $INSTALL_DOCKER; then
@@ -56,8 +57,13 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is requi
 docker info >/dev/null 2>&1 || die "Can't talk to Docker. Is your user in the docker group? (sudo usermod -aG docker \$USER, then log in again)"
 
 # Keep existing values on re-runs (read safely: the file is never executed).
+MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES'
+EXTRA_SETTINGS=""
 if [[ -f "$ENV_FILE" ]]; then
   load_env "$ENV_FILE"
+  # Settings added by hand (e.g. WORKER_CONCURRENCY) are carried over verbatim.
+  EXTRA_SETTINGS=$(grep -E '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE" \
+    | grep -vE "^[[:space:]]*(export[[:space:]]+)?($MANAGED_KEYS)=" || true)
   bold "Found existing deploy/.env; keeping its settings."
 fi
 
@@ -66,14 +72,25 @@ ask PUBLIC_URL "Address family members will use" "https://cloud.example.com"
 ask APP_NAME "Name shown in the app" "Family Cloud"
 ask STORAGE_ROOT "Where to keep files and the database" "/srv/familycloud"
 ask CLOUDFLARE_TUNNEL_TOKEN "Cloudflare Tunnel token (leave empty to add later)" ""
-[[ "$PUBLIC_URL" =~ ^https?://[^[:space:]]+$ ]] || die "PUBLIC_URL must look like https://cloud.example.com (http:// only for LAN testing)."
+PUBLIC_URL=${PUBLIC_URL%/}
+# No path: the app serves from the site root and refuses to start with one.
+[[ "$PUBLIC_URL" =~ ^https?://[^/[:space:]]+$ ]] || die "PUBLIC_URL must look like https://cloud.example.com, without a path (http:// only for LAN testing)."
 (( ${#APP_NAME} >= 1 && ${#APP_NAME} <= 60 )) || die "The app name must be 1-60 characters."
-[[ "$STORAGE_ROOT" == /* ]] || die "The storage location must be an absolute path (e.g. /srv/familycloud)."
+STORAGE_ROOT=${STORAGE_ROOT%/}
+[[ "$STORAGE_ROOT" =~ ^(/[A-Za-z0-9._-]+){2,}$ && "$STORAGE_ROOT/" != */./* && "$STORAGE_ROOT/" != */../* ]] \
+  || die "The storage location must be a dedicated folder at least two levels deep, e.g. /srv/familycloud (letters, digits, . _ - only)."
 
 SECRET_KEY=${SECRET_KEY:-$(rand)}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(rand)}
 PUID=${PUID:-$(id -u)}
 PGID=${PGID:-$(id -g)}
+# Optional services follow the settings; docker compose reads COMPOSE_PROFILES from deploy/.env,
+# so plain `docker compose up -d` starts the right ones later too.
+PROFILES=()
+[[ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]] && PROFILES+=(tunnel)
+[[ -n "${DOMAIN:-}" ]] && PROFILES+=(caddy)
+COMPOSE_PROFILES=$(IFS=,; echo "${PROFILES[*]}")
+export COMPOSE_PROFILES
 
 bold "Preparing $STORAGE_ROOT"
 for d in volumes/disk1 cache db backups; do
@@ -106,6 +123,8 @@ chmod 600 "$TMP_ENV"
   env_line APP_PORT "${APP_PORT:-3080}"
   env_line IMAGE "${IMAGE:-ghcr.io/amoghkaja/cloud-storage:latest}"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
+  env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
+  if [[ -n "$EXTRA_SETTINGS" ]]; then printf '%s\n' "$EXTRA_SETTINGS"; fi
 } > "$TMP_ENV" || die "Could not write deploy/.env (see the message above)."
 mv "$TMP_ENV" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
@@ -113,15 +132,13 @@ trap - EXIT
 info "Wrote deploy/.env (secrets generated, permissions 600)."
 
 cd "$ROOT/deploy"
-PROFILE=()
-[[ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]] && PROFILE=(--profile tunnel)
 
 bold "Starting Family Cloud"
 if ! docker compose pull --quiet app 2>/dev/null; then
   info "No published image available; building locally (takes a few minutes)…"
   docker compose build app
 fi
-docker compose "${PROFILE[@]}" up -d
+docker compose up -d
 
 printf '  Waiting for the app to start'
 READY=false
@@ -133,7 +150,7 @@ done
 if ! $READY; then
   echo
   printf '\033[31mThe app did not become healthy within %ss.\033[0m Recent logs:\n' "$WAIT_SECS" >&2
-  docker compose "${PROFILE[@]}" ps >&2 || true
+  docker compose ps >&2 || true
   docker compose logs --tail 40 app worker db >&2 || true
   die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
 fi

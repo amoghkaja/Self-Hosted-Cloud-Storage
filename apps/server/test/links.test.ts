@@ -58,6 +58,29 @@ describe('public share links', () => {
     expect((await guest.get(`/public/links/${token}/folder?folderId=${root}`)).status).toBe(404);
   });
 
+  it('pages large folder listings with a cursor', async () => {
+    const big = (await owner.post('/folders', { parentId: root, name: 'Big' })).body.id;
+    for (const name of ['b', 'a', 'd', 'c', 'e']) {
+      await owner.post('/folders', { parentId: big, name });
+    }
+    const link = await owner.post(`/nodes/${big}/links`, { allowDownload: true });
+    const token = tokenOf(link.body.url);
+    const guest = new Client(env.app);
+    const names: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const q: string = cursor ? `&cursor=${cursor}` : '';
+      const page = await guest.get(`/public/links/${token}/folder?limit=2${q}`);
+      expect(page.status).toBe(200);
+      names.push(...page.body.items.map((i: { name: string }) => i.name));
+      cursor = page.body.nextCursor;
+      pages++;
+    } while (cursor && pages < 10);
+    expect(names).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(pages).toBe(3);
+  });
+
   it('view-only links can preview but not download', async () => {
     const link = await owner.post(`/nodes/${folder}/links`, { allowDownload: false });
     const token = tokenOf(link.body.url);

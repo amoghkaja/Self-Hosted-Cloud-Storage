@@ -2,7 +2,13 @@ import { type FileNode, nameProblem, normalizeName, splitExtension } from '@fami
 import { ChevronRight, Folder } from 'lucide-react';
 import { type FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../api/client';
-import { useChildren, useCreateFolder, useNode, useUpdateNode } from '../../api/queries';
+import {
+  useChildren,
+  useCreateFolder,
+  useMoveNodes,
+  useNode,
+  useUpdateNode,
+} from '../../api/queries';
 import {
   Button,
   Dialog,
@@ -162,28 +168,35 @@ export function MoveDialog({
   const [folderId, setFolderId] = useState(startFolderId);
   const detail = useNode(folderId);
   const children = useChildren(folderId, 'name', 'asc');
-  const update = useUpdateNode();
-  const [busy, setBusy] = useState(false);
+  const moveNodes = useMoveNodes();
   const moving = new Set(nodes.map((n) => n.id));
   const folders = (children.data?.pages.flatMap((p) => p.items) ?? []).filter(
     (n) => n.type === 'folder',
   );
+  // Only once we know the destination and that we may add to it.
   const canMoveHere =
-    folderId !== fromParentId && !moving.has(folderId) && detail.data?.access !== 'view';
+    folderId !== fromParentId &&
+    !moving.has(folderId) &&
+    !!detail.data &&
+    detail.data.access !== 'view';
 
   const move = async () => {
-    setBusy(true);
-    let failed = 0;
-    for (const n of nodes) {
-      try {
-        await update.mutateAsync({ id: n.id, parentId: folderId, fromParentId });
-      } catch (err) {
-        failed++;
-        toast.error(`${n.name}: ${errorMessage(err)}`);
-      }
+    let result: Awaited<ReturnType<typeof moveNodes.mutateAsync>>;
+    try {
+      result = await moveNodes.mutateAsync({
+        ids: nodes.map((n) => n.id),
+        parentId: folderId,
+        fromParentId,
+      });
+    } catch (err) {
+      toast.error(errorMessage(err));
+      return;
     }
-    setBusy(false);
-    if (failed === 0) {
+    for (const f of result.failed) {
+      const name = nodes.find((n) => n.id === f.id)?.name ?? 'Item';
+      toast.error(`${name}: ${errorMessage(f.error)}`);
+    }
+    if (result.failed.length === 0) {
       toast.success(
         nodes.length === 1 ? `Moved “${nodes[0]!.name}”` : `Moved ${nodes.length} items`,
       );
@@ -201,7 +214,12 @@ export function MoveDialog({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={move} loading={busy} disabled={!canMoveHere}>
+          <Button
+            variant="primary"
+            onClick={move}
+            loading={moveNodes.isPending}
+            disabled={!canMoveHere}
+          >
             Move here
           </Button>
         </>

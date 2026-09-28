@@ -1,12 +1,14 @@
 import { formatBytes } from '@familycloud/shared';
 import { ChevronDown, CircleAlert, CircleCheck, RotateCcw, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { UploadItem } from '../../api/upload-manager';
 import { uploadManager, useUploads } from '../../app/providers';
 import { announce, IconButton, Progress } from '../../components/ui';
 import { cn } from '../../lib/cn';
 
-function Row({ item }: { item: UploadItem }) {
+// Memoized: the manager keeps an unchanged item's snapshot object, so a progress tick only
+// re-renders the row that moved.
+const Row = memo(function Row({ item }: { item: UploadItem }) {
   const pct = item.size
     ? Math.round((item.loaded / item.size) * 100)
     : item.status === 'done'
@@ -61,7 +63,7 @@ function Row({ item }: { item: UploadItem }) {
       )}
     </li>
   );
-}
+});
 
 /** Docked upload progress. Collapsible; warns before leaving the page while uploads run. */
 export function UploadPanel() {
@@ -101,10 +103,30 @@ export function UploadPanel() {
     if (stats.active === 0) return;
     const warn = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      // Older browsers only show the prompt when returnValue is set.
+      e.returnValue = '';
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [stats.active]);
+
+  // The panel floats over the bottom of the page; publish its height so the page can pad its
+  // end and the last files stay reachable instead of hiding underneath it.
+  const panel = useRef<HTMLElement>(null);
+  const visible = items.length > 0;
+  useLayoutEffect(() => {
+    const el = panel.current;
+    if (!visible || !el) return;
+    const root = document.documentElement;
+    const ro = new ResizeObserver(() =>
+      root.style.setProperty('--upload-panel-h', `${el.offsetHeight + 8}px`),
+    );
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--upload-panel-h');
+    };
+  }, [visible]);
 
   if (items.length === 0) return null;
   const title =
@@ -116,6 +138,7 @@ export function UploadPanel() {
 
   return (
     <section
+      ref={panel}
       aria-label="Uploads"
       className="fixed right-2 bottom-2 left-2 z-40 overflow-hidden rounded-2xl border border-border bg-surface shadow-pop sm:left-auto sm:w-[380px] animate-pop-in"
     >

@@ -20,6 +20,7 @@ import { Avatar, DropdownMenu, IconButton, UsageBar } from '../components/ui';
 import { UploadPanel } from '../features/uploads/UploadPanel';
 import { cn } from '../lib/cn';
 import type { ShellContext } from './guards';
+import { uploadManager } from './providers';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
@@ -79,7 +80,10 @@ function SearchBox() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const location = useLocation();
-  const [q, setQ] = useState(location.pathname === '/search' ? (params.get('q') ?? '') : '');
+  const urlQuery = location.pathname === '/search' ? (params.get('q') ?? '') : '';
+  const [q, setQ] = useState(urlQuery);
+  // Follow the URL (back/forward between searches, leaving search for a folder).
+  useEffect(() => setQ(urlQuery), [urlQuery]);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`);
@@ -134,8 +138,11 @@ function UserMenu({ me }: { me: Me }) {
           label: 'Sign out',
           icon: <LogOut />,
           separatorBefore: true,
-          onSelect: () =>
-            logout.mutate(undefined, { onSettled: () => navigate('/login', { replace: true }) }),
+          onSelect: () => {
+            // Stop uploads and clear the list: the next person to sign in mustn't see it.
+            uploadManager.reset();
+            logout.mutate(undefined, { onSettled: () => navigate('/login', { replace: true }) });
+          },
         },
       ]}
     />
@@ -147,6 +154,22 @@ export function AppShell({ me }: { me: Me }) {
   const location = useLocation();
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on navigation to close the drawer
   useEffect(() => setDrawer(false), [location.pathname]);
+
+  // Files dropped anywhere outside an upload area (sidebar, header, a missed target) would make
+  // the browser navigate away to open them, abandoning the app and any uploads in progress.
+  useEffect(() => {
+    const guard = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files') || e.defaultPrevented) return;
+      e.preventDefault();
+      if (e.type === 'dragover') e.dataTransfer.dropEffect = 'none';
+    };
+    window.addEventListener('dragover', guard);
+    window.addEventListener('drop', guard);
+    return () => {
+      window.removeEventListener('dragover', guard);
+      window.removeEventListener('drop', guard);
+    };
+  }, []);
 
   const context: ShellContext = { me };
   return (
@@ -195,7 +218,10 @@ export function AppShell({ me }: { me: Me }) {
           </div>
         </header>
         {me.role === 'admin' && !me.totpEnabled && (
-          <div className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-sm text-warning md:px-6">
+          <section
+            aria-label="Security reminder"
+            className="flex items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-sm text-warning md:px-6"
+          >
             <ShieldCheck size={16} aria-hidden />
             <span>
               Admin accounts should use two-factor sign-in.{' '}
@@ -206,12 +232,13 @@ export function AppShell({ me }: { me: Me }) {
                 Turn it on
               </NavLink>
             </span>
-          </div>
+          </section>
         )}
         <main
           id="main"
           tabIndex={-1}
-          className="min-w-0 flex-1 px-3 py-4 outline-none md:px-6 md:py-6"
+          // Extra room at the end while the upload panel floats over the bottom of the page.
+          className="min-w-0 flex-1 px-3 pt-4 pb-[calc(var(--upload-panel-h,0px)+1rem)] outline-none md:px-6 md:pt-6 md:pb-[calc(var(--upload-panel-h,0px)+1.5rem)]"
         >
           <Outlet context={context} />
         </main>

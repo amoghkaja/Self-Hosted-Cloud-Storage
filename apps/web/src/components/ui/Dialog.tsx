@@ -3,23 +3,31 @@ import { AlertDialog, Dialog as D } from 'radix-ui';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { Button } from './Button';
+import { fallbackFor, recentInvoker, restoreFocus } from './focusReturn';
 
 /**
  * Radix only restores focus to its own Trigger. Our dialogs are opened from menus, shortcuts
  * and buttons elsewhere, so remember whatever had focus at open time and return to it on close
- * (otherwise keyboard and screen-reader users are dumped at the top of the page).
+ * (otherwise keyboard and screen-reader users are dumped at the top of the page). A menu has
+ * already unmounted its items when the dialog opens, so we fall back to the menu's invoker; and
+ * if the opener is gone by the time we close (the item was moved or deleted), to its list.
  */
 export function useReturnFocus(open: boolean) {
-  const opener = useRef<HTMLElement | null>(null);
+  const opener = useRef<{ el: HTMLElement | null; fallback: HTMLElement | null }>({
+    el: null,
+    fallback: null,
+  });
   useLayoutEffect(() => {
-    if (open) opener.current = document.activeElement as HTMLElement | null;
+    if (!open) return;
+    const active = document.activeElement as HTMLElement | null;
+    // Opened from a menu item (still focused, or already removed): return to the menu's invoker.
+    const fromMenu = !active || active === document.body || !!active.closest('[role="menu"]');
+    const el = (fromMenu ? recentInvoker() : null) ?? active;
+    opener.current = { el, fallback: fallbackFor(el) };
   }, [open]);
   return (e: Event) => {
-    const el = opener.current;
-    if (el?.isConnected && el !== document.body) {
-      e.preventDefault();
-      el.focus();
-    }
+    const { el, fallback } = opener.current;
+    if (restoreFocus(el, fallback)) e.preventDefault();
   };
 }
 
@@ -63,18 +71,19 @@ export function Dialog({
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         <D.Overlay className={overlay} />
-        <D.Content className={cn(panel, widths[size])} onCloseAutoFocus={onCloseAutoFocus}>
+        <D.Content
+          className={cn(panel, widths[size])}
+          onCloseAutoFocus={onCloseAutoFocus}
+          // No description: opt out explicitly instead of repeating the title to screen readers.
+          {...(description ? {} : { 'aria-describedby': undefined })}
+        >
           <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-2">
             <div className="min-w-0">
               <D.Title className={cn('text-lg font-semibold', hideTitle && 'sr-only')}>
                 {title}
               </D.Title>
-              {description ? (
+              {description && (
                 <D.Description className="mt-1 text-sm text-muted">{description}</D.Description>
-              ) : (
-                <D.Description className="sr-only">
-                  {typeof title === 'string' ? title : 'Dialog'}
-                </D.Description>
               )}
             </div>
             <D.Close

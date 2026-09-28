@@ -80,7 +80,7 @@ GET  /uploads/:id                          → which chunks the server has (resu
 
 Finalizing is a rename plus one short transaction, so even a 50 GB file completes well inside the proxy timeout. The browser's upload manager retries failed chunks with exponential backoff, waits for the network when offline, and skips chunks the server already has.
 
-WebDAV clients upload a whole file in one `PUT`. That goes through the same reservation path (`uploads/ingest.ts`), streaming straight to a temp file.
+WebDAV clients upload a whole file in one `PUT`. That goes through the same reservation path (`uploads/ingest.ts`), streaming straight to a temp file, and is recorded as an upload session. Nightly reconciliation, disk placement and drains therefore see it like any other upload, and the commit only succeeds if nobody cancelled or expired it first.
 
 ## Permissions
 
@@ -128,7 +128,7 @@ Pre-compressed brotli and gzip copies of the web assets are produced at build ti
 
 ## Background jobs
 
-pg-boss queues live in PostgreSQL (no Redis). Jobs are retried with backoff; recurring ones use pg-boss's cron scheduler.
+pg-boss queues live in PostgreSQL (no Redis). Jobs are retried with backoff; recurring ones use pg-boss's cron scheduler. Thumbnail and hash jobs are de-duplicated per file, and drains per disk, so re-queuing is always safe.
 
 | Job | Trigger |
 | --- | --- |
@@ -136,7 +136,7 @@ pg-boss queues live in PostgreSQL (no Redis). Jobs are retried with backoff; rec
 | `drain-volume` | Admin clicks "Move files off & retire"; resumed on worker start |
 | `purge-trash` | Daily 03:17 (items older than the retention period) |
 | `reconcile-usage` | Daily 03:47 |
-| `expire-uploads` | Every 15 min (abandoned uploads release their reservation) |
+| `expire-uploads` | Every 15 min (abandoned or crashed uploads release their reservation; temp files older than 2 days are removed) |
 | `cleanup-sessions` | Daily |
 
 ## Scaling path

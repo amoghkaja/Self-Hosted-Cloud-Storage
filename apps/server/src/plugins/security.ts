@@ -2,6 +2,7 @@ import { ErrorCode } from '@familycloud/shared/all';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { rateLimitKey } from '../lib/client-ip';
 import { AppError } from '../lib/errors';
 import { sessionCookieName } from './auth';
 
@@ -64,7 +65,7 @@ export async function registerSecurity(app: FastifyInstance) {
     global: true,
     max: Math.round(1200 * config.rateLimitScale),
     timeWindow: '1 minute',
-    keyGenerator: (req) => req.clientIp,
+    keyGenerator: (req) => rateLimitKey(req.clientIp),
     errorResponseBuilder: (_req, context) =>
       new AppError(
         429,

@@ -80,6 +80,21 @@ export class VolumeManager {
     return value;
   }
 
+  /**
+   * Re-probes the marker right before writing: placement uses a status cached for 10 s, and a
+   * disk unmounted in that window leaves an empty mount point on the root filesystem that
+   * would otherwise quietly receive the file (hidden again once the disk is remounted).
+   */
+  async assertOnline(volume: Pick<VolumeRow, 'id' | 'path'>): Promise<void> {
+    if (!(await this.status(volume, true)).online) {
+      throw new AppError(
+        503,
+        ErrorCode.VOLUME_OFFLINE,
+        'Storage is offline. Ask your admin to check the disks.',
+      );
+    }
+  }
+
   invalidate(volumeId?: string): void {
     if (volumeId) this.runtime.delete(volumeId);
     else this.runtime.clear();
@@ -141,8 +156,21 @@ export class VolumeManager {
       throw badRequest(`Volume must be a directory directly inside ${this.volumesRoot}`);
     }
     if (!(await stat(real)).isDirectory()) throw badRequest('Volume path is not a directory');
-    const rows = await this.db.select({ path: storageVolumes.path }).from(storageVolumes);
+    const rows = await this.db
+      .select({ id: storageVolumes.id, name: storageVolumes.name, path: storageVolumes.path })
+      .from(storageVolumes);
     if (rows.some((r) => r.path === real)) throw conflict('That directory is already a volume');
+    // A registered disk mounted at a new place: registering it again would overwrite its
+    // marker, taking the original volume (and every file on it) offline.
+    const marker = await readFile(path.join(real, VOLUME_MARKER), 'utf8')
+      .then((m) => JSON.parse(m) as { id?: string })
+      .catch(() => null);
+    const owner = rows.find((r) => r.id === marker?.id);
+    if (owner) {
+      throw conflict(
+        `This disk is already registered as "${owner.name}" (at ${owner.path}). Mount it there again instead.`,
+      );
+    }
     return real;
   }
 
@@ -201,8 +229,11 @@ export class VolumeManager {
     return out;
   }
 
-  /** Bytes stored and blob count per volume. */
-  async usage(exec: Executor = this.db): Promise<Map<string, { bytes: number; count: number }>> {
+  /** Bytes stored and blob count per volume (optionally only for `volumeIds`). */
+  async usage(
+    exec: Executor = this.db,
+    volumeIds?: string[],
+  ): Promise<Map<string, { bytes: number; count: number }>> {
     const rows = await exec
       .select({
         volumeId: blobs.volumeId,
@@ -210,6 +241,7 @@ export class VolumeManager {
         count: sql<number>`count(*)::int`,
       })
       .from(blobs)
+      .where(volumeIds ? inArray(blobs.volumeId, volumeIds) : undefined)
       .groupBy(blobs.volumeId);
     return new Map(rows.map((r) => [r.volumeId, { bytes: Number(r.bytes), count: r.count }]));
   }
@@ -238,7 +270,11 @@ export class VolumeManager {
       )
       .groupBy(uploadSessions.volumeId);
     const pending = new Map(pendingRows.map((r) => [r.volumeId, Number(r.bytes)]));
-    const used = await this.usage(exec);
+    // Summing every blob is a full scan, run under the global quota lock: only when a limit needs it.
+    const limited = active.filter((v) => v.capacityLimitBytes != null).map((v) => v.id);
+    const used = limited.length
+      ? await this.usage(exec, limited)
+      : new Map<string, { bytes: number; count: number }>();
 
     let best: { volume: VolumeRow; avail: number } | null = null;
     let anyOnline = false;

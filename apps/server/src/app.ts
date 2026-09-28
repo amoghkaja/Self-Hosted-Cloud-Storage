@@ -53,6 +53,15 @@ export async function buildApp(
     req.clientIp = clientIp(req);
   });
 
+  // API and WebDAV answers are per-person: no browser or Cloudflare edge may store them. Routes
+  // that serve file bytes set their own policy (ETag revalidation, immutable thumbnails).
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (!reply.hasHeader('cache-control') && /^\/(api|dav)(\/|\?|$)/.test(req.url)) {
+      reply.header('Cache-Control', 'private, no-store');
+    }
+    return payload;
+  });
+
   // Only JSON (and raw chunks, registered in the uploads module) are accepted as bodies.
   app.removeContentTypeParser('text/plain');
 

@@ -128,11 +128,13 @@ export async function requireFolder(
  * - the granting share row (FOR SHARE): a concurrent revoke or edit→view change waits.
  * A revocation therefore lands entirely before this check (upload refused) or after the commit
  * (file already saved), never in between.
+ * When saving over a file, pass it as `grantFromId`: an edit share on the file itself counts too.
  */
 export async function lockWriteAccess(
   tx: Executor,
   userId: string,
   folderId: string,
+  grantFromId: string = folderId,
 ): Promise<{ id: string; ownerId: string }> {
   const [folder] = await tx
     .select({ id: nodes.id, ownerId: nodes.ownerId, type: nodes.type, deletedAt: nodes.deletedAt })
@@ -146,7 +148,7 @@ export async function lockWriteAccess(
 
   const ancestors = (await tx.execute(sql`
     WITH RECURSIVE up AS (
-      SELECT id, parent_id, 0 AS depth FROM nodes WHERE id = ${folderId}
+      SELECT id, parent_id, 0 AS depth FROM nodes WHERE id = ${grantFromId}
       UNION ALL
       SELECT n.id, n.parent_id, u.depth + 1 FROM nodes n JOIN up u ON n.id = u.parent_id WHERE u.depth < 512
     )

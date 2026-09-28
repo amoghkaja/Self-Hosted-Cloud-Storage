@@ -30,10 +30,10 @@ import {
   insertNode,
   isAncestor,
   listChildren,
+  moveNode,
   purgeTrashRoots,
   restoreSubtree,
   trashSubtree,
-  updateNode,
 } from './tree';
 
 export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -118,7 +118,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
         patch.parentId = target.node.id;
       }
       if (Object.keys(patch).length === 0) return toFileNode(a.node);
-      const row = await updateNode(db, a.node.id, patch);
+      const row = await moveNode(db, a.node, patch);
       return toFileNode({ ...row, thumb: a.node.thumb });
     },
   );

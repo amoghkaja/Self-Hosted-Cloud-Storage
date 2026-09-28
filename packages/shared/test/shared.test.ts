@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateFolderBody,
+  Email,
   fileKind,
   formatBytes,
   guessMimeType,
@@ -77,5 +78,13 @@ describe('ZipQuery', () => {
     const b = crypto.randomUUID();
     expect(ZipQuery.parse({ ids: `${a},${b}` }).ids).toEqual([a, b]);
     expect(ZipQuery.safeParse({ ids: 'nope' }).success).toBe(false);
+  });
+});
+
+describe('Email', () => {
+  it('trims and lowercases before checking the format', () => {
+    expect(Email.parse(' Mom@Example.COM ')).toBe('mom@example.com');
+    expect(Email.safeParse('not an email').success).toBe(false);
+    expect(Email.safeParse(`${'a'.repeat(250)}@x.io`).success).toBe(false);
   });
 });

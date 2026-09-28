@@ -3,12 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
+import { copyText } from '../../lib/clipboard';
 import { expectAccessible } from '../../test/utils';
 import {
   Breadcrumbs,
   Button,
   ConfirmDialog,
   Dialog,
+  DropdownMenu,
   EmptyState,
   ErrorState,
   PasswordField,
@@ -241,5 +243,73 @@ describe('Breadcrumbs', () => {
     expect(screen.getByText('Photos')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('navigation', { name: 'Folder path' })).toBeInTheDocument();
     await expectAccessible(container);
+  });
+});
+
+describe('DropdownMenu', () => {
+  it('announces which choice is checked', async () => {
+    render(
+      <DropdownMenu
+        label="Sort"
+        trigger={<button type="button">Sort</button>}
+        actions={[
+          { id: 'a', label: 'Name', checked: true, onSelect: () => {} },
+          { id: 'b', label: 'Size', checked: false, onSelect: () => {} },
+        ]}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Sort' }));
+    expect(await screen.findByRole('menuitemradio', { name: 'Name' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('menuitemradio', { name: 'Size' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('returns focus to the menu button after a dialog opened from the menu closes', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <TooltipProvider>
+          <DropdownMenu
+            label="Actions"
+            trigger={<button type="button">Actions</button>}
+            actions={[{ id: 'rename', label: 'Rename…', onSelect: () => setOpen(true) }]}
+          />
+          <Dialog open={open} onOpenChange={setOpen} title="Rename">
+            <TextField label="Name" defaultValue="a" autoFocus />
+          </Dialog>
+        </TooltipProvider>
+      );
+    }
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Rename…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rename' });
+    // No description: the title isn't repeated as one.
+    expect(dialog).not.toHaveAttribute('aria-describedby');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Actions' })).toHaveFocus());
+  });
+});
+
+describe('copyText', () => {
+  it('falls back to the copy command where the Clipboard API is missing (plain HTTP)', async () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    const exec = vi.fn(() => true);
+    document.execCommand = exec;
+    try {
+      await expect(copyText('https://example.com/s/abc')).resolves.toBe(true);
+      expect(exec).toHaveBeenCalledWith('copy');
+      expect(document.querySelector('textarea')).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 });

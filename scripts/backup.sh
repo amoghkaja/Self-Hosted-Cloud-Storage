@@ -10,6 +10,7 @@
 # restic env (see docs/backup-restore.md): RESTIC_REPOSITORY, RESTIC_PASSWORD (or RESTIC_PASSWORD_FILE)
 # plus provider credentials, e.g. B2_ACCOUNT_ID/B2_ACCOUNT_KEY or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY.
 set -euo pipefail
+umask 077   # dumps hold password hashes and encrypted secrets
 
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/lib.sh
@@ -25,8 +26,13 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
 
 mkdir -p "$BACKUP_DIR"
+# A first off-site upload can take longer than a day; don't start a second run on top of it.
+exec 9>"$BACKUP_DIR/.backup.lock"
+flock -n 9 || { log "Another backup is still running; skipping this one."; exit 0; }
+
 DUMP="$BACKUP_DIR/db-$STAMP.dump"
 log "Dumping database → $DUMP"
+trap 'rm -f "$DUMP.partial"' EXIT
 (cd "$ROOT/deploy" && docker compose exec -T db pg_dump -U familycloud -d familycloud -Fc) > "$DUMP.partial"
 mv "$DUMP.partial" "$DUMP"
 log "Database dump: $(du -h "$DUMP" | cut -f1)"

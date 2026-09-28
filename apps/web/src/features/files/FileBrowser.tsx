@@ -12,9 +12,19 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useParams } from 'react-router';
-import { contentUrl, thumbUrl } from '../../api/client';
+import { ApiError, contentUrl, errorMessage, thumbUrl } from '../../api/client';
 import { qk, useChildren, useNode } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { uploadManager } from '../../app/providers';
@@ -31,6 +41,7 @@ import {
   QueryState,
   Skeleton,
   Tooltip,
+  toast,
 } from '../../components/ui';
 import { usePref } from '../../lib/storage';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -53,6 +64,15 @@ const SORT_LABELS: Record<SortKey, string> = {
   updated: 'Last modified',
   size: 'Size',
 };
+const SORT_DIRS: Record<SortKey, Record<SortDir, string>> = {
+  name: { asc: 'A→Z', desc: 'Z→A' },
+  updated: { asc: 'oldest first', desc: 'newest first' },
+  size: { asc: 'smallest first', desc: 'largest first' },
+};
+
+/** The app header (h-16) is sticky; the selection toolbar sticks right below it. */
+const HEADER_HEIGHT = 64;
+const TOOLBAR_HEIGHT = 52;
 
 function FileBrowser({ folderId }: { folderId: string }) {
   const { me } = useShell();
@@ -68,15 +88,19 @@ function FileBrowser({ folderId }: { folderId: string }) {
   const files = useMemo(() => items.filter((n) => n.type === 'file'), [items]);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [resetKey, setResetKey] = useState(0);
-  const [preview, setPreview] = useState<number | null>(null);
+  // By id, not index: the listing can refresh underneath an open preview (uploads landing,
+  // thumbnails finishing) and an index would then point at a different file.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewIndex = previewId ? files.findIndex((f) => f.id === previewId) : -1;
   const [newFolder, setNewFolder] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const access = detail.data?.access;
   const canEdit = access === 'owner' || access === 'edit';
   const actions = useFileActions({
-    onPreview: (n) => setPreview(files.findIndex((f) => f.id === n.id)),
+    onPreview: (n) => setPreviewId(n.id),
     canEdit: () => canEdit,
     canShare: () => access === 'owner',
     moveStartId: detail.data?.breadcrumbs[0]?.id ?? me.rootNodeId,
@@ -99,16 +123,38 @@ function FileBrowser({ folderId }: { folderId: string }) {
   }, [pendingThumbs, folderId, qc, items]);
 
   const selectedNodes = items.filter((n) => selection.has(n.id));
+  const selecting = selectedNodes.length > 0;
+  // While items are selected, the selection toolbar takes the place of the folder header at the
+  // same height. Inserting it above the list instead pushed every row down between the two
+  // clicks of a double-click, so the second click landed on a different row.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useLayoutEffect(() => {
+    if (!selecting && headerRef.current) setHeaderHeight(headerRef.current.offsetHeight);
+  });
+  // The selection toolbar disappears with the selection. Move focus to the list's current item
+  // first, so it doesn't fall to the top of the page along with the button that had it.
+  const focusList = () =>
+    listRef.current
+      ?.querySelector<HTMLElement>('[role="grid"] [tabindex="0"]')
+      ?.focus({ preventScroll: true });
   const clearSelection = useCallback(() => setResetKey((k) => k + 1), []);
   const upload = (picked: { file: File; relativeDir: string }[]) => {
     if (picked.length) uploadManager.add(folderId, picked);
   };
 
   if (detail.isError) {
-    return (
+    const missing = detail.error instanceof ApiError && detail.error.status === 404;
+    return missing ? (
       <ErrorState
         title="Folder not found"
         error="It may have been deleted, or it isn't shared with you."
+      />
+    ) : (
+      <ErrorState
+        title="Couldn't open this folder"
+        error={detail.error}
+        onRetry={() => void detail.refetch()}
       />
     );
   }
@@ -123,11 +169,21 @@ function FileBrowser({ folderId }: { folderId: string }) {
     <DropZone
       disabled={!canEdit}
       label={`Drop to upload to ${name || 'this folder'}`}
-      onDrop={async (dt) => upload(await collectDroppedFiles(dt))}
+      onDrop={(dt) =>
+        collectDroppedFiles(dt).then(upload, (err) =>
+          toast.error(`Couldn't read the dropped files: ${errorMessage(err)}`),
+        )
+      }
       className="min-h-[60vh]"
+      // Dialogs opened from the selection toolbar (Move) return focus to the list, since the
+      // toolbar is gone by the time they close.
+      data-focus-fallback=""
     >
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">
+      {/* The breadcrumbs show where you are; screen-reader users also get it as the page heading. */}
+      {name && <h1 className="sr-only">{name}</h1>}
+      <div ref={headerRef} hidden={selecting} className="mb-3 flex flex-wrap items-center gap-2">
+        {/* Full width on phones, so the current folder's name isn't squeezed to "Ph…". */}
+        <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">
           {detail.data ? <Breadcrumbs items={crumbs} /> : <Skeleton className="h-7 w-48" />}
           {access && access !== 'owner' && (
             <p className="px-1.5 text-xs text-muted">
@@ -135,7 +191,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1">
           {canEdit && (
             <>
               <Tooltip content="New folder">
@@ -183,8 +239,8 @@ function FileBrowser({ folderId }: { folderId: string }) {
             actions={(['name', 'updated', 'size'] as SortKey[]).flatMap((k) =>
               (['asc', 'desc'] as SortDir[]).map((d) => ({
                 id: `${k}-${d}`,
-                label: `${SORT_LABELS[k]} ${k === 'name' ? (d === 'asc' ? 'A→Z' : 'Z→A') : d === 'asc' ? '(smallest/oldest first)' : '(largest/newest first)'}`,
-                icon: sort.key === k && sort.dir === d ? <span>✓</span> : <span />,
+                label: `${SORT_LABELS[k]}, ${SORT_DIRS[k][d]}`,
+                checked: sort.key === k && sort.dir === d,
                 onSelect: () => setSort({ key: k, dir: d }),
               })),
             )}
@@ -197,13 +253,23 @@ function FileBrowser({ folderId }: { folderId: string }) {
         </div>
       </div>
 
-      {selectedNodes.length > 0 && (
+      {selecting && (
         <div
           role="toolbar"
           aria-label="Selection actions"
-          className="sticky top-16 z-20 mb-2 flex items-center gap-1 rounded-xl border border-accent/30 bg-accent-soft px-2 py-1.5 animate-fade-in"
+          // Phones wrap the header onto two lines; there's no double-click to protect there.
+          style={{ '--header-h': `${headerHeight}px` } as CSSProperties}
+          className="sticky top-16 z-20 mb-3 flex items-center gap-1 rounded-xl border border-accent/30 bg-accent-soft px-2 py-1 animate-fade-in sm:min-h-[var(--header-h)]"
         >
-          <IconButton size="sm" label="Clear selection" icon={<X />} onClick={clearSelection} />
+          <IconButton
+            size="sm"
+            label="Clear selection"
+            icon={<X />}
+            onClick={() => {
+              focusList();
+              clearSelection();
+            }}
+          />
           <span className="flex-1 text-sm font-medium">{selectedNodes.length} selected</span>
           <IconButton
             size="sm"
@@ -223,7 +289,10 @@ function FileBrowser({ folderId }: { folderId: string }) {
                 size="sm"
                 label="Move selected to trash"
                 icon={<Trash2 />}
-                onClick={() => void actions.trashNodes(selectedNodes)}
+                onClick={() => {
+                  focusList();
+                  void actions.trashNodes(selectedNodes);
+                }}
               />
             </>
           )}
@@ -258,26 +327,33 @@ function FileBrowser({ folderId }: { folderId: string }) {
         }
       >
         {() => (
-          <FileView<FileNode>
-            items={items}
-            view={view}
-            label={`Contents of ${name}`}
-            onOpen={actions.open}
-            actionsFor={actions.actionsFor}
-            thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id, 256) : undefined)}
-            onDelete={
-              canEdit
-                ? (ids) => void actions.trashNodes(items.filter((n) => ids.includes(n.id)))
-                : undefined
-            }
-            onRename={canEdit ? actions.rename : undefined}
-            onSelectionChange={setSelection}
-            selectionResetKey={resetKey}
-            sort={{ key: sort.key, dir: sort.dir, onChange: (key, dir) => setSort({ key, dir }) }}
-            hasMore={children.hasNextPage}
-            loadingMore={children.isFetchingNextPage}
-            onLoadMore={() => void children.fetchNextPage()}
-          />
+          <div ref={listRef}>
+            <FileView<FileNode>
+              items={items}
+              view={view}
+              label={`Contents of ${name}`}
+              onOpen={actions.open}
+              actionsFor={actions.actionsFor}
+              thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id, 256) : undefined)}
+              onDelete={
+                canEdit
+                  ? (ids) => {
+                      const set = new Set(ids);
+                      void actions.trashNodes(items.filter((n) => set.has(n.id)));
+                    }
+                  : undefined
+              }
+              onRename={canEdit ? actions.rename : undefined}
+              onSelectionChange={setSelection}
+              selectionResetKey={resetKey}
+              sort={{ key: sort.key, dir: sort.dir, onChange: (key, dir) => setSort({ key, dir }) }}
+              // While a new sort order loads, the old list stays up; don't page through it.
+              hasMore={children.hasNextPage && !children.isPlaceholderData}
+              loadingMore={children.isFetchingNextPage}
+              onLoadMore={() => void children.fetchNextPage()}
+              scrollPaddingTop={HEADER_HEIGHT + (selecting ? TOOLBAR_HEIGHT : 0)}
+            />
+          </div>
         )}
       </QueryState>
 
@@ -304,13 +380,13 @@ function FileBrowser({ folderId }: { folderId: string }) {
       />
       {newFolder && <NewFolderDialog parentId={folderId} open onOpenChange={setNewFolder} />}
       {actions.dialogs}
-      {preview !== null && preview >= 0 && (
+      {previewIndex >= 0 && (
         <Suspense fallback={null}>
           <PreviewModal
             items={files}
-            index={preview}
-            onIndexChange={setPreview}
-            onClose={() => setPreview(null)}
+            index={previewIndex}
+            onIndexChange={(i) => setPreviewId(files[i]?.id ?? null)}
+            onClose={() => setPreviewId(null)}
             source={{ content: contentUrl, thumb: thumbUrl, canDownload: true }}
           />
         </Suspense>

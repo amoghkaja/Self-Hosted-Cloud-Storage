@@ -1,0 +1,203 @@
+import { execFile } from 'node:child_process';
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { drainVolume } from '../src/jobs/maintenance';
+import { generateThumbnail } from '../src/jobs/thumbnail';
+import { thumbPaths } from '../src/storage/thumbs';
+import { VOLUME_MARKER } from '../src/storage/volume-manager';
+import { bytes, type Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
+
+let env: TestEnv;
+let admin: Client;
+let root: string;
+
+beforeAll(async () => {
+  env = await createTestEnv();
+  const a = await setupAdmin(env);
+  admin = a.client;
+  root = a.me.rootNodeId;
+});
+afterAll(async () => {
+  await env.close();
+});
+
+async function blobOf(nodeId: string) {
+  const [row] = (await env.ctx.db.execute(
+    sql`select b.id, b.thumb_status AS "thumbStatus" from nodes n join blobs b on b.id = n.blob_id
+        where n.id = ${nodeId}`,
+  )) as unknown as { id: string; thumbStatus: string }[];
+  return row!;
+}
+
+const hasFfmpeg = await promisify(execFile)('ffmpeg', ['-version']).then(
+  () => true,
+  () => false,
+);
+
+async function clip(name: string, seconds: number): Promise<Buffer> {
+  const file = path.join(env.dataDir, name);
+  await promisify(execFile)('ffmpeg', [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=blue:s=64x64:d=${seconds}`,
+    '-pix_fmt',
+    'yuv420p',
+    '-y',
+    file,
+  ]);
+  return readFile(file);
+}
+
+describe('thumbnails', () => {
+  it.skipIf(!hasFfmpeg)(
+    'two runs for the same blob (upload + recovery) do not break each other',
+    async () => {
+      const up = await uploadFile(admin, root, 'twice.mp4', await clip('twice.mp4', 2), {
+        mimeType: 'video/mp4',
+      });
+      const blob = await blobOf(up.final!.body.node.id);
+      const warnings: unknown[] = [];
+      const warn = env.ctx.log.warn.bind(env.ctx.log);
+      env.ctx.log.warn = ((obj: unknown, ...rest: unknown[]) => {
+        warnings.push(obj);
+        return (warn as (...a: unknown[]) => void)(obj, ...rest);
+      }) as typeof env.ctx.log.warn;
+      try {
+        for (let i = 0; i < 3; i++) {
+          await Promise.all([
+            generateThumbnail(env.ctx, blob.id),
+            generateThumbnail(env.ctx, blob.id),
+          ]);
+        }
+      } finally {
+        env.ctx.log.warn = warn;
+      }
+      expect(warnings).toEqual([]);
+      expect((await blobOf(up.final!.body.node.id)).thumbStatus).toBe('ready');
+      for (const p of thumbPaths(env.ctx.config.cacheDir, blob.id)) {
+        expect((await stat(p)).isFile()).toBe(true);
+      }
+    },
+  );
+
+  it.skipIf(!hasFfmpeg)('renders clips shorter than a second', async () => {
+    const up = await uploadFile(admin, root, 'short.mp4', await clip('short.mp4', 0.5), {
+      mimeType: 'video/mp4',
+    });
+    const blob = await blobOf(up.final!.body.node.id);
+    await generateThumbnail(env.ctx, blob.id);
+    expect((await blobOf(up.final!.body.node.id)).thumbStatus).toBe('ready');
+  });
+});
+
+describe('drain', () => {
+  let disk1: { id: string; path: string };
+  let disk2: { id: string; path: string };
+
+  beforeAll(async () => {
+    await mkdir(path.join(env.ctx.config.volumesRoot, 'disk2'), { recursive: true });
+    const cands = await admin.get('/admin/volumes/candidates');
+    const cand = cands.body.items.find((x: { name: string }) => x.name === 'disk2');
+    expect((await admin.post('/admin/volumes', { name: 'disk2', path: cand.path })).status).toBe(
+      200,
+    );
+    const vols = (await admin.get('/admin/overview')).body.volumes as {
+      id: string;
+      name: string;
+      path: string;
+    }[];
+    disk1 = vols.find((v) => v.name === 'disk1')!;
+    disk2 = vols.find((v) => v.name === 'disk2')!;
+  });
+
+  it('pauses (and retries later) when the other disks are offline, instead of giving up on files', async () => {
+    await admin.patch(`/admin/volumes/${disk2.id}`, { status: 'readonly' });
+    await uploadFile(admin, root, 'stay.bin', bytes(500, 9));
+    await admin.patch(`/admin/volumes/${disk2.id}`, { status: 'active' });
+    expect((await admin.post(`/admin/volumes/${disk1.id}/drain`)).status).toBe(200);
+    env.jobs.take('drain-volume');
+
+    const marker = path.join(disk2.path, VOLUME_MARKER);
+    const saved = await readFile(marker);
+    await rm(marker);
+    env.ctx.volumes.invalidate();
+    try {
+      await expect(drainVolume(env.ctx, disk1.id)).rejects.toMatchObject({
+        code: 'VOLUME_OFFLINE',
+      });
+      const overview = (await admin.get('/admin/overview')).body.volumes as {
+        id: string;
+        status: string;
+        statusMessage: string | null;
+      }[];
+      const d1 = overview.find((v) => v.id === disk1.id)!;
+      expect(d1.status).toBe('draining');
+    } finally {
+      await writeFile(marker, saved);
+      env.ctx.volumes.invalidate();
+    }
+  });
+
+  it('a blob another drain run already moved to the same disk is not deleted', async () => {
+    const data = bytes(12_345, 4);
+    // disk1 is draining (previous test): put this file there directly, like an older upload.
+    const up = await uploadFile(admin, root, 'raced.bin', data);
+    const id = up.final!.body.node.id;
+    await env.ctx.db.execute(
+      sql`update blobs set volume_id = ${disk1.id} where id = (select blob_id from nodes where id = ${id})`,
+    );
+    const blob = (await blobOf(id)).id;
+    await mkdir(path.dirname(env.ctx.volumes.blobPath(disk1.path, blob)), { recursive: true });
+    await copyFile(
+      env.ctx.volumes.blobPath(disk2.path, blob),
+      env.ctx.volumes.blobPath(disk1.path, blob),
+    );
+
+    const vm = env.ctx.volumes;
+    const pick = vm.pickVolume.bind(vm);
+    vm.pickVolume = async (exec, size, excludeId) => {
+      const target = await pick(exec, size, excludeId);
+      if (size === data.length) {
+        // Meanwhile another run of the drain finished moving this same blob to that disk.
+        await env.ctx.db.execute(sql`update blobs set volume_id = ${target.id} where id = ${blob}`);
+      }
+      return target;
+    };
+    try {
+      await drainVolume(env.ctx, disk1.id);
+    } finally {
+      vm.pickVolume = pick;
+    }
+    const res = await admin.get(`/nodes/${id}/content`);
+    expect(res.status).toBe(200);
+    expect(Buffer.compare(res.raw.rawPayload, data)).toBe(0);
+  });
+});
+
+describe('adding disks', () => {
+  it('refuses a directory that carries another registered volume’s marker (disk mounted elsewhere)', async () => {
+    const vols = (await admin.get('/admin/overview')).body.volumes as {
+      name: string;
+      path: string;
+    }[];
+    const disk2 = vols.find((v) => v.name === 'disk2')!;
+    const moved = path.join(env.ctx.config.volumesRoot, 'disk2-remounted');
+    await mkdir(moved, { recursive: true });
+    await copyFile(path.join(disk2.path, VOLUME_MARKER), path.join(moved, VOLUME_MARKER));
+    const res = await admin.post('/admin/volumes', { name: 'disk3', path: moved });
+    expect(res.status).toBe(409);
+    env.ctx.volumes.invalidate();
+    const after = (await admin.get('/admin/overview')).body.volumes as {
+      name: string;
+      online: boolean;
+    }[];
+    expect(after.find((v) => v.name === 'disk2')?.online).toBe(true);
+  });
+});

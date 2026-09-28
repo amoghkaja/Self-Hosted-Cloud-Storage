@@ -4,7 +4,7 @@ import { Download, FolderInput, FolderOpen, Pencil, Share2, Trash2 } from 'lucid
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, contentUrl, errorMessage, zipUrl } from '../../api/client';
-import { qk, useTrashNodes } from '../../api/queries';
+import { type BatchResult, qk, useTrashNodes } from '../../api/queries';
 import { type MenuAction, toast } from '../../components/ui';
 import { ShareDialog } from '../sharing/ShareDialog';
 import { MoveDialog, RenameDialog } from './dialogs';
@@ -55,33 +55,54 @@ export function useFileActions(o: FileActionOptions) {
     [navigate, o],
   );
 
+  const { mutateAsync: trashMany } = trash;
   const trashNodes = useCallback(
     async (nodes: FileNode[]) => {
       if (nodes.length === 0) return;
-      const parentId = nodes[0]!.parentId!;
+      let result: BatchResult;
       try {
-        await trash.mutateAsync({ ids: nodes.map((n) => n.id), parentId });
-        toast.success(
-          nodes.length === 1
-            ? `Moved “${nodes[0]!.name}” to trash`
-            : `Moved ${nodes.length} items to trash`,
-          {
-            action: {
-              label: 'Undo',
-              onClick: async () => {
-                for (const n of nodes)
-                  await api(`/trash/${n.id}/restore`, { method: 'POST', json: {} }).catch(() => {});
-                void qc.invalidateQueries({ queryKey: qk.children(parentId) });
-                void qc.invalidateQueries({ queryKey: qk.trash });
-              },
-            },
-          },
-        );
+        result = await trashMany({ items: nodes.map((n) => ({ id: n.id, parentId: n.parentId })) });
       } catch (err) {
         toast.error(errorMessage(err));
+        return;
       }
+      const trashed = nodes.filter((n) => result.done.includes(n.id));
+      if (result.failed.length) {
+        const first = errorMessage(result.failed[0]!.error);
+        toast.error(
+          nodes.length === 1
+            ? first
+            : `${result.failed.length} of ${nodes.length} items weren't moved to trash: ${first}`,
+        );
+      }
+      if (trashed.length === 0) return;
+      toast.success(
+        trashed.length === 1
+          ? `Moved “${trashed[0]!.name}” to trash`
+          : `Moved ${trashed.length} items to trash`,
+        {
+          action: {
+            label: 'Undo',
+            onClick: async () => {
+              let failed = 0;
+              for (const n of trashed) {
+                await api(`/trash/${n.id}/restore`, { method: 'POST', json: {} }).catch(() => {
+                  failed++;
+                });
+              }
+              for (const parentId of new Set(trashed.map((n) => n.parentId))) {
+                if (parentId) void qc.invalidateQueries({ queryKey: qk.children(parentId) });
+              }
+              void qc.invalidateQueries({ queryKey: qk.trash });
+              void qc.invalidateQueries({ queryKey: qk.searches });
+              if (failed)
+                toast.error(`${failed} item${failed === 1 ? '' : 's'} couldn't be restored`);
+            },
+          },
+        },
+      );
     },
-    [trash, qc],
+    [trashMany, qc],
   );
 
   const actionsFor = useCallback(

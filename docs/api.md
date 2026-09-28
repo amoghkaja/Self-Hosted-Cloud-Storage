@@ -15,8 +15,9 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 
   Switch on `code` (stable, listed in [`errors.ts`](../packages/shared/src/errors.ts)), not on `detail`. Validation errors add an `issues` array.
 - **Not found vs forbidden:** items you can't see return `404`, exactly like items that don't exist. `403` means you can see it but lack the permission for this action.
-- **Rate limits:** 1200 requests/min per IP overall; sign-in, setup, invite and link-password endpoints 5–10/min. Exceeding one returns `429 RATE_LIMITED`.
-- **Pagination:** folder listings use opaque keyset cursors (`nextCursor`). Pass it back as `?cursor=`. Stable under concurrent changes.
+- **Rate limits:** 1200 requests/min per IP overall; sign-in, setup, invite-acceptance and link-password endpoints 5–10/min. Exceeding one returns `429 RATE_LIMITED`.
+- **Pagination:** folder listings (including public links) use opaque keyset cursors (`nextCursor`). Pass it back as `?cursor=`. Stable under concurrent changes. Names sort case-insensitively in natural order (`IMG_2` before `IMG_10`).
+- **Caching:** API responses are `Cache-Control: private, no-store` unless noted (file content revalidates with its `ETag`; thumbnails are immutable).
 - **Timestamps:** ISO-8601 UTC. **Sizes:** bytes.
 
 ## Endpoints
@@ -80,7 +81,7 @@ Chunks may be sent in any order and in parallel; re-sending one is harmless. Eve
 | GET / POST | `/nodes/:id/shares` | List / add `{userId, permission: view\|edit}` (owner only) |
 | PATCH / DELETE | `/shares/:id` | Change permission / remove (a recipient may remove themselves) |
 | GET | `/shared-with-me` | Items others shared with you |
-| GET / POST | `/nodes/:id/links` | Public links: `{password?, expiresAt?, allowDownload}` |
+| GET / POST | `/nodes/:id/links` | Public links: `{password?, expiresAt?, allowDownload}`. `url` is `null` for links made before a `SECRET_KEY` change (they can still be revoked) |
 | DELETE | `/links/:id` | Revoke a link |
 
 ### Public links (no account)
@@ -89,8 +90,8 @@ Chunks may be sent in any order and in parallel; re-sending one is harmless. Eve
 | --- | --- | --- |
 | GET | `/public/links/:token` | What the link points to (or `locked: true`) |
 | POST | `/public/links/:token/unlock` | `{password}` → sets a 12 h cookie scoped to link routes |
-| GET | `/public/links/:token/folder` | `?folderId=` listing inside a shared folder |
-| GET | `/public/links/:token/content/:nodeId` | Download (`?inline=1` to view) |
+| GET | `/public/links/:token/folder` | `?folderId&limit&cursor` listing inside a shared folder |
+| GET | `/public/links/:token/content/:nodeId` | Download (`?inline=1` to view; on a view-only link only previewable types are served) |
 | GET | `/public/links/:token/thumbnail/:nodeId` | Thumbnail |
 | GET | `/public/links/:token/zip/:nodeId` | Zip of a shared folder |
 
@@ -117,4 +118,4 @@ Chunks may be sent in any order and in parallel; re-sending one is harmless. Eve
 
 ## WebDAV
 
-`/dav/` speaks WebDAV class 1 and 2 (`PROPFIND`, `GET`/`HEAD` with `Range`, `PUT`, `MKCOL`, `MOVE`, `COPY`, `DELETE`, `LOCK`/`UNLOCK`, `PROPPATCH`, `OPTIONS`, plus RFC 4331 quota properties). Authentication is HTTP Basic with the account email and a device password. See [network-drive.md](network-drive.md).
+`/dav/` speaks WebDAV class 1 and 2 (`PROPFIND`, `GET`/`HEAD` with `Range`, `PUT`, `MKCOL`, `MOVE`, `COPY`, `DELETE`, `LOCK`/`UNLOCK`, `PROPPATCH`, `OPTIONS`, plus RFC 4331 quota properties). Authentication is HTTP Basic with the account email and a device password. `PUT` honours `If-Match` / `If-None-Match` (`412` when they fail). Folder listings are streamed, so there is no item limit. See [network-drive.md](network-drive.md).

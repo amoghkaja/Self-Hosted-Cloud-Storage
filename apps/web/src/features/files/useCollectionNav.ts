@@ -1,8 +1,10 @@
 import {
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -30,53 +32,75 @@ const isTouch = () =>
  * Selection is keyed by id so it survives re-sorting and background refreshes.
  */
 export function useCollectionNav(o: CollectionNavOptions) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const { ids, columns } = o;
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [focus, setFocus] = useState(0);
   const anchor = useRef<number | null>(null);
-  const pendingFocus = useRef(false);
-  const count = o.ids.length;
+  const count = ids.length;
+  // Callbacks and refs from the caller change every render; read the latest through a ref so
+  // the handlers below (and the object returned) only change when the data does.
+  const latest = useRef(o);
+  useLayoutEffect(() => {
+    latest.current = o;
+  });
+
+  /** Brings the item into view (rendering it if virtualized away) and moves DOM focus to it. */
+  const focusItem = useCallback((index: number) => {
+    latest.current.scrollToIndex(index);
+    requestAnimationFrame(() => {
+      latest.current.containerRef.current
+        ?.querySelector<HTMLElement>(`[data-index="${index}"]`)
+        ?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  // The id of the item that has DOM focus (or holds it inside, e.g. its menu button).
+  const focusedId = useRef<string | null>(null);
 
   // Drop selections for items that disappeared (deleted/moved elsewhere).
   useEffect(() => {
     setSelected((prev) => {
-      const live = new Set(o.ids);
+      const live = new Set(ids);
       const next = new Set([...prev].filter((id) => live.has(id)));
       return next.size === prev.size ? prev : next;
     });
     setFocus((f) => Math.min(f, Math.max(0, count - 1)));
-  }, [o.ids, count]);
+  }, [ids, count]);
 
-  // After keyboard movement, bring the item into view and move DOM focus to it.
-  useEffect(() => {
-    if (!pendingFocus.current) return;
-    pendingFocus.current = false;
-    o.scrollToIndex(focus);
-    requestAnimationFrame(() => {
-      o.containerRef.current
-        ?.querySelector<HTMLElement>(`[data-index="${focus}"]`)
-        ?.focus({ preventScroll: true });
-    });
-  }, [focus, o]);
+  // When the focused item itself goes away (Delete, "Move to trash" from its menu), focus would
+  // silently drop to <body>; keep it in the list on the item that took its place.
+  useLayoutEffect(() => {
+    const id = focusedId.current;
+    if (!id || ids.includes(id)) return;
+    focusedId.current = null;
+    const active = document.activeElement;
+    if (count === 0 || (active && active !== document.body && active.isConnected)) return;
+    const next = Math.min(focus, count - 1);
+    setFocus(next);
+    focusItem(next);
+  }, [ids, count, focus, focusItem]);
 
   const moveTo = useCallback(
     (index: number, extend: boolean) => {
       const next = Math.max(0, Math.min(count - 1, index));
-      pendingFocus.current = true;
       setFocus(next);
+      focusItem(next);
       if (extend) {
-        const from = anchor.current ?? focus;
+        // Shift+arrow without a prior anchor starts the range at the current item.
+        anchor.current ??= focus;
+        const from = anchor.current;
         const [a, b] = from < next ? [from, next] : [next, from];
-        setSelected(new Set(o.ids.slice(a, b + 1)));
+        setSelected(new Set(ids.slice(a, b + 1)));
       } else {
         anchor.current = next;
       }
     },
-    [count, focus, o.ids],
+    [count, focus, ids, focusItem],
   );
 
   const toggle = useCallback(
     (index: number) => {
-      const id = o.ids[index];
+      const id = ids[index];
       if (!id) return;
       anchor.current = index;
       setSelected((prev) => {
@@ -86,20 +110,21 @@ export function useCollectionNav(o: CollectionNavOptions) {
         return next;
       });
     },
-    [o.ids],
+    [ids],
   );
 
   const selectAll = useCallback(() => {
-    setSelected(new Set(o.ids));
-    announce(`${o.ids.length} items selected`);
-  }, [o.ids]);
+    setSelected(new Set(ids));
+    announce(`${ids.length} items selected`);
+  }, [ids]);
 
   const clear = useCallback(() => setSelected(new Set()), []);
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (count === 0) return;
-      const cols = Math.max(1, o.columns);
+      const o = latest.current;
+      const cols = Math.max(1, columns);
       const mod = e.metaKey || e.ctrlKey;
       switch (e.key) {
         case 'ArrowDown':
@@ -148,8 +173,8 @@ export function useCollectionNav(o: CollectionNavOptions) {
         case 'Backspace': {
           if (!o.onDelete) return;
           e.preventDefault();
-          const ids = selected.size ? [...selected] : [o.ids[focus]!];
-          return o.onDelete(ids);
+          const target = selected.size ? [...selected] : [ids[focus]!];
+          return o.onDelete(target);
         }
         case 'F2':
           e.preventDefault();
@@ -172,30 +197,45 @@ export function useCollectionNav(o: CollectionNavOptions) {
           return;
       }
     },
-    [count, focus, moveTo, o, selectAll, selected, toggle, clear],
+    [count, columns, focus, ids, moveTo, selectAll, selected, toggle, clear],
   );
 
   const onItemClick = useCallback(
     (index: number, e: MouseEvent) => {
       setFocus(index);
-      const id = o.ids[index];
+      const id = ids[index];
       if (!id) return;
       if (e.shiftKey && anchor.current !== null) {
         const [a, b] = anchor.current < index ? [anchor.current, index] : [index, anchor.current];
-        setSelected(new Set(o.ids.slice(a, b + 1)));
+        setSelected(new Set(ids.slice(a, b + 1)));
         return;
       }
       if (e.metaKey || e.ctrlKey) return toggle(index);
       // Touch: a tap opens (like Files/Drive on phones) unless we're already selecting.
       if (isTouch()) {
         if (selected.size > 0) return toggle(index);
-        return o.onOpen(index);
+        return latest.current.onOpen(index);
       }
       anchor.current = index;
       setSelected(new Set([id]));
     },
-    [o, selected.size, toggle],
+    [ids, selected.size, toggle],
   );
+
+  /** Put on each item: tracks which item holds focus (see the removal handling above). */
+  const onItemFocus = useCallback(
+    (index: number) => {
+      setFocus(index);
+      focusedId.current = ids[index] ?? null;
+    },
+    [ids],
+  );
+
+  /** Put on the container: focus leaving the list for elsewhere on the page. */
+  const onContainerBlur = useCallback((e: FocusEvent) => {
+    const to = e.relatedTarget as Node | null;
+    if (to && !e.currentTarget.contains(to)) focusedId.current = null;
+  }, []);
 
   return useMemo(
     () => ({
@@ -203,12 +243,26 @@ export function useCollectionNav(o: CollectionNavOptions) {
       setSelected,
       focus,
       setFocus,
+      focusItem,
       toggle,
       selectAll,
       clear,
       onKeyDown,
       onItemClick,
+      onItemFocus,
+      onContainerBlur,
     }),
-    [selected, focus, toggle, selectAll, clear, onKeyDown, onItemClick],
+    [
+      selected,
+      focus,
+      focusItem,
+      toggle,
+      selectAll,
+      clear,
+      onKeyDown,
+      onItemClick,
+      onItemFocus,
+      onContainerBlur,
+    ],
   );
 }

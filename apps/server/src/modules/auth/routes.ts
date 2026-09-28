@@ -63,7 +63,9 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
    * refuses it while the account is locked. Counting first means a burst of parallel guesses
    * can't all read "not locked" before any failure is written: the row lock serializes them and
    * the 6th sees the lock set by the 5th. The counter is reset only after a full sign-in.
-   * Lock length doubles from 1 minute per extra failure, capped at 60 minutes.
+   * Lock length doubles from 1 minute per extra failure, capped at 60 minutes. (The exponent is
+   * capped too: power(2, n) overflows float8 past n = 1023, which would turn every later sign-in
+   * for the account into a 500 after a slow, weeks-long guessing campaign.)
    */
   async function claimAttempt(userId: string): Promise<number> {
     const [row] = await db
@@ -71,7 +73,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       .set({
         failedLogins: sql`${users.failedLogins} + 1`,
         lockedUntil: sql`CASE WHEN ${users.failedLogins} + 1 >= ${LOCK_AFTER}
-          THEN now() + make_interval(mins => least(power(2, ${users.failedLogins} + 1 - ${LOCK_AFTER}), 60)::int)
+          THEN now() + make_interval(mins => least(power(2, least(${users.failedLogins} + 1 - ${LOCK_AFTER}, 6)), 60)::int)
           ELSE NULL END`,
       })
       .where(
@@ -87,6 +89,18 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       .from(users)
       .where(eq(users.id, userId));
     throw locked(current?.lockedUntil ?? null);
+  }
+
+  /**
+   * Takes back an attempt claimed by `claimAttempt` that turned out not to be a failure, without
+   * resetting the counter. Before the claim the account was unlocked, so clearing the lock the
+   * claim may have set restores that. Skipped if another attempt has been counted since.
+   */
+  async function refundAttempt(userId: string, attempts: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ failedLogins: sql`${users.failedLogins} - 1`, lockedUntil: null })
+      .where(and(eq(users.id, userId), eq(users.failedLogins, attempts)));
   }
 
   async function auditFailure(
@@ -154,8 +168,11 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         throw invalidCredentials();
       }
       // With two-factor on, the counter keeps running until the code is also correct, so knowing
-      // the password can't be used to reset the lockout between TOTP guesses.
+      // the password can't be used to reset the lockout between TOTP guesses. The correct
+      // password itself isn't a failure, though: refund it, or after four earlier typos the lock
+      // it triggers would refuse the code step that follows.
       if (user.totpEnabled) {
+        await refundAttempt(user.id, attempts);
         return {
           status: 'mfa_required' as const,
           mfaToken: ctx.keys.sign('mfa', { uid: user.id }, MFA_TOKEN_TTL),
@@ -308,12 +325,15 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { response: { 200: TotpSetupResponse } } },
     async (req) => {
       const { user } = requireUser(req);
-      if (user.totpEnabled) throw conflict('Two-factor authentication is already on');
       const { secretBase32, url } = newTotp(ctx, user.email);
-      await db
+      // Checked in the UPDATE, not on the (possibly cached) session user: replacing the secret of
+      // an account that already has two-factor on would lock its owner out.
+      const updated = await db
         .update(users)
         .set({ totpSecretEnc: ctx.keys.encrypt('totp', secretBase32), totpLastStep: null })
-        .where(eq(users.id, user.id));
+        .where(and(eq(users.id, user.id), eq(users.totpEnabled, false)))
+        .returning({ id: users.id });
+      if (updated.length === 0) throw conflict('Two-factor authentication is already on');
       return { secret: secretBase32, otpauthUrl: url };
     },
   );
@@ -329,14 +349,23 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       const step = checkTotp(ctx, fresh.totpSecretEnc, req.body.code, null);
       if (step === null) throw new AppError(400, ErrorCode.MFA_INVALID, 'That code is not valid');
+      // Only turn on the secret the code was checked against: a setup in another tab may have
+      // replaced it meanwhile, and enabling that one would lock the user out.
       const [row] = await db
         .update(users)
         .set({ totpEnabled: true, totpLastStep: step })
-        .where(eq(users.id, user.id))
+        .where(
+          and(
+            eq(users.id, user.id),
+            eq(users.totpEnabled, false),
+            eq(users.totpSecretEnc, fresh.totpSecretEnc),
+          ),
+        )
         .returning();
+      if (!row) throw conflict('Two-factor setup changed; start again');
       ctx.sessions.forgetUser(user.id);
       await audit(db, { actorId: user.id, action: 'auth.totp_enabled', ip: req.clientIp });
-      return toMe(row!);
+      return toMe(row);
     },
   );
 

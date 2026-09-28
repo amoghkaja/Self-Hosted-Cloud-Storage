@@ -30,8 +30,11 @@ export function ByteSizeInput({
 }: ByteSizeInputProps) {
   const id = useId();
   const [draft, setDraft] = useState(() => split(value ?? 50 * GiB));
+  // Follow outside changes to `value`, but not our own echo of what's being typed: re-deriving
+  // the text from bytes would rewrite "0.125" as "0.13", or an emptied field as "0", mid-edit.
   useEffect(() => {
-    if (value !== null) setDraft(split(value));
+    if (value === null) return;
+    setDraft((d) => (Math.round(Number(d.amount) * UNITS[d.unit]) === value ? d : split(value)));
   }, [value]);
 
   const emit = (amount: string, unit: Unit) => {

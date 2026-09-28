@@ -172,9 +172,9 @@ export const nodes = pgTable(
       .where(sql`${t.deletedAt} IS NULL`),
     // Exactly one root folder per user.
     uniqueIndex('nodes_owner_root_key').on(t.ownerId).where(sql`${t.parentId} IS NULL`),
-    // Keyset pagination for "folders first, then name".
+    // Keyset pagination for "folders first, then name" in natural order ("IMG_2" before "IMG_10").
     index('nodes_children_idx')
-      .on(t.parentId, t.type, sql`lower(${t.name})`, t.id)
+      .on(t.parentId, t.type, sql`(lower(${t.name}) COLLATE "natural")`, t.id)
       .where(sql`${t.deletedAt} IS NULL`),
     index('nodes_trash_root_idx').on(t.trashRootId),
     index('nodes_owner_deleted_idx').on(t.ownerId, t.deletedAt),

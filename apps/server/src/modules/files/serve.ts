@@ -1,11 +1,13 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream, type ReadStream } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
+import { type PassThrough, Readable } from 'node:stream';
 import { ErrorCode, type ThumbSize } from '@familycloud/shared/all';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import yazl from 'yazl';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
+import { blobs } from '../../db/schema';
 import { AppError, badRequest, notFound } from '../../lib/errors';
 import { contentDisposition, isInlineSafe, parseRange, servedContentType } from '../../lib/http';
 import { thumbPath } from '../../storage/thumbs';
@@ -15,6 +17,25 @@ const SANDBOX_CSP =
   "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'";
 // Chrome/Firefox PDF viewers break under `sandbox`; PDFs are not HTML-XSS vectors in them.
 const PDF_CSP = "frame-ancestors 'self'";
+
+/**
+ * Whether an If-None-Match / If-Match header value lists `etag`: handles `*`, comma-separated
+ * lists and weak validators (`W/"…"`, ignored when `strong` comparison is required).
+ */
+export function etagMatches(
+  header: string | string[] | undefined,
+  etag: string,
+  strong = false,
+): boolean {
+  if (header === undefined) return false;
+  const value = Array.isArray(header) ? header.join(',') : header;
+  if (value.trim() === '*') return true;
+  return value.split(',').some((raw) => {
+    const tag = raw.trim();
+    if (tag.startsWith('W/')) return !strong && tag.slice(2) === etag;
+    return tag === etag;
+  });
+}
 
 export interface BlobRef {
   blobId: string;
@@ -51,9 +72,16 @@ export async function sendBlob(
     .header('Content-Disposition', contentDisposition(inline ? 'inline' : 'attachment', blob.name))
     .header('Content-Type', servedContentType(blob.mimeType, inline));
 
-  if (req.headers['if-none-match'] === etag) return reply.status(304).send();
+  if (etagMatches(req.headers['if-none-match'], etag)) return reply.status(304).send();
 
-  const range = parseRange(req.headers.range, blob.size);
+  // A resumed download whose validator no longer matches (the file was saved over) must get the
+  // whole new file, never a slice of it spliced onto the old bytes. Dates can't match: no
+  // Last-Modified is sent.
+  const ifRange = req.headers['if-range'];
+  const range =
+    ifRange === undefined || String(ifRange).trim() === etag
+      ? parseRange(req.headers.range, blob.size)
+      : null;
   if (range === 'unsatisfiable') {
     reply.header('Content-Range', `bytes */${blob.size}`);
     throw new AppError(416, ErrorCode.VALIDATION, 'Requested range not satisfiable');
@@ -74,7 +102,9 @@ export async function sendBlob(
   reply.header('Content-Length', String(blob.size === 0 ? 0 : end - start + 1));
   if (blob.size === 0 || req.method === 'HEAD') {
     await fh.close();
-    return reply.send('');
+    // HEAD gets an empty stream: Fastify replaces Content-Length with the body's length for a
+    // string, which would tell WebDAV clients and download managers the file is empty.
+    return reply.send(req.method === 'HEAD' ? Readable.from([]) : '');
   }
   return reply.send(fh.createReadStream({ start, end, autoClose: true }));
 }
@@ -88,7 +118,19 @@ export async function sendThumbnail(
 ) {
   const file = thumbPath(ctx.config.cacheDir, blobId, size);
   const st = await stat(file).catch(() => null);
-  if (!st) throw notFound('Thumbnail');
+  if (!st) {
+    // Marked ready but the cache is gone (e.g. restored from a backup without it): render the
+    // thumbnails again. The status flip makes sure only the first request queues the job.
+    const [flipped] = await ctx.db
+      .update(blobs)
+      .set({ thumbStatus: 'pending' })
+      .where(and(eq(blobs.id, blobId), eq(blobs.thumbStatus, 'ready')))
+      .returning({ id: blobs.id });
+    if (flipped) {
+      await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
+    }
+    throw notFound('Thumbnail');
+  }
   const etag = `"${blobId}-${size}"`;
   reply
     .header('ETag', etag)
@@ -96,7 +138,7 @@ export async function sendThumbnail(
     .header('Cache-Control', 'private, max-age=31536000, immutable')
     .header('Content-Type', 'image/webp')
     .header('X-Content-Type-Options', 'nosniff');
-  if (req.headers['if-none-match'] === etag) return reply.status(304).send();
+  if (etagMatches(req.headers['if-none-match'], etag)) return reply.status(304).send();
   reply.header('Content-Length', String(st.size));
   return reply.send(createReadStream(file));
 }
@@ -111,6 +153,7 @@ interface TreeEntry {
   path: string;
   size: number;
   updatedAt: string;
+  mimeType: string | null;
   blobId: string | null;
   volumeId: string | null;
 }
@@ -119,14 +162,15 @@ interface TreeEntry {
 export async function listTree(exec: Executor, folderId: string, limit = MAX_ZIP_ENTRIES + 1) {
   return (await exec.execute(sql`
     WITH RECURSIVE t AS (
-      SELECT n.id, n.type, n.blob_id, n.size, n.updated_at, n.name::text AS path, 1 AS depth
+      SELECT n.id, n.type, n.blob_id, n.size, n.updated_at, n.mime_type, n.name::text AS path, 1 AS depth
       FROM nodes n WHERE n.parent_id = ${folderId} AND n.deleted_at IS NULL
       UNION ALL
-      SELECT n.id, n.type, n.blob_id, n.size, n.updated_at, t.path || '/' || n.name, t.depth + 1
+      SELECT n.id, n.type, n.blob_id, n.size, n.updated_at, n.mime_type, t.path || '/' || n.name, t.depth + 1
       FROM nodes n JOIN t ON n.parent_id = t.id
-      WHERE n.deleted_at IS NULL AND t.type = 'folder' AND t.depth < 64
+      WHERE n.deleted_at IS NULL AND t.type = 'folder' AND t.depth < 512
     )
-    SELECT t.id, t.type, t.path, t.size, t.updated_at AS "updatedAt", b.id AS "blobId", b.volume_id AS "volumeId"
+    SELECT t.id, t.type, t.path, t.size, t.updated_at AS "updatedAt", t.mime_type AS "mimeType",
+           b.id AS "blobId", b.volume_id AS "volumeId"
     FROM t LEFT JOIN blobs b ON b.id = t.blob_id
     ORDER BY t.path
     LIMIT ${limit}
@@ -158,8 +202,10 @@ export async function sendZip(
   const entries: TreeEntry[] = [];
   const usedNames = new Set<string>();
   for (const root of roots) {
-    let name = root.name;
-    for (let i = 2; usedNames.has(name.toLowerCase()); i++) name = `${root.name} (${i})`;
+    // yazl rejects entry paths that look like a Windows drive ("C: backup/…") as absolute.
+    const base = root.name.replace(/^([a-zA-Z]):/, '$1_');
+    let name = base;
+    for (let i = 2; usedNames.has(name.toLowerCase()); i++) name = `${base} (${i})`;
     usedNames.add(name.toLowerCase());
     if (root.type === 'file') {
       entries.push({
@@ -168,6 +214,7 @@ export async function sendZip(
         path: name,
         size: root.size,
         updatedAt: root.updatedAt.toISOString(),
+        mimeType: null,
         blobId: root.blobId,
         volumeId: root.volumeId,
       });
@@ -177,6 +224,7 @@ export async function sendZip(
         type: 'folder',
         path: name,
         updatedAt: root.updatedAt.toISOString(),
+        mimeType: null,
       });
       const tree = await listTree(ctx.db, root.id);
       for (const e of tree) entries.push({ ...e, path: `${name}/${e.path}` });
@@ -186,7 +234,29 @@ export async function sendZip(
     }
   }
 
+  reply
+    .header('Content-Type', 'application/zip')
+    .header('Content-Disposition', contentDisposition('attachment', zipName))
+    .header('Cache-Control', 'private, no-store')
+    .header('X-Content-Type-Options', 'nosniff');
+  // Fastify would drain the whole archive (reading every file) just to discard it.
+  if (req.method === 'HEAD') return reply.send(Readable.from([]));
+
   const zip = new yazl.ZipFile();
+  const output = zip.outputStream as PassThrough;
+  const reading = new Set<ReadStream>();
+  // yazl reports read failures (a missing blob, a size mismatch) on the ZipFile, and a stream
+  // error nobody listens to would crash the process. Abort the download instead; the headers
+  // are already sent, so the client sees a failed transfer rather than a corrupt zip.
+  zip.on('error', (err: Error) => {
+    req.log.error({ err }, 'zip stream failed');
+    output.destroy(err);
+  });
+  // A client that disconnects destroys the output; release the file being read, which would
+  // otherwise stay open (paused by backpressure) for good.
+  output.once('close', () => {
+    for (const s of reading) s.destroy();
+  });
   for (const e of entries) {
     const mtime = new Date(e.updatedAt);
     if (e.type === 'folder') {
@@ -198,17 +268,17 @@ export async function sendZip(
     zip.addReadStreamLazy(e.path, { compress: false, mtime, size: Number(e.size) }, (cb) => {
       ctx.volumes
         .blobFile(ref)
-        .then((file) => cb(null, createReadStream(file)))
-        .catch((err: Error) => cb(err, undefined as never));
+        .then((file) => {
+          if (output.destroyed) return;
+          const stream = createReadStream(file);
+          reading.add(stream);
+          stream.once('close', () => reading.delete(stream));
+          stream.on('error', (err) => zip.emit('error', err));
+          cb(null, stream);
+        })
+        .catch((err: Error) => zip.emit('error', err));
     });
   }
   zip.end();
-  zip.outputStream.on('error', (err) => req.log.error({ err }, 'zip stream failed'));
-
-  reply
-    .header('Content-Type', 'application/zip')
-    .header('Content-Disposition', contentDisposition('attachment', zipName))
-    .header('Cache-Control', 'private, no-store')
-    .header('X-Content-Type-Options', 'nosniff');
-  return reply.send(zip.outputStream);
+  return reply.send(output);
 }

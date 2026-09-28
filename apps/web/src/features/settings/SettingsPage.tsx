@@ -10,8 +10,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { api, errorMessage } from '../../api/client';
+import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
+import { useLocation } from 'react-router';
+import { ApiError, api, errorMessage } from '../../api/client';
 import { qk, useAppPasswordMutations, useAppPasswords, useSessions } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import {
@@ -29,6 +30,7 @@ import {
   toast,
   UsageBar,
 } from '../../components/ui';
+import { copyText } from '../../lib/clipboard';
 import { describeUserAgent, formatRelative } from '../../lib/format';
 import { usePageTitle } from '../../lib/usePageTitle';
 
@@ -43,13 +45,15 @@ function Section({
   description?: string;
   children: ReactNode;
 }) {
+  // A generated id: titles contain spaces, which aria-labelledby would read as several ids.
+  const headingId = useId();
   return (
     <section
       id={id}
-      aria-labelledby={`${id ?? title}-h`}
+      aria-labelledby={headingId}
       className="rounded-2xl border border-border bg-surface p-5"
     >
-      <h2 id={`${id ?? title}-h`} className="text-base font-semibold">
+      <h2 id={headingId} className="text-base font-semibold">
         {title}
       </h2>
       {description && <p className="mt-1 text-sm text-muted">{description}</p>}
@@ -102,10 +106,11 @@ function ProfileSection({ me }: { me: Me }) {
 }
 
 function PasswordSection() {
+  const qc = useQueryClient();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ field: 'current' | 'next'; message: string } | null>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -115,8 +120,12 @@ function PasswordSection() {
       setCurrent('');
       setNext('');
       toast.success('Password changed. Other devices were signed out.');
+      void qc.invalidateQueries({ queryKey: qk.sessions });
     } catch (err) {
-      setError(errorMessage(err));
+      setError({
+        field: err instanceof ApiError && err.code === 'INVALID_CREDENTIALS' ? 'current' : 'next',
+        message: errorMessage(err),
+      });
     } finally {
       setBusy(false);
     }
@@ -129,6 +138,7 @@ function PasswordSection() {
           autoComplete="current-password"
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
+          error={error?.field === 'current' ? error.message : null}
           required
         />
         <PasswordField
@@ -138,7 +148,7 @@ function PasswordSection() {
           minLength={10}
           value={next}
           onChange={(e) => setNext(e.target.value)}
-          error={error}
+          error={error?.field === 'next' ? error.message : null}
           required
         />
         <Button type="submit" loading={busy} className="self-start">
@@ -273,28 +283,33 @@ function TwoFactorSection({ me }: { me: Me }) {
   );
 }
 
-function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
-  const [tab, setTab] = useState('iphone');
-  const Row = ({ label, value }: { label: string; value: string }) => (
+function CopyRow({ label, value }: { label: string; value: string }) {
+  return (
     <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
       <span className="w-20 shrink-0 text-xs text-muted">{label}</span>
       <code className="min-w-0 flex-1 font-mono text-sm break-all select-all">{value}</code>
       <Button
         size="sm"
-        onClick={() =>
-          navigator.clipboard?.writeText(value).then(() => toast.success(`${label} copied`))
-        }
+        aria-label={`Copy ${label.toLowerCase()}`}
+        onClick={async () => {
+          if (await copyText(value)) toast.success(`${label} copied`);
+          else toast.error('Copy failed. Select the text and copy it manually.');
+        }}
       >
         Copy
       </Button>
     </div>
   );
+}
+
+function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
+  const [tab, setTab] = useState('iphone');
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <Row label="Server" value={creds.davUrl} />
-        <Row label="Username" value={creds.username} />
-        <Row label="Password" value={creds.password} />
+        <CopyRow label="Server" value={creds.davUrl} />
+        <CopyRow label="Username" value={creds.username} />
+        <CopyRow label="Password" value={creds.password} />
         <p className="text-xs text-muted">
           This password is shown only once. It works only for the network drive, and you can remove
           it any time.
@@ -476,7 +491,14 @@ function DevicesSection() {
         title={`Remove “${remove?.name}”?`}
         description="That device will be disconnected from the network drive right away."
         confirmLabel="Remove"
-        onConfirm={() => m.revoke.mutateAsync(remove!.id)}
+        onConfirm={async () => {
+          try {
+            await m.revoke.mutateAsync(remove!.id);
+          } catch (err) {
+            toast.error(errorMessage(err));
+            throw err;
+          }
+        }}
       />
     </Section>
   );
@@ -536,10 +558,13 @@ function SessionsSection() {
 
 export function SettingsPage() {
   const { me } = useShell();
+  const { hash } = useLocation();
   usePageTitle('Settings');
+  // "/settings#security" (e.g. the admin two-factor banner): scroll there, also when already here.
+  // getElementById, not querySelector: an arbitrary hash isn't necessarily a valid selector.
   useEffect(() => {
-    if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
-  }, []);
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [hash]);
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
       <h1 className="text-xl font-semibold">Settings</h1>

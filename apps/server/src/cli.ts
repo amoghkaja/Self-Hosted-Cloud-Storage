@@ -1,9 +1,9 @@
-import { copyFile, link, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { stdin, stdout } from 'node:process';
+import { stderr, stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { Email, Password } from '@familycloud/shared/all';
+import { DisplayName, Email, Password } from '@familycloud/shared/all';
 import { eq } from 'drizzle-orm';
 import { loadConfig } from './config';
 import { createContext, ensureSetupToken } from './context';
@@ -12,8 +12,8 @@ import { reconcileUsage } from './jobs/maintenance';
 import { MemoryQueue } from './jobs/queue';
 import { randomToken } from './lib/crypto';
 import { hashPassword } from './lib/passwords';
+import { exportFiles } from './modules/admin/export';
 import { createUserWithRoot } from './modules/auth/service';
-import { listTree } from './modules/files/serve';
 
 const HELP = `Family Cloud admin CLI
 
@@ -31,10 +31,30 @@ Commands:
   migrate                        Apply database migrations and exit
 `;
 
-async function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input: stdin, output: stdout, terminal: true });
+/**
+ * The new admin's password: FC_PASSWORD, or typed at a prompt that doesn't echo it (it would
+ * otherwise stay in the terminal scrollback). Not trimmed: spaces are valid in passwords and the
+ * web sign-in keeps them.
+ */
+async function newPassword(): Promise<string> {
+  if (process.env.FC_PASSWORD) return Password.parse(process.env.FC_PASSWORD);
+  const tty = stdin.isTTY === true;
+  const muted = new Writable({ write: (_chunk, _enc, done) => done() });
+  const rl = createInterface({ input: stdin, output: muted, terminal: tty });
+  rl.on('SIGINT', () => process.exit(130)); // raw mode swallows Ctrl+C otherwise
+  const ask = async (question: string) => {
+    stdout.write(question);
+    const answer = await rl.question('');
+    stdout.write('\n');
+    return answer;
+  };
   try {
-    return (await rl.question(question)).trim();
+    const password = Password.parse(await ask('Password (10+ chars): '));
+    // Typing is invisible, so ask twice on a terminal to catch typos.
+    if (tty && (await ask('Repeat password: ')) !== password) {
+      throw new Error('Passwords do not match');
+    }
+    return password;
   } finally {
     rl.close();
   }
@@ -72,11 +92,8 @@ async function main() {
 
       case 'create-admin': {
         const email = Email.parse(values.email);
-        const name = values.name ?? email.split('@')[0]!;
-        const password = Password.parse(
-          process.env.FC_PASSWORD ?? (await prompt('Password (10+ chars): ')),
-        );
-        const passwordHash = await hashPassword(password);
+        const name = DisplayName.parse(values.name ?? email.split('@')[0]);
+        const passwordHash = await hashPassword(await newPassword());
         await ctx.db.transaction((tx) =>
           createUserWithRoot(tx, {
             email,
@@ -130,30 +147,16 @@ async function main() {
       case 'export': {
         if (!values.out) throw new Error('--out is required');
         const out = path.resolve(values.out);
-        const people = await ctx.db
-          .select()
-          .from(users)
-          .where(values.email ? eq(users.email, Email.parse(values.email)) : undefined);
-        let files = 0;
-        for (const person of people) {
-          if (!person.rootNodeId) continue;
-          const base = path.join(out, person.email);
-          await mkdir(base, { recursive: true });
-          for (const entry of await listTree(ctx.db, person.rootNodeId, 10_000_000)) {
-            const dest = path.join(base, entry.path);
-            if (!dest.startsWith(base + path.sep)) continue; // defensive: names never contain separators
-            if (entry.type === 'folder') {
-              await mkdir(dest, { recursive: true });
-              continue;
-            }
-            if (!entry.blobId || !entry.volumeId) continue;
-            await mkdir(path.dirname(dest), { recursive: true });
-            const src = await ctx.volumes.blobFile({ id: entry.blobId, volumeId: entry.volumeId });
-            await link(src, dest).catch(() => copyFile(src, dest));
-            files++;
-          }
-        }
+        const { files, failed } = await exportFiles(ctx, out, {
+          email: values.email ? Email.parse(values.email) : undefined,
+        });
         stdout.write(`Exported ${files} files to ${out}\n`);
+        if (failed.length) {
+          for (const f of failed.slice(0, 50)) stderr.write(`  failed: ${f.path} (${f.error})\n`);
+          if (failed.length > 50) stderr.write(`  …and ${failed.length - 50} more\n`);
+          stderr.write(`${failed.length} file(s) could not be exported.\n`);
+          process.exitCode = 1;
+        }
         break;
       }
 

@@ -9,7 +9,7 @@ import {
   type Settings,
   type UploadSession,
 } from '@familycloud/shared/all';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
 import type { Tx } from '../../db/client';
@@ -84,7 +84,8 @@ export function assertFileSizeAllowed(settings: Settings, size: number): void {
 /**
  * Atomically reserves `size` bytes against the charged user's quota and the global cap.
  * Must run inside a transaction; takes the exclusive quota lock so concurrent reservations
- * (and the global sum) stay consistent. Release with `releaseReservation` if the write fails.
+ * (and the global sum) stay consistent. Record the reservation as an upload session in the same
+ * transaction; `releaseUpload` returns it if the write fails.
  */
 export async function reserveSpace(
   tx: Tx,
@@ -125,16 +126,6 @@ export async function reserveSpace(
   }
 }
 
-export async function releaseReservation(ctx: AppContext, chargeUserId: string, size: number) {
-  await ctx.db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
-    await tx
-      .update(users)
-      .set({ reservedBytes: sql`greatest(${users.reservedBytes} - ${size}, 0)` })
-      .where(eq(users.id, chargeUserId));
-  });
-}
-
 /**
  * Starts an upload: authorizes, checks limits, atomically reserves quota on the destination
  * owner's account (and against the global cap), picks a volume and pre-allocates a sparse file.
@@ -152,7 +143,7 @@ export async function createUpload(
   const totalChunks = Math.max(1, Math.ceil(input.size / chunkSize));
   const mimeType = guessMimeType(input.name, input.mimeType);
 
-  const { session, volumePath } = await ctx.db.transaction(async (tx) => {
+  const { session, volume } = await ctx.db.transaction(async (tx) => {
     await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
     // Counted under the reservation lock so parallel requests can't exceed the limit.
     const [open_] = await tx
@@ -183,11 +174,12 @@ export async function createUpload(
         expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       })
       .returning();
-    return { session: row!, volumePath: volume.path };
+    return { session: row!, volume };
   });
 
   try {
-    const tmp = ctx.volumes.tmpPath(volumePath, session.id);
+    await ctx.volumes.assertOnline(volume);
+    const tmp = ctx.volumes.tmpPath(volume.path, session.id);
     await mkdir(path.dirname(tmp), { recursive: true });
     const fh = await open(tmp, 'w');
     await fh.truncate(input.size); // sparse: no disk used until bytes arrive
@@ -239,8 +231,20 @@ export async function writeChunk(
   try {
     fh = await open(tmp, 'r+');
   } catch {
-    await releaseUpload(ctx, session.id, 'aborted');
-    throw conflict('Upload data was lost; please start again', ErrorCode.UPLOAD_STATE);
+    // A disk that is briefly gone must not cost the upload: 503, and the client retries.
+    await ctx.volumes.assertOnline({ id: session.volumeId, path: volumePath });
+    if (await releaseUpload(ctx, session.id, 'aborted', ['uploading'])) {
+      throw conflict('Upload data was lost; please start again', ErrorCode.UPLOAD_STATE);
+    }
+    // A late retry of a chunk after the last one arrived: finalizing already moved the file.
+    const [now] = await ctx.db
+      .select()
+      .from(uploadSessions)
+      .where(eq(uploadSessions.id, session.id));
+    if (now?.status === 'finalizing' || now?.status === 'completed') {
+      return { session: now, node: null };
+    }
+    throw conflict(`Upload is ${now?.status ?? 'gone'}`, ErrorCode.UPLOAD_STATE);
   }
 
   let written = 0;
@@ -340,14 +344,34 @@ export async function finalizeUpload(
     await mkdir(path.dirname(final), { recursive: true });
     await rename(tmp, final);
   } catch (err) {
-    await releaseUpload(ctx, claimed.id, 'aborted');
-    throw err;
+    if (!(await ctx.volumes.status({ id: claimed.volumeId, path: volumePath }, true)).online) {
+      // The disk is briefly gone: hand the upload back, so a retried chunk finalizes it later.
+      await ctx.db
+        .update(uploadSessions)
+        .set({ status: 'uploading' })
+        .where(and(eq(uploadSessions.id, claimed.id), eq(uploadSessions.status, 'finalizing')));
+      throw new AppError(
+        503,
+        ErrorCode.VOLUME_OFFLINE,
+        'Storage is offline. Ask your admin to check the disks.',
+      );
+    }
+    if (await releaseUpload(ctx, claimed.id, 'aborted')) throw err;
+    throw conflict('The upload was cancelled', ErrorCode.UPLOAD_STATE);
   }
 
   const thumbable = isThumbnailable(claimed.mimeType);
   try {
     const node = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
+      // Cancelled or expired while finalizing: its reservation is already released, so
+      // committing would count the bytes twice and bring back a file the user cancelled.
+      const [live] = await tx
+        .update(uploadSessions)
+        .set({ status: 'completed' })
+        .where(and(eq(uploadSessions.id, claimed.id), eq(uploadSessions.status, 'finalizing')))
+        .returning({ id: uploadSessions.id });
+      if (!live) throw conflict('The upload was cancelled', ErrorCode.UPLOAD_STATE);
       // Access is re-checked here, under row locks, because a share may have been revoked
       // (or the folder trashed) while the chunks were uploading.
       const parent = await lockWriteAccess(tx, claimed.userId, claimed.parentId);
@@ -380,7 +404,7 @@ export async function finalizeUpload(
         .where(eq(users.id, claimed.chargeUserId));
       await tx
         .update(uploadSessions)
-        .set({ status: 'completed', nodeId: row.id })
+        .set({ nodeId: row.id })
         .where(eq(uploadSessions.id, claimed.id));
       await tx.update(nodes).set({ updatedAt: new Date() }).where(eq(nodes.id, parent.id));
       return row;
@@ -399,23 +423,23 @@ export async function finalizeUpload(
   }
 }
 
-/** Ends an upload that will not complete: returns the reservation and removes the temp file. */
+/**
+ * Ends an upload that will not complete (if it is still in one of the `from` states): returns
+ * the reservation and removes the temp file. Once this succeeds the upload can no longer
+ * commit (both commit paths require the session to still be active).
+ */
 export async function releaseUpload(
   ctx: AppContext,
   sessionId: string,
   status: 'aborted' | 'expired',
+  from: UploadSessionRow['status'][] = ['uploading', 'finalizing'],
 ): Promise<boolean> {
   const released = await ctx.db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
     const [s] = await tx
       .update(uploadSessions)
       .set({ status })
-      .where(
-        and(
-          eq(uploadSessions.id, sessionId),
-          inArray(uploadSessions.status, ['uploading', 'finalizing']),
-        ),
-      )
+      .where(and(eq(uploadSessions.id, sessionId), inArray(uploadSessions.status, from)))
       .returning();
     if (!s) return null;
     await tx
@@ -426,6 +450,14 @@ export async function releaseUpload(
   });
   if (!released) return false;
   const volumePath = await ctx.volumes.pathOf(released.volumeId).catch(() => null);
-  if (volumePath) await unlink(ctx.volumes.tmpPath(volumePath, released.id)).catch(() => {});
+  if (volumePath) {
+    await unlink(ctx.volumes.tmpPath(volumePath, released.id)).catch(() => {});
+    // A finalize interrupted after its rename (a crash) leaves the file with no blob row.
+    const [blob] = await ctx.db
+      .select({ id: blobs.id })
+      .from(blobs)
+      .where(eq(blobs.id, released.blobId));
+    if (!blob) await unlink(ctx.volumes.blobPath(volumePath, released.blobId)).catch(() => {});
+  }
   return true;
 }

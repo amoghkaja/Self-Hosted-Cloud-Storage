@@ -13,7 +13,7 @@ import {
   TokenParams,
   UnlockLinkBody,
 } from '@familycloud/shared/all';
-import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -22,12 +22,14 @@ import { blobs, nodes, type ShareLinkRow, shareLinks, users } from '../../db/sch
 import { audit } from '../../lib/audit';
 import { randomToken, sha256 } from '../../lib/crypto';
 import { AppError, notFound } from '../../lib/errors';
+import { isInlineSafe } from '../../lib/http';
 import { hashPassword, verifyPassword } from '../../lib/passwords';
 import { toIso, toIsoOrNull } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { strictLimit } from '../../plugins/security';
 import { type NodeWithBlob, requireAccess } from '../files/access';
 import { sendBlob, sendThumbnail, sendZip } from '../files/serve';
+import { listChildren } from '../files/tree';
 
 const UNLOCK_TTL = 12 * 60 * 60;
 const COOKIE_PATH = '/api/v1/public/links/';
@@ -37,10 +39,16 @@ function linkUrl(ctx: AppContext, token: string) {
 }
 
 function toLinkDto(ctx: AppContext, l: ShareLinkRow) {
+  // A token encrypted under an earlier SECRET_KEY can't be shown again, but the link must stay
+  // listed so its owner can still revoke it.
+  let url: string | null = null;
+  try {
+    url = linkUrl(ctx, ctx.keys.decrypt('link', l.tokenEnc));
+  } catch {}
   return {
     id: l.id,
     nodeId: l.nodeId,
-    url: linkUrl(ctx, ctx.keys.decrypt('link', l.tokenEnc)),
+    url,
     hasPassword: l.passwordHash !== null,
     allowDownload: l.allowDownload,
     expiresAt: toIsoOrNull(l.expiresAt),
@@ -283,19 +291,25 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       const r = await resolveUnlocked(ctx, req, req.params.token);
       const target = await nodeWithinLink(ctx, r.root.id, req.query.folderId ?? r.root.id);
       if (target?.node.type !== 'folder') throw notFound('Folder');
-      const rows = await db
-        .select({ node: nodes, thumb: blobs.thumbStatus, volumeId: blobs.volumeId })
-        .from(nodes)
-        .leftJoin(blobs, eq(blobs.id, nodes.blobId))
-        .where(and(eq(nodes.parentId, target.node.id), isNull(nodes.deletedAt)))
-        .orderBy(asc(nodes.type), asc(sql`lower(${nodes.name})`))
-        .limit(5000);
+      const page = await listChildren(db, target.node.id, {
+        cursor: req.query.cursor,
+        limit: req.query.limit,
+        sort: 'name',
+        dir: 'asc',
+      });
       return {
         folder: toPublicNode(target.node),
         breadcrumbs: target.breadcrumbs,
-        items: rows.map((row) =>
-          toPublicNode({ ...row.node, thumb: row.thumb, volumeId: row.volumeId }),
-        ),
+        items: page.items.map(({ id, type, name, size, mimeType, thumb, updatedAt }) => ({
+          id,
+          type,
+          name,
+          size,
+          mimeType,
+          thumb,
+          updatedAt,
+        })),
+        nextCursor: page.nextCursor,
       };
     },
   );
@@ -318,11 +332,12 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       const r = await publicFile(req, req.params.token, req.params.nodeId);
-      const inline = req.query.inline === '1';
+      const n = r.node;
+      // `inline=1` for a type that can't be previewed is served as an attachment, i.e. a download.
+      const inline = req.query.inline === '1' && isInlineSafe(n.mimeType);
       if (!inline && !r.link.allowDownload) {
         throw new AppError(403, ErrorCode.FORBIDDEN, 'Downloads are turned off for this link');
       }
-      const n = r.node;
       if (n.type !== 'file' || !n.blobId || !n.volumeId) throw notFound('File');
       return sendBlob(
         ctx,

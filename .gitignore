@@ -15,3 +15,6 @@ test-results/
 
 # Personal DNS zone files (keep the domain-specific backup out of the public repo)
 deploy/cloudflare/*.zone
+
+# Claude Code personal overrides
+.claude/settings.local.json

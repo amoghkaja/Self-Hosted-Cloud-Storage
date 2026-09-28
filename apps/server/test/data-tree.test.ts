@@ -1,0 +1,119 @@
+import { sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { lockWriteAccess } from '../src/modules/files/access';
+import { insertNode, trashSubtree } from '../src/modules/files/tree';
+import { bytes, type Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
+
+let env: TestEnv;
+let c: Client;
+let root: string;
+let userId: string;
+
+beforeAll(async () => {
+  env = await createTestEnv();
+  const a = await setupAdmin(env);
+  c = a.client;
+  root = a.me.rootNodeId;
+  userId = a.me.id;
+});
+afterAll(async () => {
+  await env.close();
+});
+
+const folder = async (parentId: string, name: string) =>
+  (await c.post('/folders', { parentId, name })).body.id as string;
+
+describe('trash', () => {
+  it('deleting a folder forever keeps items that were trashed separately before it', async () => {
+    const album = await folder(root, 'Album');
+    const keep = (await uploadFile(c, album, 'keep.jpg', bytes(300, 1))).final!.body.node.id;
+    await uploadFile(c, album, 'other.jpg', bytes(100, 2));
+    const before = (await c.get('/auth/me')).body.usedBytes;
+
+    expect((await c.del(`/nodes/${keep}`)).status).toBe(200); // trashed on its own first
+    expect((await c.del(`/nodes/${album}`)).status).toBe(200);
+    expect((await c.del(`/trash/${album}`)).status).toBe(200);
+
+    // Only the folder's own contents are gone (and uncounted); keep.jpg is still in the trash.
+    expect((await c.get('/auth/me')).body.usedBytes).toBe(before - 100);
+    const trash = await c.get('/trash');
+    expect(trash.body.items.map((i: { id: string }) => i.id)).toContain(keep);
+    const restored = await c.post(`/trash/${keep}/restore`);
+    expect(restored.status).toBe(200);
+    expect(restored.body.node.parentId).toBe(root);
+    const dl = await c.get(`/nodes/${keep}/content`);
+    expect(Buffer.compare(dl.raw.rawPayload, bytes(300, 1))).toBe(0);
+  });
+
+  it('an item committed into a folder while it is being trashed goes to the trash with it', async () => {
+    const target = await folder(root, 'Racing');
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((r) => {
+      locked = r;
+    });
+    // An upload's commit: holds the folder (lockWriteAccess), adds its item, commits.
+    const commit = env.ctx.db.transaction(async (tx) => {
+      await lockWriteAccess(tx, userId, target);
+      locked();
+      await held;
+      return insertNode(
+        tx,
+        { ownerId: userId, parentId: target, type: 'folder', name: 'late', createdBy: userId },
+        'fail',
+      );
+    });
+    await lockTaken;
+    const trash = trashSubtree(env.ctx.db, target);
+    await new Promise((r) => setTimeout(r, 100)); // the trash is now waiting on the folder
+    release();
+    const late = await commit;
+    await trash;
+
+    const [row] = (await env.ctx.db.execute(
+      sql`select deleted_at IS NOT NULL AS deleted, trash_root_id AS "trashRootId" from nodes where id = ${late.id}`,
+    )) as unknown as { deleted: boolean; trashRootId: string | null }[];
+    expect(row).toEqual({ deleted: true, trashRootId: target });
+  });
+});
+
+describe('moves', () => {
+  it('two opposite moves at once cannot detach folders into a cycle', async () => {
+    for (let i = 0; i < 8; i++) {
+      const a = await folder(root, `A${i}`);
+      const b = await folder(root, `B${i}`);
+      const results = await Promise.all([
+        c.patch(`/nodes/${a}`, { parentId: b }),
+        c.patch(`/nodes/${b}`, { parentId: a }),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
+      for (const id of [a, b]) {
+        const detail = await c.get(`/nodes/${id}`);
+        expect(detail.status).toBe(200);
+        expect(detail.body.breadcrumbs[0].id).toBe(root);
+      }
+    }
+  });
+});
+
+describe('listing order', () => {
+  it('sorts names naturally and case-insensitively, across page boundaries', async () => {
+    const dir = await folder(root, 'Photos');
+    for (const name of ['IMG_10', 'img_2', 'IMG_1', 'Img_100', 'IMG_9']) await folder(dir, name);
+    const names: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const q: string = cursor ? `&cursor=${cursor}` : '';
+      const page = await c.get(`/nodes/${dir}/children?limit=2${q}`);
+      names.push(...page.body.items.map((i: { name: string }) => i.name));
+      cursor = page.body.nextCursor;
+    } while (cursor);
+    expect(names).toEqual(['IMG_1', 'img_2', 'IMG_9', 'IMG_10', 'Img_100']);
+
+    const desc = await c.get(`/nodes/${dir}/children?dir=desc`);
+    expect(desc.body.items.map((i: { name: string }) => i.name)).toEqual(names.toReversed());
+  });
+});

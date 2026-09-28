@@ -47,14 +47,80 @@ export function responseXml(e: DavEntry): string {
   return `<D:response><D:href>${xmlEscape(e.href)}</D:href><D:propstat><D:prop>${props.join('')}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`;
 }
 
+export const MULTISTATUS_HEAD =
+  '<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">';
+export const MULTISTATUS_TAIL = '</D:multistatus>';
+
 export function multistatus(responses: string[]): string {
-  return `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">${responses.join('')}</D:multistatus>`;
+  return MULTISTATUS_HEAD + responses.join('') + MULTISTATUS_TAIL;
 }
 
-/** PROPPATCH: we don't store dead properties, but acknowledge them so clients (Windows, Finder) proceed. */
-export function proppatchXml(href: string): string {
+export interface PropName {
+  ns: string;
+  name: string;
+}
+
+const NAME = '[A-Za-z_][\\w.-]*';
+const TAG = new RegExp(
+  `<(/?)((?:${NAME}:)?${NAME})((?:\\s+[^\\s=/>]+\\s*=\\s*(?:"[^"]*"|'[^']*'))*)\\s*(/?)>`,
+  'g',
+);
+const XMLNS = /\s(xmlns(?::([^\s=]+))?)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+
+/**
+ * Properties a PROPPATCH body sets or removes. A deliberately small scanner (no DTDs or
+ * entities): it only needs element names and the namespaces they resolve to.
+ */
+export function proppatchNames(xml: string): PropName[] {
+  const clean = xml.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<[?!][\s\S]*?>/g, '');
+  const stack: { ns: string; name: string; scope: Map<string, string> }[] = [];
+  const out: PropName[] = [];
+  for (const m of clean.matchAll(TAG)) {
+    const [, closing, qname = '', attrs = '', selfClosing] = m;
+    if (closing) {
+      stack.pop();
+      continue;
+    }
+    const scope = new Map(stack.at(-1)?.scope);
+    for (const a of attrs.matchAll(XMLNS)) scope.set(a[2] ?? '', a[3] ?? a[4] ?? '');
+    const colon = qname.indexOf(':');
+    const el = {
+      ns: scope.get(colon < 0 ? '' : qname.slice(0, colon)) ?? '',
+      name: colon < 0 ? qname : qname.slice(colon + 1),
+      scope,
+    };
+    const [update, prop] = [stack.at(-2), stack.at(-1)];
+    if (
+      prop?.ns === 'DAV:' &&
+      prop.name === 'prop' &&
+      update?.ns === 'DAV:' &&
+      (update.name === 'set' || update.name === 'remove') &&
+      out.length < 100
+    ) {
+      out.push({ ns: el.ns, name: el.name });
+    }
+    if (!selfClosing) stack.push(el);
+  }
+  return out;
+}
+
+/**
+ * PROPPATCH: we don't store dead properties, but acknowledge each one (RFC 4918 wants a
+ * propstat per property) so clients such as Windows Explorer, which sets its Win32 times after
+ * every upload, proceed.
+ */
+export function proppatchXml(href: string, props: PropName[]): string {
+  const names = props
+    .map((p, i) =>
+      p.ns === 'DAV:'
+        ? `<D:${p.name}/>`
+        : p.ns
+          ? `<x${i}:${p.name} xmlns:x${i}="${xmlEscape(p.ns)}"/>`
+          : `<${p.name} xmlns=""/>`,
+    )
+    .join('');
   return multistatus([
-    `<D:response><D:href>${xmlEscape(href)}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`,
+    `<D:response><D:href>${xmlEscape(href)}</D:href><D:propstat><D:prop>${names}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`,
   ]);
 }
 

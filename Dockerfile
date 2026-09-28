@@ -13,7 +13,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
-RUN pnpm install --frozen-lockfile
+# No dependency needs its install script to build the image. pnpm fails the install on any build
+# script missing from allowBuilds, e.g. @embedded-postgres/linux-arm64 (a dev-only dependency)
+# when building the arm64 image.
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
 RUN pnpm --filter @familycloud/web build \

@@ -23,16 +23,19 @@ export class SettingsStore {
   }
 
   async update(patch: Partial<Settings>): Promise<Settings> {
-    const next = { ...(await this.get()), ...patch };
-    await this.db
+    // Merge in SQL (jsonb ||), not from a cached copy: two concurrent edits of different fields
+    // must both survive instead of the second overwriting the first with stale values.
+    const [row] = await this.db
       .insert(settingsTable)
-      .values({ key: 'app', value: next })
+      .values({ key: 'app', value: patch })
       .onConflictDoUpdate({
         target: settingsTable.key,
-        set: { value: next, updatedAt: new Date() },
-      });
-    this.cached = { at: Date.now(), value: next };
-    return next;
+        set: { value: sql`${settingsTable.value} || excluded.value`, updatedAt: new Date() },
+      })
+      .returning({ value: settingsTable.value });
+    // Re-read on next use: a concurrent update may have committed after this one yet finished first.
+    this.cached = null;
+    return { ...DEFAULT_SETTINGS, ...((row?.value as Partial<Settings>) ?? {}) };
   }
 
   /** Arbitrary internal values (e.g. the first-run setup token) under their own key. */
@@ -42,6 +45,12 @@ export class SettingsStore {
       .from(settingsTable)
       .where(sql`${settingsTable.key} = ${key}`);
     return (row?.value as T) ?? null;
+  }
+
+  /** Stores `value` unless the key already has one, and returns whichever value is stored. */
+  async initRaw<T>(key: string, value: T): Promise<T> {
+    await this.db.insert(settingsTable).values({ key, value }).onConflictDoNothing();
+    return (await this.getRaw<T>(key)) ?? value;
   }
 
   async setRaw(key: string, value: unknown | null): Promise<void> {

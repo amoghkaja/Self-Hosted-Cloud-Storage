@@ -1,6 +1,19 @@
+import { eq } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addMember, Client, createTestEnv, SETUP_TOKEN, setupAdmin, type TestEnv } from './helpers';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { AppContext } from '../src/context';
+import { users } from '../src/db/schema';
+import { Keyring } from '../src/lib/crypto';
+import { checkTotp } from '../src/modules/auth/service';
+import {
+  addMember,
+  Client,
+  createTestEnv,
+  SETUP_TOKEN,
+  setupAdmin,
+  type TestEnv,
+  uploadFile,
+} from './helpers';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -286,5 +299,167 @@ describe('lockout under concurrency', () => {
       tokens.map(({ c, token }) => c.post('/auth/login/totp', { mfaToken: token, code })),
     );
     expect(results.map((r) => r.status).sort()).toEqual([200, 401]);
+  });
+});
+
+describe('lockout and two-factor together', () => {
+  async function totpMember(email: string) {
+    const { client: admin } = await loginAdmin();
+    const { client } = await addMember(env, admin, email);
+    const setup = await client.post('/auth/totp/setup');
+    const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
+    await client.post('/auth/totp/enable', { code: totp.generate() });
+    return { client, totp };
+  }
+
+  it('lets a two-factor user sign in after a few typos (the password step does not lock)', async () => {
+    const { totp } = await totpMember('typos@example.com');
+    const c = new Client(env.app);
+    for (let i = 0; i < 4; i++) {
+      const r = await c.post('/auth/login', {
+        email: 'typos@example.com',
+        password: 'typo typo typo',
+      });
+      expect(r.status).toBe(401);
+    }
+    const step1 = await c.post('/auth/login', {
+      email: 'typos@example.com',
+      password: 'another long password',
+    });
+    expect(step1.body.status).toBe('mfa_required');
+    const ok = await c.post('/auth/login/totp', {
+      mfaToken: step1.body.mfaToken,
+      code: totp.generate({ timestamp: Date.now() + 30_000 }),
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it('still counts wrong codes when the password is known', async () => {
+    await totpMember('guess2fa@example.com');
+    const c = new Client(env.app);
+    const statuses: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      const step1 = await c.post('/auth/login', {
+        email: 'guess2fa@example.com',
+        password: 'another long password',
+      });
+      if (step1.status !== 200) {
+        statuses.push(step1.status);
+        continue;
+      }
+      const r = await c.post('/auth/login/totp', { mfaToken: step1.body.mfaToken, code: '000000' });
+      statuses.push(r.status);
+    }
+    // Five wrong codes lock the account; knowing the password doesn't reset the counter.
+    expect(statuses.slice(0, 5).every((s) => s === 401)).toBe(true);
+    expect(statuses.slice(5)).toEqual([429, 429]);
+  });
+
+  it('keeps working for an account with a very long failure history', async () => {
+    const { client: admin } = await loginAdmin();
+    const { me } = await addMember(env, admin, 'patient@example.com');
+    // power(2, n) overflows float8 past n = 1023, which used to turn every sign-in into a 500.
+    await env.ctx.db.update(users).set({ failedLogins: 5000 }).where(eq(users.id, me.id));
+    const wrong = await new Client(env.app).post('/auth/login', {
+      email: 'patient@example.com',
+      password: 'wrong password!!',
+    });
+    expect(wrong.status).toBe(401);
+    const [row] = await env.ctx.db
+      .select({ lockedUntil: users.lockedUntil })
+      .from(users)
+      .where(eq(users.id, me.id));
+    expect(row!.lockedUntil!.getTime() - Date.now()).toBeLessThanOrEqual(60 * 60_000);
+  });
+
+  it('does not replace the secret of an account that already has two-factor on', async () => {
+    const { client: admin } = await loginAdmin();
+    const { client, me } = await addMember(env, admin, 'stale2fa@example.com');
+    expect((await client.get('/auth/me')).status).toBe(200); // session (totp off) now cached
+    // Two-factor gets turned on elsewhere (another tab, another app replica).
+    const secretEnc = env.ctx.keys.encrypt('totp', new OTPAuth.Secret({ size: 20 }).base32);
+    await env.ctx.db
+      .update(users)
+      .set({ totpEnabled: true, totpSecretEnc: secretEnc })
+      .where(eq(users.id, me.id));
+    const setup = await client.post('/auth/totp/setup');
+    expect(setup.status).toBe(409);
+    const [row] = await env.ctx.db
+      .select({ enc: users.totpSecretEnc })
+      .from(users)
+      .where(eq(users.id, me.id));
+    expect(row!.enc).toBe(secretEnc);
+  });
+
+  it('records the time-step of the clock reading the code was checked against', () => {
+    const keys = new Keyring('z'.repeat(40));
+    const secret = new OTPAuth.Secret({ size: 20 });
+    const ctx = { keys } as unknown as AppContext;
+    const stepStart = Math.floor(Date.now() / 30_000) * 30_000;
+    const code = new OTPAuth.TOTP({ secret }).generate({ timestamp: stepStart + 29_999 });
+    // The clock crosses a 30 s boundary between two readings.
+    const now = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(stepStart + 29_999)
+      .mockReturnValue(stepStart + 30_001);
+    try {
+      const step = checkTotp(ctx, keys.encrypt('totp', secret.base32), code, null);
+      expect(step).toBe(stepStart / 30_000);
+    } finally {
+      now.mockRestore();
+    }
+  });
+});
+
+describe('two-factor after the secret key changed', () => {
+  it('explains the problem instead of failing with a bare server error', async () => {
+    const { client: admin } = await loginAdmin();
+    const { client, me } = await addMember(env, admin, 'rekeyed@example.com');
+    const setup = await client.post('/auth/totp/setup');
+    const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
+    await client.post('/auth/totp/enable', { code: totp.generate() });
+    // As if the database was restored next to a regenerated SECRET_KEY.
+    const otherKey = new Keyring('another-secret-key-that-is-at-least-32-chars');
+    await env.ctx.db
+      .update(users)
+      .set({ totpSecretEnc: otherKey.encrypt('totp', setup.body.secret) })
+      .where(eq(users.id, me.id));
+    const c = new Client(env.app);
+    const step1 = await c.post('/auth/login', {
+      email: 'rekeyed@example.com',
+      password: 'another long password',
+    });
+    const res = await c.post('/auth/login/totp', {
+      mfaToken: step1.body.mfaToken,
+      code: totp.generate({ timestamp: Date.now() + 30_000 }),
+    });
+    expect(res.body.code).toBe('MFA_UNAVAILABLE');
+    expect(res.body.detail).toMatch(/secret key changed/);
+  });
+});
+
+describe('caching', () => {
+  it('marks API answers private and uncacheable unless the route chose a policy', async () => {
+    const { client } = await loginAdmin();
+    const me = await client.get('/auth/me');
+    expect(me.headers['cache-control']).toBe('private, no-store');
+    const anon = await new Client(env.app).get('/auth/me');
+    expect(anon.status).toBe(401);
+    expect(anon.headers['cache-control']).toBe('private, no-store');
+    const missing = await client.get('/api/v1/no-such-route');
+    expect(missing.headers['cache-control']).toBe('private, no-store');
+    const root = me.body.rootNodeId as string;
+    const { final } = await uploadFile(client, root, 'cache.txt', Buffer.from('hello'));
+    const content = await client.get(`/nodes/${final!.body.node.id}/content`);
+    expect(content.status).toBe(200);
+    expect(content.headers['cache-control']).toBe('private, no-cache');
+    const health = await env.app.inject({ method: 'GET', url: '/healthz' });
+    expect(health.headers['cache-control']).toBeUndefined();
+  });
+
+  it('marks network-drive answers private and uncacheable', async () => {
+    const res = await env.app.inject({ method: 'PROPFIND' as 'GET', url: '/dav/' });
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['cache-control']).toBe('private, no-store');
   });
 });

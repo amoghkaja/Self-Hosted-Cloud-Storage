@@ -33,9 +33,12 @@ import {
 import { audit } from '../../lib/audit';
 import { randomToken, sha256 } from '../../lib/crypto';
 import { toAdminUser } from '../../lib/dto';
-import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
+import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { requireAdmin } from '../../plugins/auth';
+
+/** Advisory lock taken while an admin is demoted or disabled (see the last-admin guard). */
+const ADMIN_GUARD_LOCK = 727_004;
 
 async function volumeDtos(
   ctx: AppContext,
@@ -176,26 +179,32 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { params: IdParams, body: UpdateUserBody, response: { 200: AdminUser } } },
     async (req) => {
       const { user: admin } = requireAdmin(req);
-      const [target] = await db.select().from(users).where(eq(users.id, req.params.id));
-      if (!target) throw notFound('User');
       const b = req.body;
-      if (target.id === admin.id && (b.role === 'member' || b.disabled === true)) {
-        throw badRequest('You cannot demote or disable your own account');
-      }
-      if ((b.role === 'member' || b.disabled === true) && target.role === 'admin') {
-        const [other] = await db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(users)
-          .where(and(eq(users.role, 'admin'), isNull(users.disabledAt), ne(users.id, target.id)));
-        if ((other?.n ?? 0) === 0)
-          throw badRequest('There must always be at least one active admin');
-      }
-      const patch: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
-      if (b.displayName !== undefined) patch.displayName = b.displayName;
-      if (b.role !== undefined) patch.role = b.role;
-      if (b.quotaBytes !== undefined) patch.quotaBytes = b.quotaBytes;
-      if (b.disabled !== undefined) patch.disabledAt = b.disabled ? new Date() : null;
-      const [row] = await db.update(users).set(patch).where(eq(users.id, target.id)).returning();
+      const { target, row } = await db.transaction(async (tx) => {
+        // Serializes demotions/disables: two admins removing each other at the same moment
+        // would otherwise both see "another admin remains" and leave nobody in charge.
+        await tx.execute(sql`select pg_advisory_xact_lock(${ADMIN_GUARD_LOCK})`);
+        const [target] = await tx.select().from(users).where(eq(users.id, req.params.id));
+        if (!target) throw notFound('User');
+        if (target.id === admin.id && (b.role === 'member' || b.disabled === true)) {
+          throw badRequest('You cannot demote or disable your own account');
+        }
+        if ((b.role === 'member' || b.disabled === true) && target.role === 'admin') {
+          const [other] = await tx
+            .select({ n: sql<number>`count(*)::int` })
+            .from(users)
+            .where(and(eq(users.role, 'admin'), isNull(users.disabledAt), ne(users.id, target.id)));
+          if ((other?.n ?? 0) === 0)
+            throw badRequest('There must always be at least one active admin');
+        }
+        const patch: Partial<typeof users.$inferInsert> = { updatedAt: new Date() };
+        if (b.displayName !== undefined) patch.displayName = b.displayName;
+        if (b.role !== undefined) patch.role = b.role;
+        if (b.quotaBytes !== undefined) patch.quotaBytes = b.quotaBytes;
+        if (b.disabled !== undefined) patch.disabledAt = b.disabled ? new Date() : null;
+        const [row] = await tx.update(users).set(patch).where(eq(users.id, target.id)).returning();
+        return { target, row: row! };
+      });
       if (b.disabled) await ctx.sessions.revokeAll(db, target.id);
       ctx.sessions.forgetUser(target.id);
       ctx.davAuth.forgetUser(target.id);
@@ -214,7 +223,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         .select({ at: max(sessions.lastSeenAt) })
         .from(sessions)
         .where(eq(sessions.userId, target.id));
-      return toAdminUser(row!, lastSeen?.at ?? null);
+      return toAdminUser(row, lastSeen?.at ?? null);
     },
   );
 
@@ -342,9 +351,28 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     '/admin/invites/:id',
     { schema: { params: IdParams, response: { 200: Ok } } },
     async (req) => {
-      requireAdmin(req);
+      const { user: admin } = requireAdmin(req);
       // Expire rather than delete, so the audit trail keeps a reference.
-      await db.update(invites).set({ expiresAt: new Date() }).where(eq(invites.id, req.params.id));
+      const revoked = await db
+        .update(invites)
+        .set({ expiresAt: new Date() })
+        .where(
+          and(
+            eq(invites.id, req.params.id),
+            isNull(invites.usedAt),
+            gt(invites.expiresAt, new Date()),
+          ),
+        )
+        .returning({ id: invites.id });
+      if (revoked.length > 0) {
+        await audit(db, {
+          actorId: admin.id,
+          action: 'admin.invite_revoked',
+          targetType: 'invite',
+          targetId: req.params.id,
+          ip: req.clientIp,
+        });
+      }
       return { ok: true as const };
     },
   );
@@ -400,12 +428,20 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user: admin } = requireAdmin(req);
       const realPath = await ctx.volumes.validateNewPath(req.body.path);
-      const row = await ctx.volumes.register({
-        name: req.body.name,
-        path: realPath,
-        capacityLimitBytes: req.body.capacityLimitBytes ?? null,
-        reserveBytes: req.body.reserveBytes ?? 0,
-      });
+      const row = await ctx.volumes
+        .register({
+          name: req.body.name,
+          path: realPath,
+          capacityLimitBytes: req.body.capacityLimitBytes ?? null,
+          reserveBytes: req.body.reserveBytes ?? 0,
+        })
+        .catch((err: unknown) => {
+          // A double-clicked "Add" races past validateNewPath's check; the unique index decides.
+          if (isUniqueViolation(err, 'storage_volumes_path_key')) {
+            throw conflict('That directory is already a volume');
+          }
+          throw err;
+        });
       await audit(db, {
         actorId: admin.id,
         action: 'admin.volume_added',
@@ -481,7 +517,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
           updatedAt: new Date(),
         })
         .where(eq(storageVolumes.id, v.id));
-      await ctx.jobs.send('drain-volume', { volumeId: v.id }, { singletonKey: v.id });
+      await ctx.jobs.send('drain-volume', { volumeId: v.id });
       await audit(db, {
         actorId: admin.id,
         action: 'admin.volume_drain_started',
