@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AppContext } from '../src/context';
-import { users } from '../src/db/schema';
+import { sessions, users } from '../src/db/schema';
 import { Keyring } from '../src/lib/crypto';
 import { checkTotp } from '../src/modules/auth/service';
 import {
@@ -435,6 +435,29 @@ describe('two-factor after the secret key changed', () => {
     });
     expect(res.body.code).toBe('MFA_UNAVAILABLE');
     expect(res.body.detail).toMatch(/secret key changed/);
+  });
+});
+
+describe('sliding session expiry', () => {
+  it('extends a session that has been idle for over an hour', async () => {
+    const { client } = await loginAdmin();
+    const [admin] = await env.ctx.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, 'admin@example.com'));
+    const idleSince = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await env.ctx.db
+      .update(sessions)
+      .set({ lastSeenAt: idleSince, expiresAt: new Date(Date.now() + 60_000) })
+      .where(eq(sessions.userId, admin!.id));
+    expect((await client.get('/auth/me')).status).toBe(200);
+    const rows = await env.ctx.db
+      .select({ lastSeenAt: sessions.lastSeenAt, expiresAt: sessions.expiresAt })
+      .from(sessions)
+      .where(eq(sessions.userId, admin!.id));
+    const touched = rows.find((r) => r.lastSeenAt > idleSince);
+    expect(touched).toBeDefined();
+    expect(touched!.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
   });
 });
 

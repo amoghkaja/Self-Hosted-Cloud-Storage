@@ -92,7 +92,7 @@ export class SessionService {
       .update(sessions)
       .set({
         lastSeenAt: new Date(now),
-        expiresAt: sql`least(${new Date(now + SLIDING_MS)}::timestamptz, ${sessions.absoluteExpiresAt})`,
+        expiresAt: sql`least(${new Date(now + SLIDING_MS).toISOString()}::timestamptz, ${sessions.absoluteExpiresAt})`,
       })
       .where(eq(sessions.tokenHash, hash))
       .returning({ expiresAt: sessions.expiresAt });
