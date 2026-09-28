@@ -35,7 +35,7 @@ jobs:
             type=edge,branch=main
             type=sha
       # amd64 for PCs and mini PCs, arm64 for Raspberry Pi 4/5 and Apple-silicon hosts.
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
