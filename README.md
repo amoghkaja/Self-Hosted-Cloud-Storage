@@ -4,22 +4,29 @@ Your family's own Google Drive, running on a computer you already have.
 
 Family Cloud turns a Linux machine and its disks into a private cloud for the people you live with. Everyone gets an account, a storage quota you control, and access from any browser, phone or laptop. Files stay in your home, on your disks.
 
-![Browsing a folder](docs/images/files.png)
+![A family trip album](docs/images/album.png)
 
 ## What it does
 
-- **Accounts for the whole family.** Invite people with a link. Admins set and change each person's storage quota at any time.
+- **Private files for everyone.** Each person's **My Files** is theirs alone: nobody else (admins included) can see it unless they share something.
+- **Family Photos.** Trip albums for the whole family: give a trip a name, dates and who went, and everyone on it adds photos straight from their phone. Every family member can see every album and filter by person; each person's photos still count against their own storage.
+- **Accounts for the whole family.** Invite people with a link. Optionally allow only your family's email domain (e.g. `@smithfamily.com`) to be invited or sign in.
+- **Sign in with Face ID or Touch ID.** Passkeys (synced through iCloud Keychain or Google Password Manager), plus passwords with optional two-factor codes.
 - **Upload anything, from anywhere.** Big uploads are sent in pieces, survive a dropped Wi‑Fi connection, and resume where they left off. Drag in whole folders.
-- **Photos and videos look right.** Thumbnails for photos (including iPhone HEIC), videos and PDFs; in-browser preview with video seeking.
+- **Photos and videos look right.** Thumbnails for photos (including iPhone HEIC), videos and PDFs. The viewer works like a phone's photo app: swipe between photos, pinch or double-tap to zoom, swipe down to close.
 - **Share inside the family** (view or edit), or **with anyone** through a link with an optional password and expiry date.
 - **A real network drive.** Open your files in the iPhone/iPad Files app, macOS Finder or Windows Explorer (WebDAV), with a separate revocable password per device.
+- **Storage you can see and share out.** The admin screen shows where the space on your disks goes and how the family's space is split between people, and lets you hand out, even out and move allowances. Everyone sees how much space they have left.
 - **Grow storage by adding disks.** Plug in a new drive and add it from the admin screen, without restarting. Retire an old drive and every file is moved off it and checked first.
 - **Trash with undo**, a 30-day safety net before anything is gone for good.
-- **Secure by default.** Two-factor sign-in, rate limiting, no open router ports (with Cloudflare Tunnel), and uploaded files that can never run code in your browser. See the [security report](docs/security.md).
+- **Your family's look.** Upload your own logo (also used as the home-screen icon), choose the word beside it and link back to your family website. Light and dark themes, and it installs to a phone's home screen like an app.
+- **Secure and private by default.** Two-factor and passkey sign-in, rate limiting, no open router ports (with Cloudflare Tunnel), uploaded files that can never run code in your browser, and it asks search engines not to list it. See the [security report](docs/security.md).
 
-| Admin overview | Network drive setup | On a phone |
-| --- | --- | --- |
-| ![Admin overview](docs/images/admin-overview.png) | ![Connect a device](docs/images/connect-device.png) | ![Mobile](docs/images/mobile.png) |
+| Private files | Admin: storage and allowances |
+| --- | --- |
+| ![My Files](docs/images/files.png) | ![Admin overview](docs/images/admin-overview.png) |
+| **Network drive setup** | **On a phone** |
+| ![Connect a device](docs/images/connect-device.png) | ![A trip album on a phone](docs/images/mobile.png) |
 
 ## Run your own
 
@@ -33,6 +40,8 @@ cd familycloud
 
 The installer asks for your web address, creates the storage folders under `/srv/familycloud`, generates the secrets and starts everything. It then prints a link and a one-time setup token. Open the link, create the admin account, and invite your family from **Admin → People**.
 
+Then, in **Admin → Settings**: add your logo and family website under Branding, and (if your family shares an email domain) list it under "Only allow these email domains". Everyone gets a prompt to set up a passkey the first time they sign in.
+
 To reach it from outside your home, the recommended route is a free **Cloudflare Tunnel**, which needs no router changes. See the [self-hosting guide](docs/self-hosting.md) for all the options, step by step.
 
 ### Guides
@@ -41,7 +50,7 @@ To reach it from outside your home, the recommended route is a free **Cloudflare
 | --- | --- |
 | [Self-hosting](docs/self-hosting.md) | Hardware, installing, your domain, first sign-in, updating, troubleshooting |
 | [Cloudflare Tunnel](docs/cloudflare-tunnel.md) | Putting it on your own domain without opening ports |
-| [Disks and storage](docs/storage-and-disks.md) | Quotas, family limit, adding, limiting and retiring disks |
+| [Disks and storage](docs/storage-and-disks.md) | Allowances, family limit, adding, limiting and retiring disks |
 | [Network drive](docs/network-drive.md) | iPhone/iPad Files app, Finder and Windows |
 | [Backups and moving](docs/backup-restore.md) | Nightly backups, restoring, moving to new hardware |
 | [Hardware and uptime](docs/hardware-and-uptime.md) | What to run it on, power use, keeping it online |
@@ -72,13 +81,15 @@ The full design (data model, upload protocol, permissions, caching and how it wo
 
 ```
 apps/server/        API, background worker and admin CLI (Fastify, Drizzle, pg-boss)
-  src/modules/      auth, files, uploads, sharing, admin, webdav: one folder per feature
+  src/modules/      auth (incl. passkeys), files, uploads, sharing, photos, admin (incl.
+                    branding), webdav: one folder per feature
   src/storage/      disk volumes, placement, thumbnails
   src/jobs/         background jobs (thumbnails, checksums, draining disks, cleanups)
   test/             integration tests against a real PostgreSQL
 apps/web/           React app
   src/components/ui reusable, accessible UI primitives
-  src/features/     file browser, uploads, sharing, admin, settings, public links
+  src/features/     file browser, photos (trip albums), uploads, sharing, admin, settings,
+                    public links
 packages/shared/    API contract (Zod schemas + types) shared by server and web
 deploy/             docker-compose.yml, Caddyfile, .env.example
 scripts/            install.sh, add-disk.sh, backup.sh
