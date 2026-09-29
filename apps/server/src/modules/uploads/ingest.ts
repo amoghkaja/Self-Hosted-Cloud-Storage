@@ -12,7 +12,7 @@ import { AppError, conflict } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
 import { isThumbnailable, thumbPaths } from '../../storage/thumbs';
 import { lockWriteAccess } from '../files/access';
-import { insertNode, QUOTA_LOCK } from '../files/tree';
+import { blobUnused, insertNode, QUOTA_LOCK } from '../files/tree';
 import { assertFileSizeAllowed, releaseUpload, reserveSpace } from './service';
 
 export type IngestSource =
@@ -166,15 +166,15 @@ export async function ingest(
           .where(eq(nodes.id, existing.id))
           .returning()) as [NodeRow];
         created = false;
+        // The old version's size comes off the quota even when its bytes stay (another file
+        // still uses them); the bytes themselves go only when nothing points at them.
+        freed = existing.size;
         if (existing.blobId) {
           const [old] = await tx
             .delete(blobs)
-            .where(eq(blobs.id, existing.blobId))
+            .where(and(eq(blobs.id, existing.blobId), blobUnused))
             .returning({ id: blobs.id, volumeId: blobs.volumeId, size: blobs.size });
-          if (old) {
-            oldBlob = old;
-            freed = old.size;
-          }
+          if (old) oldBlob = old;
         }
       } else {
         node = await insertNode(

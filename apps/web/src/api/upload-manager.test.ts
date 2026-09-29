@@ -1,7 +1,7 @@
 import type { ChunkResult, FileNode, UploadSession } from '@familycloud/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from './client';
-import { UploadManager, type UploadTransport } from './upload-manager';
+import { memoryPendingStore, UploadManager, type UploadTransport } from './upload-manager';
 
 const node = (id: string): FileNode => ({
   id,
@@ -280,5 +280,89 @@ describe('UploadManager', () => {
     await waitIdle(m);
     // 40 chunk completions + progress events, but far fewer notifications.
     expect(listener.mock.calls.length).toBeLessThan(40);
+  });
+});
+
+describe('UploadManager: instant uploads and resuming', () => {
+  it('adds a file the server already has without sending any bytes', async () => {
+    const { t, put } = fakeTransport();
+    t.instantUpload = vi.fn(async () => node('dup'));
+    const m = new UploadManager(t, {
+      retryBaseMs: 1,
+      instantMinBytes: 1,
+      hash: async () => 'h'.repeat(64),
+    });
+    m.add('p', [{ file: new File(['same bytes'], 'copy.jpg'), relativeDir: '' }]);
+    await waitIdle(m);
+    expect(t.createUpload).not.toHaveBeenCalled();
+    expect(put).toEqual([]);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'done', instant: true, nodeId: 'dup' });
+  });
+
+  it('uploads normally when the server has no copy, or the checksum fails', async () => {
+    const { t, put } = fakeTransport();
+    t.instantUpload = vi.fn(async () => null);
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('n'),
+      status: 'completed',
+    });
+    const m = new UploadManager(t, {
+      retryBaseMs: 1,
+      instantMinBytes: 1,
+      hash: async (f) => (f.size > 4 ? 'a'.repeat(64) : Promise.reject(new Error('no wasm'))),
+    });
+    m.add('p', [
+      { file: new File(['0123456789'], 'new.jpg'), relativeDir: '' },
+      { file: new File(['ab'], 'tiny.txt'), relativeDir: '' },
+    ]);
+    await waitIdle(m);
+    expect(t.instantUpload).toHaveBeenCalledTimes(1);
+    expect(t.createUpload).toHaveBeenCalledTimes(2);
+    expect(put.length).toBeGreaterThan(0);
+    expect(m.getSnapshot().every((i) => i.status === 'done' && !i.instant)).toBe(true);
+  });
+
+  it('remembers unfinished uploads and resumes them with only the missing pieces', async () => {
+    const pending = memoryPendingStore();
+    const file = new File(['0123456789ab'], 'movie.mov', { lastModified: 42 });
+
+    // First page load: the upload starts and the tab closes before it finishes.
+    const first = fakeTransport();
+    const m1 = new UploadManager(first.t, { retryBaseMs: 1, pending });
+    (first.t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+    m1.add('folder', [{ file, relativeDir: '' }]);
+    await settle();
+    await settle();
+    expect(pending.list()).toMatchObject([
+      { name: 'movie.mov', size: 12, lastModified: 42, folderId: 'folder' },
+    ]);
+
+    // Next page load: the server still has the session with chunk 0.
+    const second = fakeTransport({ received: [0] });
+    (second.t.getUpload as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => ({
+      id,
+      name: 'movie.mov',
+      size: 12,
+      chunkSize: 4,
+      totalChunks: 3,
+      receivedChunks: [0],
+      status: 'uploading',
+      expiresAt: new Date().toISOString(),
+      node: null,
+    }));
+    const m2 = new UploadManager(second.t, { retryBaseMs: 1, pending });
+    const list = await m2.interrupted();
+    expect(list).toHaveLength(1);
+    // A different file with the same name isn't accepted.
+    expect(m2.resume(list, [new File(['x'], 'movie.mov')])).toBe(0);
+    (second.t.getUpload as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ...(await second.t.getUpload('x')), id: list[0]!.sessionId })
+      .mockResolvedValue({ node: node('movie'), status: 'completed' });
+    expect(m2.resume(list, [file])).toBe(1);
+    await waitIdle(m2);
+    expect(second.t.createUpload).not.toHaveBeenCalled();
+    expect(second.put.sort()).toEqual([1, 2]);
+    expect(m2.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'movie' });
+    expect(pending.list()).toEqual([]);
   });
 });

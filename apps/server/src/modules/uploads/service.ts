@@ -25,7 +25,7 @@ import { toFileNode } from '../../lib/dto';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { isThumbnailable } from '../../storage/thumbs';
-import { lockWriteAccess, requireFolder } from '../files/access';
+import { loadAccess, lockWriteAccess, requireFolder } from '../files/access';
 import { insertNode, QUOTA_LOCK } from '../files/tree';
 
 const SESSION_TTL_MS = DAY_MS;
@@ -189,6 +189,114 @@ export async function createUpload(
     throw err;
   }
   return session;
+}
+
+/**
+ * "Instant upload": when a file with the same SHA-256 and size is already stored, and the
+ * uploader can already see a copy of it (their own files, something shared with them, or a
+ * family album), the new file points at the same bytes and nothing is transferred.
+ *
+ * Matching only against visible copies keeps the hash from revealing whether someone else has a
+ * particular private file. The new file is charged to its folder owner's quota like any upload;
+ * the saving is in transfer time and disk space. Returns null when there's no usable copy.
+ */
+export async function instantUpload(
+  ctx: AppContext,
+  userId: string,
+  input: {
+    parentId: string;
+    name: string;
+    size: number;
+    mimeType?: string | undefined;
+    sha256: string;
+  },
+): Promise<FileNode | null> {
+  const parent = await requireFolder(ctx.db, userId, input.parentId, 'edit');
+  const settings = await ctx.settings.get();
+  assertFileSizeAllowed(settings, input.size);
+
+  const candidates = await ctx.db
+    .select({
+      blobId: blobs.id,
+      volumeId: blobs.volumeId,
+      thumb: blobs.thumbStatus,
+      nodeId: nodes.id,
+      ownerId: nodes.ownerId,
+      inAlbum: sql<boolean>`EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
+    })
+    .from(blobs)
+    .innerJoin(nodes, eq(nodes.blobId, blobs.id))
+    .where(
+      and(
+        eq(blobs.sha256, input.sha256),
+        eq(blobs.size, input.size),
+        sql`${nodes.deletedAt} IS NULL`,
+      ),
+    )
+    .limit(20);
+  let match: (typeof candidates)[number] | undefined;
+  for (const c of candidates) {
+    const visible =
+      c.ownerId === userId || c.inAlbum || (await loadAccess(ctx.db, userId, c.nodeId)) !== null;
+    if (!visible) continue;
+    const vol = await ctx.volumes.pathOf(c.volumeId).catch(() => null);
+    if (vol && (await ctx.volumes.status({ id: c.volumeId, path: vol })).online) {
+      match = c;
+      break;
+    }
+  }
+  if (!match) return null;
+  const found = match;
+
+  const mimeType = guessMimeType(input.name, input.mimeType);
+  // Quota lock first, then the blob row (the order "empty trash" uses too, so they can't deadlock).
+  const gone = new Error('blob gone');
+  const node = await ctx.db
+    .transaction(async (tx) => {
+      await reserveSpace(tx, settings, {
+        chargeUserId: parent.node.ownerId,
+        uploaderId: userId,
+        size: input.size,
+      });
+      // The copy must still exist: this row lock also stops a concurrent "empty trash" from
+      // deleting the bytes before our file points at them.
+      const [still] = await tx
+        .select({ id: blobs.id })
+        .from(blobs)
+        .where(eq(blobs.id, found.blobId))
+        .for('key share');
+      // Throwing rolls back the reservation made above.
+      if (!still) throw gone;
+      const target = await lockWriteAccess(tx, userId, parent.node.id);
+      const row = await insertNode(
+        tx,
+        {
+          ownerId: target.ownerId,
+          parentId: target.id,
+          type: 'file',
+          name: input.name,
+          blobId: found.blobId,
+          size: input.size,
+          mimeType,
+          createdBy: userId,
+        },
+        'rename',
+      );
+      await tx
+        .update(users)
+        .set({
+          usedBytes: sql`${users.usedBytes} + ${input.size}`,
+          reservedBytes: sql`greatest(${users.reservedBytes} - ${input.size}, 0)`,
+        })
+        .where(eq(users.id, target.ownerId));
+      await tx.update(nodes).set({ updatedAt: new Date() }).where(eq(nodes.id, target.id));
+      return row;
+    })
+    .catch((err) => {
+      if (err === gone) return null;
+      throw err;
+    });
+  return node ? toFileNode({ ...node, thumb: found.thumb }) : null;
 }
 
 export async function getOwnedSession(ctx: AppContext, userId: string, id: string) {

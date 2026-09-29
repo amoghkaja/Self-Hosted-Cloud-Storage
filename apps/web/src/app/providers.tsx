@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode, useSyncExternalStore } from 'react';
 import { ApiError } from '../api/client';
 import { qk } from '../api/queries';
-import { httpTransport, UploadManager } from '../api/upload-manager';
+import { httpTransport, localPendingStore, UploadManager } from '../api/upload-manager';
 import { Announcer, Toaster, TooltipProvider } from '../components/ui';
+import { hashFile } from '../lib/hashFile';
 import { BrandIcons } from './Logo';
 
 export const queryClient = new QueryClient({
@@ -19,7 +20,10 @@ export const queryClient = new QueryClient({
   },
 });
 
-export const uploadManager = new UploadManager(httpTransport);
+export const uploadManager = new UploadManager(httpTransport, {
+  hash: hashFile,
+  pending: localPendingStore(),
+});
 
 // Refresh a folder's listing and the usage meter once uploads into it settle, not per file.
 const pendingFolders = new Set<string>();

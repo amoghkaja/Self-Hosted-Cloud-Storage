@@ -3,12 +3,21 @@ import {
   ChunkResult,
   CreateUploadBody,
   IdParams,
+  InstantUploadBody,
+  InstantUploadResult,
   Ok,
   UploadSession,
 } from '@familycloud/shared/all';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { requireUser } from '../../plugins/auth';
-import { createUpload, getOwnedSession, releaseUpload, toUploadDto, writeChunk } from './service';
+import {
+  createUpload,
+  getOwnedSession,
+  instantUpload,
+  releaseUpload,
+  toUploadDto,
+  writeChunk,
+} from './service';
 
 export const uploadRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
@@ -23,6 +32,15 @@ export const uploadRoutes: FastifyPluginAsyncZod = async (app) => {
       const { user } = requireUser(req);
       const session = await createUpload(ctx, user.id, req.body);
       return toUploadDto(ctx, session);
+    },
+  );
+
+  app.post(
+    '/uploads/instant',
+    { schema: { body: InstantUploadBody, response: { 200: InstantUploadResult } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      return { node: await instantUpload(ctx, user.id, req.body) };
     },
   );
 

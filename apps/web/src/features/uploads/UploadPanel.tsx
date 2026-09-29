@@ -23,7 +23,12 @@ const Row = memo(function Row({ item }: { item: UploadItem }) {
         {item.status === 'error' ? (
           <p className="truncate text-xs text-danger">{item.error}</p>
         ) : item.status === 'done' ? (
-          <p className="text-xs text-muted">{formatBytes(item.size)}</p>
+          <p className="text-xs text-muted">
+            {formatBytes(item.size)}
+            {item.instant && ' · already stored, added instantly'}
+          </p>
+        ) : item.checking ? (
+          <p className="text-xs text-muted">Checking whether it's already stored…</p>
         ) : item.status === 'canceled' ? (
           <p className="text-xs text-muted">Cancelled</p>
         ) : (

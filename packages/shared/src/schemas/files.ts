@@ -100,6 +100,17 @@ export const CreateUploadBody = z.object({
   mimeType: z.string().max(255).optional(),
 });
 
+/**
+ * "Do you already have this file?" The browser sends the file's SHA-256; when a file with the
+ * same contents is already stored (and visible to the uploader), the new file points at it and
+ * no bytes are sent.
+ */
+export const InstantUploadBody = CreateUploadBody.extend({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Expected a lowercase hex SHA-256'),
+});
+export const InstantUploadResult = z.object({ node: FileNode.nullable() });
+export type InstantUploadResult = z.infer<typeof InstantUploadResult>;
+
 export const UploadStatus = z.enum(['uploading', 'finalizing', 'completed', 'aborted', 'expired']);
 
 export const UploadSession = z.object({

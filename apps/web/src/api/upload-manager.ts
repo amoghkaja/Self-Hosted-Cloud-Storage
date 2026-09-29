@@ -15,7 +15,70 @@ export interface UploadItem {
   relativeDir: string;
   error?: string;
   nodeId?: string;
+  /** Checking whether the server already has this file (see instant uploads). */
+  checking?: boolean;
+  /** The server already had this file: it was added without sending the bytes. */
+  instant?: boolean;
 }
+
+/** An upload that was still running when the page closed; its server session can be resumed. */
+export interface PendingUpload {
+  sessionId: string;
+  name: string;
+  size: number;
+  lastModified: number;
+  folderId: string;
+  savedAt: number;
+}
+
+/** Where pending uploads are remembered across page loads (localStorage in the browser). */
+export interface PendingStore {
+  list(): PendingUpload[];
+  save(p: PendingUpload): void;
+  remove(sessionId: string): void;
+  clear(): void;
+}
+
+export const memoryPendingStore = (): PendingStore => {
+  let items: PendingUpload[] = [];
+  return {
+    list: () => items,
+    save: (p) => {
+      items = [...items.filter((i) => i.sessionId !== p.sessionId), p];
+    },
+    remove: (id) => {
+      items = items.filter((i) => i.sessionId !== id);
+    },
+    clear: () => {
+      items = [];
+    },
+  };
+};
+
+const PENDING_KEY = 'fc-pending-uploads';
+
+export const localPendingStore = (): PendingStore => {
+  const read = (): PendingUpload[] => {
+    try {
+      const v = JSON.parse(localStorage.getItem(PENDING_KEY) ?? '[]');
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+  const write = (items: PendingUpload[]) => {
+    try {
+      if (items.length) localStorage.setItem(PENDING_KEY, JSON.stringify(items));
+      else localStorage.removeItem(PENDING_KEY);
+    } catch {}
+  };
+  return {
+    list: read,
+    save: (p) => write([...read().filter((i) => i.sessionId !== p.sessionId), p]),
+    remove: (id) => write(read().filter((i) => i.sessionId !== id)),
+    clear: () => write([]),
+  };
+};
 
 export interface UploadTransport {
   createUpload(body: {
@@ -34,6 +97,14 @@ export interface UploadTransport {
   ): Promise<ChunkResult>;
   abortUpload(id: string): Promise<void>;
   ensureFolder(parentId: string, name: string): Promise<{ id: string }>;
+  /** Adds the file without sending it if the server already has the same bytes, else null. */
+  instantUpload?(body: {
+    parentId: string;
+    name: string;
+    size: number;
+    mimeType?: string;
+    sha256: string;
+  }): Promise<FileNode | null>;
 }
 
 export interface UploadManagerOptions {
@@ -41,13 +112,22 @@ export interface UploadManagerOptions {
   chunkConcurrency: number;
   maxRetries: number;
   retryBaseMs: number;
+  /** Files at least this big are checksummed first, to skip ones the server already has. */
+  instantMinBytes: number;
+  hash: (file: Blob, signal: AbortSignal) => Promise<string>;
+  pending: PendingStore;
 }
 
 const DEFAULTS: UploadManagerOptions = {
   fileConcurrency: 3,
-  chunkConcurrency: 3,
+  // Four 32 MB pieces in flight per file: on long-distance links (India or the USA to a home in
+  // Europe) one connection can't fill the line, several can.
+  chunkConcurrency: 4,
   maxRetries: 6,
   retryBaseMs: 1000,
+  instantMinBytes: 256 * 1024,
+  hash: () => Promise.reject(new Error('no hasher')),
+  pending: memoryPendingStore(),
 };
 
 // Only transient failures: network drops, rate limits and gateway/server hiccups. Quota
@@ -199,7 +279,58 @@ export class UploadManager {
     this.items = [];
     this.files.clear();
     this.folders.clear();
+    this.opts.pending.clear();
     this.emit(true);
+  }
+
+  /**
+   * Uploads that were still running when the page last closed and whose server sessions are
+   * still open. Picking the same files again (resume) sends only the missing pieces.
+   */
+  async interrupted(): Promise<PendingUpload[]> {
+    const live: PendingUpload[] = [];
+    for (const p of this.opts.pending.list()) {
+      if (this.items.some((i) => this.sessions.get(i.id) === p.sessionId)) continue;
+      const s = await this.transport.getUpload(p.sessionId).catch(() => null);
+      if (s?.status === 'uploading') live.push(p);
+      else this.opts.pending.remove(p.sessionId);
+    }
+    return live;
+  }
+
+  /** Continues interrupted uploads with the files the person picked again (matched by name, size and date). */
+  resume(pending: PendingUpload[], files: File[]): number {
+    let matched = 0;
+    for (const p of pending) {
+      const file = files.find(
+        (f) => f.name === p.name && f.size === p.size && f.lastModified === p.lastModified,
+      );
+      if (!file) continue;
+      const id = `u${this.nextId++}`;
+      this.files.set(id, file);
+      this.sessions.set(id, p.sessionId);
+      this.items.push({
+        id,
+        name: file.name,
+        size: file.size,
+        loaded: 0,
+        status: 'queued',
+        parentId: p.folderId,
+        relativeDir: '',
+      });
+      matched++;
+    }
+    this.emit(true);
+    this.pump();
+    return matched;
+  }
+
+  /** Gives up on interrupted uploads, releasing the space they had reserved. */
+  discard(pending: PendingUpload[]): void {
+    for (const p of pending) {
+      this.opts.pending.remove(p.sessionId);
+      void this.transport.abortUpload(p.sessionId).catch(() => {});
+    }
   }
 
   /** Tells the server to drop a session we won't resume, releasing its reserved quota. */
@@ -207,6 +338,7 @@ export class UploadManager {
     const session = this.sessions.get(id);
     if (!session) return;
     this.sessions.delete(id);
+    this.opts.pending.remove(session);
     void this.transport.abortUpload(session).catch(() => {});
   }
 
@@ -313,6 +445,47 @@ export class UploadManager {
         ? await this.ensurePath(item.parentId, item.relativeDir)
         : item.parentId;
       signal.throwIfAborted();
+
+      // Already on the server (the same photo sent twice, a re-upload)? Then there's nothing to send.
+      if (
+        this.transport.instantUpload &&
+        !this.sessions.has(item.id) &&
+        file.size >= this.opts.instantMinBytes
+      ) {
+        this.patch(item.id, { checking: true }, true);
+        const sha256 = await this.opts.hash(file, signal).catch((err) => {
+          if (signal.aborted) throw err;
+          return null; // can't checksum here: just upload it
+        });
+        const instant =
+          sha256 &&
+          (await this.withRetry(
+            () =>
+              this.transport.instantUpload!({
+                parentId: folderId,
+                name: file.name,
+                size: file.size,
+                ...(file.type ? { mimeType: file.type } : {}),
+                sha256,
+              }),
+            signal,
+          ).catch((err) => {
+            if (signal.aborted) throw err;
+            return null;
+          }));
+        this.patch(item.id, { checking: false }, true);
+        if (instant) {
+          this.patch(
+            item.id,
+            { status: 'done', loaded: file.size, nodeId: instant.id, instant: true },
+            true,
+          );
+          this.files.delete(item.id);
+          this.onFolderChanged?.(folderId);
+          return;
+        }
+      }
+
       const session = await this.openSession(item.id, folderId, file, signal);
 
       const { chunkSize, totalChunks } = session;
@@ -377,6 +550,7 @@ export class UploadManager {
       const finished = node as FileNode;
       this.patch(item.id, { status: 'done', loaded: file.size, nodeId: finished.id }, true);
       this.files.delete(item.id);
+      this.opts.pending.remove(session.id);
       this.sessions.delete(item.id);
       this.onFolderChanged?.(folderId);
     } catch (err) {
@@ -421,6 +595,15 @@ export class UploadManager {
       signal,
     );
     this.sessions.set(id, session.id);
+    // Remembered across page loads, so a closed tab can carry on where it stopped.
+    this.opts.pending.save({
+      sessionId: session.id,
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+      folderId: parentId,
+      savedAt: Date.now(),
+    });
     // Cancelled while the session was being created: cancel() couldn't release it yet.
     if (signal.aborted) this.releaseSession(id);
     signal.throwIfAborted();
@@ -435,6 +618,8 @@ export const httpTransport: UploadTransport = {
   abortUpload: (id) => api(`/uploads/${id}`, { method: 'DELETE' }),
   ensureFolder: (parentId, name) =>
     api<{ id: string }>('/folders', { json: { parentId, name, reuseExisting: true } }),
+  instantUpload: async (body) =>
+    (await api<{ node: FileNode | null }>('/uploads/instant', { json: body })).node,
   putChunk: (sessionId, index, data, onProgress, signal) =>
     new Promise((resolve, reject) => {
       // An already-aborted signal never fires 'abort' again: don't start sending at all.

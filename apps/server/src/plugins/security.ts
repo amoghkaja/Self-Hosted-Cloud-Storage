@@ -17,7 +17,9 @@ export async function registerSecurity(app: FastifyInstance) {
       useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        // wasm-unsafe-eval allows compiling WebAssembly only (the file checksum used for instant
+        // uploads), not eval() or inline scripts.
+        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
         // Radix/sonner inject small <style> tags at runtime; styles cannot execute script.
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],

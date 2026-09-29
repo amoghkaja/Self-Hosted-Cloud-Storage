@@ -18,6 +18,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useLogout, useSetupStatus } from '../api/queries';
 import { Avatar, DropdownMenu, IconButton } from '../components/ui';
+import { InterruptedUploads } from '../features/uploads/InterruptedUploads';
 import { UploadPanel } from '../features/uploads/UploadPanel';
 import { cn } from '../lib/cn';
 import { type ThemeChoice, useTheme } from '../lib/theme';
@@ -253,6 +254,7 @@ export function AppShell({ me }: { me: Me }) {
             <UserMenu me={me} />
           </div>
         </header>
+        <InterruptedUploads />
         <PasskeyNudge />
         {me.role === 'admin' && !me.totpEnabled && (
           <section

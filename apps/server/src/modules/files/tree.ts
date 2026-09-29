@@ -381,7 +381,7 @@ export async function purgeTrashRoots(
         deleted.push(
           ...(await tx
             .delete(blobs)
-            .where(inArray(blobs.id, ids.slice(i, i + 5000)))
+            .where(and(inArray(blobs.id, ids.slice(i, i + 5000)), blobUnused))
             .returning({ id: blobs.id, volumeId: blobs.volumeId })),
         );
       }
@@ -401,6 +401,12 @@ export async function purgeTrashRoots(
   }
   return { files, bytes };
 }
+
+/**
+ * Stored bytes can back several files (instant uploads of a file someone already has), so they
+ * are only deleted once no file points at them any more.
+ */
+export const blobUnused = sql`NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})`;
 
 export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {
   for (const b of list) {
