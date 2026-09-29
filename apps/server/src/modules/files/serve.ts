@@ -1,7 +1,7 @@
 import { createReadStream, type ReadStream } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 import { type PassThrough, Readable } from 'node:stream';
-import { ErrorCode, type ThumbSize } from '@familycloud/shared/all';
+import { ErrorCode, fileKind, type ThumbSize } from '@familycloud/shared/all';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import yazl from 'yazl';
@@ -98,8 +98,10 @@ export async function sendVideoStream(
 }
 
 /**
- * Sends the PDF rendering of an Office document, for reading it in the browser. 404 until the
- * worker has made it (the viewer offers a download meanwhile).
+ * Sends the rendering of an Office document for reading it in the browser: HTML for spreadsheets
+ * (an attachment the viewer fetches and rebuilds from an allowlist, never a page of its own), a
+ * PDF for everything else. 404 until the worker has made it (the viewer offers a download
+ * meanwhile).
  */
 export async function sendOfficePreview(
   ctx: AppContext,
@@ -111,7 +113,8 @@ export async function sendOfficePreview(
     .select({ status: blobs.previewStatus })
     .from(blobs)
     .where(eq(blobs.id, blob.blobId));
-  const file = previewPath(ctx.config.cacheDir, blob.blobId);
+  const sheet = fileKind(blob.mimeType, blob.name) === 'spreadsheet';
+  const file = previewPath(ctx.config.cacheDir, blob.blobId, sheet ? 'html' : 'pdf');
   const st = row?.status === 'ready' ? await stat(file).catch(() => null) : null;
   if (!st) {
     // The viewer tells "still converting" from "can't be previewed" by this header.
@@ -122,10 +125,10 @@ export async function sendOfficePreview(
   return sendFileRange(req, reply, {
     file,
     size: st.size,
-    etag: `"${blob.blobId}-pdf"`,
-    name: `${blob.name.replace(/\.[^.]*$/, '')}.pdf`,
-    mimeType: 'application/pdf',
-    inline: true,
+    etag: `"${blob.blobId}-${sheet ? 'html' : 'pdf'}"`,
+    name: `${blob.name.replace(/\.[^.]*$/, '')}.${sheet ? 'html' : 'pdf'}`,
+    mimeType: sheet ? 'text/html' : 'application/pdf',
+    inline: !sheet,
     logId: blob.blobId,
   });
 }

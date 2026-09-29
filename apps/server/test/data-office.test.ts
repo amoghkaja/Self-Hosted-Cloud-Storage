@@ -94,3 +94,19 @@ describe('office previews', () => {
     expect(Buffer.from(res.raw.rawPayload).subarray(0, 5).toString()).toBe('%PDF-');
   });
 });
+
+describe.skipIf(!hasSoffice)('spreadsheet previews', () => {
+  it('renders a spreadsheet to HTML sheets, served only as an attachment', async () => {
+    const csv = Buffer.from('Trip,Cost\nGoa,46000\nमुंबई,1200\n');
+    const { node, blobId } = await upload('trips.csv', csv, 'text/csv');
+    await makeOfficePreview(env.ctx, blobId);
+    expect((await blobRow(blobId)).previewStatus).toBe('ready');
+    const res = await c.get(`/nodes/${node.id}/preview`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toMatch(/^attachment/);
+    expect(res.headers['content-security-policy']).toContain('sandbox');
+    const html = Buffer.from(res.raw.rawPayload).toString();
+    expect(html).toContain('<table');
+    expect(html).toContain('मुंबई');
+  });
+});

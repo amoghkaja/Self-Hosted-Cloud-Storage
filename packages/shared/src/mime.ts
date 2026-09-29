@@ -116,11 +116,12 @@ export function fileKind(mimeType: string | null | undefined, name = ''): FileKi
   if (mime.startsWith('audio/')) return 'audio';
   if (mime === 'application/pdf') return 'pdf';
   if (CODE_EXTS.has(ext)) return 'code';
+  // CSV is text, but it reads best as a sheet.
+  if (ext === '.csv' || mime === 'text/csv') return 'spreadsheet';
   if (mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml') {
     return 'text';
   }
-  if (mime.includes('spreadsheet') || mime.includes('excel') || ext === '.csv')
-    return 'spreadsheet';
+  if (mime.includes('spreadsheet') || mime.includes('excel')) return 'spreadsheet';
   if (mime.includes('presentation') || mime.includes('powerpoint')) return 'presentation';
   if (mime.includes('word') || mime.includes('opendocument.text') || mime === 'application/rtf')
     return 'document';
@@ -128,7 +129,7 @@ export function fileKind(mimeType: string | null | undefined, name = ''): FileKi
   return 'other';
 }
 
-/** Word, Excel and PowerPoint style files: shown as a PDF made by the server (LibreOffice). */
+/** Word, Excel and PowerPoint style files (and CSV): previewed from a LibreOffice rendering. */
 export function isOfficeDocument(mimeType: string | null | undefined, name = ''): boolean {
   const kind = fileKind(mimeType, name);
   return kind === 'document' || kind === 'spreadsheet' || kind === 'presentation';

@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Download, File, X } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui';
+import { parseSheets, type Sheet } from '../../lib/sheetHtml';
 import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
 import { kindOf } from './FileIcon';
 
@@ -201,6 +202,9 @@ function OfficeViewer({
   }, [url]);
 
   if (state === 'ready') {
+    if (kindOf(item) === 'spreadsheet') {
+      return <SheetViewer key={item.id} url={url} fallback={fallback} />;
+    }
     return (
       <iframe
         key={item.id}
@@ -215,6 +219,94 @@ function OfficeViewer({
     <div className="flex flex-col items-center gap-3 text-white/80">
       <Spinner size={28} label="Loading preview" />
       {state === 'pending' && <p>Preparing a preview of {item.name}…</p>}
+    </div>
+  );
+}
+
+const SHEET_LIMIT = 20 * 1024 * 1024;
+
+/**
+ * A spreadsheet as a sheet, not printed pages: formatted values, colours and merged cells, with
+ * a tab per sheet like Excel. The server's HTML rendering is rebuilt from an allowlist first.
+ */
+function SheetViewer({ url, fallback }: { url: string; fallback: ReactNode }) {
+  const [sheets, setSheets] = useState<Sheet[] | 'error' | 'too-big' | null>(null);
+  const [active, setActive] = useState(0);
+  const host = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const abort = new AbortController();
+    (async () => {
+      const res = await fetch(url, { signal: abort.signal });
+      if (!res.ok) throw new Error(String(res.status));
+      if (Number(res.headers.get('Content-Length')) > SHEET_LIMIT) return setSheets('too-big');
+      const found = parseSheets(await res.text());
+      setSheets(found.length ? found : 'error');
+    })().catch(() => {
+      if (!abort.signal.aborted) setSheets('error');
+    });
+    return () => abort.abort();
+  }, [url]);
+
+  const sheet = Array.isArray(sheets) ? sheets[active] : undefined;
+  useEffect(() => {
+    if (!host.current || !sheet) return;
+    host.current.replaceChildren(sheet.table);
+    host.current.scrollTo(0, 0);
+  }, [sheet]);
+
+  if (sheets === 'error') return fallback;
+  if (sheets === 'too-big') {
+    return (
+      <div className="flex flex-col items-center gap-4">
+        <p className="text-white/80">This spreadsheet is too big to show here.</p>
+        {fallback}
+      </div>
+    );
+  }
+  if (!sheets) return <Spinner size={28} label="Loading spreadsheet" className="text-white" />;
+  return (
+    <div
+      data-own-keys
+      className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white text-[13px] text-black"
+    >
+      <section
+        ref={host}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region, reachable by keyboard
+        tabIndex={0}
+        aria-label={sheet?.name ?? 'Sheet'}
+        className="min-h-0 flex-1 overscroll-contain overflow-auto [&_table]:border-collapse [&_td]:whitespace-nowrap [&_td]:border [&_td]:border-[#dfe3e8] [&_td]:px-1.5 [&_td]:py-0.5 [&_a]:text-[#0b57d0] [&_a]:underline"
+      />
+      {sheet && sheet.truncatedRows > 0 && (
+        <p className="border-t border-[#dfe3e8] bg-[#fff8e1] px-3 py-1.5 text-xs">
+          Showing the first rows only. Download the file to see all of it.
+        </p>
+      )}
+      {sheets.length > 1 && (
+        <div
+          role="tablist"
+          aria-label="Sheets"
+          className="flex shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-t border-[#dfe3e8] bg-[#f3f4f6] px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1"
+        >
+          {sheets.map((s, i) => (
+            <button
+              // Sheet names are unique within a workbook.
+              key={s.name}
+              type="button"
+              role="tab"
+              aria-selected={i === active}
+              onClick={() => setActive(i)}
+              className={`shrink-0 rounded-md px-3 py-1.5 text-sm pointer-coarse:min-h-11 ${
+                i === active
+                  ? 'bg-white font-medium text-[#0b57d0] shadow-sm'
+                  : 'text-[#374151] hover:bg-white/60'
+              }`}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -332,7 +424,7 @@ export default function PreviewModal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest('video, audio, iframe')) return;
+      if ((e.target as HTMLElement)?.closest('video, audio, iframe, [data-own-keys]')) return;
       if (e.key === 'ArrowLeft' && hasPrev) onIndexChange(index - 1);
       if (e.key === 'ArrowRight' && hasNext) onIndexChange(index + 1);
     };

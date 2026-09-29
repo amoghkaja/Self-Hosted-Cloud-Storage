@@ -15,8 +15,10 @@ export function thumbPaths(cacheDir: string, blobId: string): string[] {
 }
 
 /** The PDF rendering of an Office document. */
-export function previewPath(cacheDir: string, blobId: string): string {
-  return path.join(cacheDir, 'preview', blobId.slice(-2), `${blobId}.pdf`);
+/** Office previews: a PDF of every document, plus HTML of spreadsheets (read as a real sheet). */
+export type PreviewFormat = 'pdf' | 'html';
+export function previewPath(cacheDir: string, blobId: string, format: PreviewFormat = 'pdf') {
+  return path.join(cacheDir, 'preview', blobId.slice(-2), `${blobId}.${format}`);
 }
 
 /** Everything derived from a blob (thumbnails, streaming copy, preview), to delete along with it. */
@@ -24,7 +26,8 @@ export function derivedPaths(cacheDir: string, blobId: string): string[] {
   return [
     ...thumbPaths(cacheDir, blobId),
     streamPath(cacheDir, blobId),
-    previewPath(cacheDir, blobId),
+    previewPath(cacheDir, blobId, 'pdf'),
+    previewPath(cacheDir, blobId, 'html'),
   ];
 }
 
