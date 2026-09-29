@@ -151,9 +151,9 @@ export function UploadPanel() {
     <section
       ref={panel}
       aria-label="Uploads"
-      className="fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-2 z-40 overflow-hidden rounded-2xl border border-border bg-surface shadow-pop sm:left-auto sm:w-[380px] animate-pop-in"
+      className="glass-thick fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom),calc(var(--tabbar-h,0px)+0.5rem))] left-2 z-40 overflow-hidden rounded-2xl border border-(--glass-edge) shadow-(--glass-shadow) sm:left-auto sm:w-[380px] animate-pop-in"
     >
-      <header className="flex items-center gap-2 bg-surface-2 px-4 py-2.5">
+      <header className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold">{title}</h2>
           {stats.active > 0 && (

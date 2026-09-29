@@ -26,7 +26,7 @@ export interface MenuAction {
 }
 
 const content =
-  'z-50 min-w-[200px] overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-pop animate-pop-in';
+  'glass-thick z-50 min-w-[200px] overflow-hidden rounded-xl border border-(--glass-edge) p-1 shadow-(--glass-shadow) animate-pop-in';
 // Menus render in a portal, but React still bubbles their events up the component tree to
 // whatever contains the trigger (a file row, the file grid). Stop them at the menu boundary so
 // choosing an item doesn't also click/select the row or drive the grid's arrow-key navigation.

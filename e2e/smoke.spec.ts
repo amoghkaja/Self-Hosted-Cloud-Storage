@@ -153,9 +153,24 @@ test.describe
 
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto('/files');
-      await expect(page.getByRole('button', { name: 'Open menu' })).toBeVisible();
+      const tabs = page.getByRole('navigation', { name: 'Main' });
+      await expect(tabs.getByRole('link', { name: 'Files' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
       await shot(page, '11-mobile-files');
-      await page.getByRole('button', { name: 'Open menu' }).click();
-      await shot(page, '12-mobile-drawer');
+      // Recent lives behind the Files tab, which stays selected there.
+      await page
+        .getByRole('navigation', { name: 'Files' })
+        .getByRole('link', { name: 'Recent' })
+        .click();
+      await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible();
+      await expect(tabs.getByRole('link', { name: 'Files' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await tabs.getByRole('link', { name: 'Search' }).click();
+      await expect(page.getByRole('searchbox', { name: 'Search your files' })).toBeFocused();
+      await shot(page, '12-mobile-search');
     });
   });

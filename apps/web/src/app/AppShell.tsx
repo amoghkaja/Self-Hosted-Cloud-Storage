@@ -5,8 +5,6 @@ import {
   HardDrive,
   Images,
   LogOut,
-  Menu,
-  Search,
   Settings,
   Share2,
   Shield,
@@ -14,22 +12,21 @@ import {
   Star,
   Trash2,
   Users,
-  X,
 } from 'lucide-react';
-import { Dialog as D } from 'radix-ui';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { useEffect, useRef } from 'react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router';
 import { useLogout, useSetupStatus } from '../api/queries';
-import { Avatar, DropdownMenu, IconButton } from '../components/ui';
+import { Avatar, DropdownMenu } from '../components/ui';
 import { InterruptedUploads } from '../features/uploads/InterruptedUploads';
 import { UploadPanel } from '../features/uploads/UploadPanel';
 import { cn } from '../lib/cn';
-import { type ThemeChoice, useTheme } from '../lib/theme';
 import type { ShellContext } from './guards';
 import { Logo, LogoMark } from './Logo';
 import { PasskeyNudge } from './PasskeyNudge';
 import { uploadManager } from './providers';
+import { SearchBox } from './SearchBox';
 import { StorageSummary } from './StorageSummary';
+import { TabBar } from './TabBar';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
@@ -41,9 +38,9 @@ const NAV = [
   { to: '/trash', label: 'Trash', icon: Trash2, end: true },
 ];
 
-function Brand({ onNavigate }: { onNavigate?: () => void }) {
+function Brand() {
   return (
-    <Link to="/files" onClick={onNavigate} className="flex min-w-0 rounded-lg px-2 py-1">
+    <Link to="/files" className="flex min-w-0 rounded-lg px-2 py-1">
       <Logo />
     </Link>
   );
@@ -64,7 +61,8 @@ function HomeLink() {
   );
 }
 
-function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
+/** Larger screens: the sidebar. Phones use the TabBar and the account menu instead. */
+function SideNav({ me }: { me: Me }) {
   const item = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
@@ -72,16 +70,16 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
     );
   return (
     <div className="flex h-full flex-col gap-4 p-3">
-      <Brand onNavigate={onNavigate} />
+      <Brand />
       <nav aria-label="Main" className="flex flex-col gap-0.5">
         {NAV.map(({ to, label, icon: Icon, end }) => (
-          <NavLink key={to} to={to} end={end} className={item} onClick={onNavigate}>
+          <NavLink key={to} to={to} end={end} className={item}>
             <Icon size={18} aria-hidden />
             {label}
           </NavLink>
         ))}
         {me.role === 'admin' && (
-          <NavLink to="/admin" className={item} onClick={onNavigate}>
+          <NavLink to="/admin" className={item}>
             <Shield size={18} aria-hidden />
             Admin
           </NavLink>
@@ -98,50 +96,10 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   );
 }
 
-function SearchBox() {
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const location = useLocation();
-  const urlQuery = location.pathname === '/search' ? (params.get('q') ?? '') : '';
-  const [q, setQ] = useState(urlQuery);
-  // Follow the URL (back/forward between searches, leaving search for a folder).
-  useEffect(() => setQ(urlQuery), [urlQuery]);
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`);
-  };
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: role="search" on a form is the widely supported equivalent of <search>
-    <form role="search" onSubmit={submit} className="relative w-full max-w-md">
-      <Search
-        size={16}
-        aria-hidden
-        className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
-      />
-      <label htmlFor="global-search" className="sr-only">
-        Search your files
-      </label>
-      <input
-        id="global-search"
-        type="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search"
-        className="h-10 w-full rounded-full border border-transparent bg-surface-2 pr-4 pl-9 text-sm pointer-coarse:h-11 placeholder:text-muted focus-visible:border-accent focus-visible:bg-surface focus-visible:outline-none"
-      />
-    </form>
-  );
-}
-
 function UserMenu({ me }: { me: Me }) {
   const navigate = useNavigate();
   const logout = useLogout();
-  const [theme, setTheme] = useTheme();
-  const themes: { id: ThemeChoice; label: string }[] = [
-    { id: 'system', label: 'Match device' },
-    { id: 'light', label: 'Light' },
-    { id: 'dark', label: 'Dark' },
-  ];
+  const home = useSetupStatus().data?.homeUrl;
   return (
     <DropdownMenu
       label="Account"
@@ -161,13 +119,20 @@ function UserMenu({ me }: { me: Me }) {
           icon: <Settings />,
           onSelect: () => navigate('/settings'),
         },
-        ...themes.map((t, i) => ({
-          id: `theme-${t.id}`,
-          label: t.label,
-          checked: theme === t.id,
-          separatorBefore: i === 0,
-          onSelect: () => setTheme(t.id),
-        })),
+        // Phones have no sidebar: these are its other entries.
+        ...(me.role === 'admin'
+          ? [{ id: 'admin', label: 'Admin', icon: <Shield />, onSelect: () => navigate('/admin') }]
+          : []),
+        ...(home
+          ? [
+              {
+                id: 'home',
+                label: new URL(home).host,
+                icon: <ArrowLeft />,
+                onSelect: () => window.location.assign(home),
+              },
+            ]
+          : []),
         {
           id: 'logout',
           label: 'Sign out',
@@ -185,8 +150,6 @@ function UserMenu({ me }: { me: Me }) {
 }
 
 export function AppShell({ me }: { me: Me }) {
-  const [drawer, setDrawer] = useState(false);
-  const location = useLocation();
   const header = useRef<HTMLElement>(null);
   // Sticky bars below the header (page tabs) sit at its real height, which varies with the
   // notch and wrapping.
@@ -200,8 +163,6 @@ export function AppShell({ me }: { me: Me }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on navigation to close the drawer
-  useEffect(() => setDrawer(false), [location.pathname]);
 
   // Files dropped anywhere outside an upload area (sidebar, header, a missed target) would make
   // the browser navigate away to open them, abandoning the app and any uploads in progress.
@@ -232,38 +193,14 @@ export function AppShell({ me }: { me: Me }) {
         <SideNav me={me} />
       </aside>
 
-      <D.Root open={drawer} onOpenChange={setDrawer}>
-        <D.Portal>
-          <D.Overlay className="fixed inset-0 z-40 bg-overlay animate-fade-in md:hidden" />
-          <D.Content className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-border bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] shadow-pop animate-fade-in md:hidden">
-            <D.Title className="sr-only">Navigation</D.Title>
-            <D.Description className="sr-only">Main sections of the app</D.Description>
-            <D.Close asChild>
-              <IconButton
-                label="Close menu"
-                icon={<X />}
-                className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] right-2"
-                noTooltip
-              />
-            </D.Close>
-            <SideNav me={me} onNavigate={() => setDrawer(false)} />
-          </D.Content>
-        </D.Portal>
-      </D.Root>
-
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Installed on an iPhone home screen the page runs under the status bar: pad for it. */}
+        {/* Installed on an iPhone home screen the page runs under the status bar: pad for it.
+            Glass: the page scrolls beneath and shows through. */}
         <header
           ref={header}
-          className="sticky top-0 z-30 flex min-h-16 items-center gap-2 border-b border-border bg-bg/90 pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur md:gap-3 md:px-6"
+          className="glass sticky top-0 z-30 flex min-h-16 items-center gap-2 border-b border-(--glass-edge) pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] md:gap-3 md:px-6"
         >
-          <IconButton
-            label="Open menu"
-            icon={<Menu />}
-            className="md:hidden"
-            onClick={() => setDrawer(true)}
-            noTooltip
-          />
           <Link
             to="/files"
             aria-label="Home"
@@ -271,7 +208,7 @@ export function AppShell({ me }: { me: Me }) {
           >
             <LogoMark className="size-8" />
           </Link>
-          <SearchBox />
+          <SearchBox id="global-search" className="hidden md:block" />
           <div className="ml-auto">
             <UserMenu me={me} />
           </div>
@@ -298,13 +235,15 @@ export function AppShell({ me }: { me: Me }) {
         <main
           id="main"
           tabIndex={-1}
-          // Extra room at the end while the upload panel floats over the bottom of the page.
-          className="min-w-0 flex-1 px-3 pt-4 pb-[calc(var(--upload-panel-h,0px)+1rem)] outline-none md:px-6 md:pt-6 md:pb-[calc(var(--upload-panel-h,0px)+1.5rem)]"
+          // Extra room at the end while the upload panel (and on phones the tab bar) floats over the
+          // bottom of the page.
+          className="min-w-0 flex-1 px-3 pt-4 pb-[calc(var(--upload-panel-h,0px)+var(--tabbar-h,0px)+1rem)] outline-none md:px-6 md:pt-6 md:pb-[calc(var(--upload-panel-h,0px)+1.5rem)]"
         >
           <Outlet context={context} />
         </main>
       </div>
       <UploadPanel />
+      <TabBar />
     </div>
   );
 }

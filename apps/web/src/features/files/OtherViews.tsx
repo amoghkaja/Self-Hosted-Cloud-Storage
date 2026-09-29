@@ -14,12 +14,15 @@ import {
   useTrash,
 } from '../../api/queries';
 import { useShell } from '../../app/guards';
+import { SearchBox } from '../../app/SearchBox';
+import { FILES_SECTIONS, SHARED_SECTIONS } from '../../app/sections';
 import {
   Button,
   ConfirmDialog,
   EmptyState,
   IconButton,
   QueryState,
+  SectionLinks,
   Skeleton,
   toast,
 } from '../../components/ui';
@@ -32,13 +35,24 @@ import { FileView, FileViewSkeleton } from './FileView';
 
 const PreviewModal = lazy(() => import('./PreviewModal'));
 
-function PageTitle({ title, children }: { title: string; children?: React.ReactNode }) {
+function PageTitle({
+  title,
+  sections,
+  children,
+}: {
+  title: string;
+  sections?: { label: string; items: { to: string; label: string }[] };
+  children?: React.ReactNode;
+}) {
   usePageTitle(title);
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
-      <h1 className="flex-1 text-xl font-semibold">{title}</h1>
-      {children}
-    </div>
+    <>
+      {sections && <SectionLinks {...sections} />}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h1 className="flex-1 text-xl font-semibold">{title}</h1>
+        {children}
+      </div>
+    </>
   );
 }
 
@@ -129,7 +143,7 @@ export function SharedPage() {
   );
   return (
     <>
-      <PageTitle title="Shared with me" />
+      <PageTitle title="Shared with me" sections={{ label: 'Shared', items: SHARED_SECTIONS }} />
       <QueryState
         query={shared}
         loading={<FileViewSkeleton view="list" />}
@@ -176,7 +190,7 @@ export function RecentPage() {
   const sharedBy = useSharedBy();
   return (
     <>
-      <PageTitle title="Recent" />
+      <PageTitle title="Recent" sections={{ label: 'Files', items: FILES_SECTIONS }} />
       <QueryState
         query={recent}
         loading={<FileViewSkeleton view="list" />}
@@ -208,7 +222,7 @@ export function StarredPage() {
   const sharedBy = useSharedBy();
   return (
     <>
-      <PageTitle title="Starred" />
+      <PageTitle title="Starred" sections={{ label: 'Files', items: FILES_SECTIONS }} />
       <QueryState
         query={starred}
         loading={<FileViewSkeleton view="list" />}
@@ -242,12 +256,14 @@ export function SearchPage() {
   const sharedBy = useSharedBy();
   return (
     <>
+      {/* Phones: the Search tab has no header search box, so it brings its own. */}
+      <SearchBox id="tab-search" autoFocus={!q} className="mb-4 max-w-none md:hidden" />
       <PageTitle title={q ? `Results for “${q}”` : 'Search'} />
       {!q ? (
         <EmptyState
           icon={<Search />}
           title="Search your files"
-          description="Type a name in the search box above. Files shared with you are searched too."
+          description="Type a name in the search box. Files shared with you are searched too."
         />
       ) : (
         <QueryState
@@ -299,7 +315,7 @@ export function TrashPage() {
 
   return (
     <>
-      <PageTitle title="Trash">
+      <PageTitle title="Trash" sections={{ label: 'Files', items: FILES_SECTIONS }}>
         {!!trash.data?.items.length && (
           <Button
             variant="danger"

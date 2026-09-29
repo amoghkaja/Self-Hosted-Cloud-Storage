@@ -33,7 +33,7 @@ export function useReturnFocus(open: boolean) {
 
 const overlay = 'fixed inset-0 z-40 bg-overlay animate-fade-in';
 const panel =
-  'fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-pop animate-pop-in ' +
+  'glass-thick fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-(--glass-edge) shadow-(--glass-shadow) animate-pop-in ' +
   // Bottom sheet on phones: clear of the home bar and, via --kb (lib/keyboard.ts), sitting on
   // top of the on-screen keyboard. A centered card from sm up.
   'inset-x-2 bottom-[calc(max(0.5rem,env(safe-area-inset-bottom))+var(--kb,0px))] max-h-[calc(100dvh-1rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)-var(--kb,0px))] ' +

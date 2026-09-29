@@ -282,7 +282,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
           aria-rowindex={index + 2}
           {...common}
           className={cn(
-            'group grid h-14 cursor-default grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl px-2 outline-none select-none [-webkit-touch-callout:none] sm:grid-cols-[auto_1fr_8rem_6rem_auto]',
+            'group grid min-h-14 cursor-default grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl px-2 outline-none select-none [-webkit-touch-callout:none] sm:grid-cols-[auto_1fr_8rem_6rem_auto]',
             selected ? 'bg-accent-soft' : 'hover:bg-surface-2',
             'focus-visible:ring-2 focus-visible:ring-accent',
           )}

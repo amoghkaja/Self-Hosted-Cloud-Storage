@@ -1,7 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { Tabs as T } from 'radix-ui';
 import { type ReactNode, useEffect, useRef } from 'react';
-import { Link } from 'react-router';
+import { Link, NavLink } from 'react-router';
 import { cn } from '../../lib/cn';
 
 // ── Breadcrumbs ─────────────────────────────────────────────────────────────
@@ -48,6 +48,43 @@ export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: 
           );
         })}
       </ol>
+    </nav>
+  );
+}
+
+// ── Section links ───────────────────────────────────────────────────────────
+
+/**
+ * Sibling pages of one phone tab (Files · Recent · Starred · Trash) as a segmented control.
+ * Phones only: larger screens reach them from the sidebar.
+ */
+export function SectionLinks({
+  label,
+  items,
+}: {
+  label: string;
+  items: { to: string; label: string }[];
+}) {
+  return (
+    <nav aria-label={label} className="mb-4 md:hidden">
+      <ul className="flex gap-1 rounded-full bg-surface-2 p-1">
+        {items.map((i) => (
+          <li key={i.to} className="flex-1">
+            <NavLink
+              to={i.to}
+              end
+              className={({ isActive }) =>
+                cn(
+                  'flex min-h-11 items-center justify-center rounded-full px-2 text-sm font-medium',
+                  isActive ? 'bg-surface text-text shadow-sm' : 'text-muted',
+                )
+              }
+            >
+              {i.label}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
     </nav>
   );
 }
@@ -99,7 +136,7 @@ export function Tabs({
           <T.Trigger
             key={t.value}
             value={t.value}
-            className="relative h-10 pointer-coarse:h-11 min-w-fit flex-1 rounded-t-md px-2 text-sm font-medium whitespace-nowrap text-muted hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent sm:flex-none sm:px-3"
+            className="relative min-h-10 pointer-coarse:min-h-11 min-w-fit flex-1 rounded-t-md px-2 text-sm font-medium whitespace-nowrap text-muted hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent sm:flex-none sm:px-3"
           >
             {t.label}
           </T.Trigger>

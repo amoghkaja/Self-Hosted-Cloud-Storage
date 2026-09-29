@@ -46,6 +46,7 @@ import {
 import { qk, useChildren, useNode } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { uploadManager } from '../../app/providers';
+import { FILES_SECTIONS } from '../../app/sections';
 import {
   Breadcrumbs,
   Button,
@@ -58,6 +59,7 @@ import {
   IconButton,
   type PickedFile,
   QueryState,
+  SectionLinks,
   Skeleton,
   Tooltip,
   toast,
@@ -238,6 +240,9 @@ function FileBrowser({ folderId }: { folderId: string }) {
     >
       {/* The breadcrumbs show where you are; screen-reader users also get it as the page heading. */}
       {name && <h1 className="sr-only">{name}</h1>}
+      {folderId === me.rootNodeId && !selecting && (
+        <SectionLinks label="Files" items={FILES_SECTIONS} />
+      )}
       <div ref={headerRef} hidden={selecting} className="mb-3 flex flex-wrap items-center gap-2">
         {/* Full width on phones, so the current folder's name isn't squeezed to "Ph…". */}
         <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">

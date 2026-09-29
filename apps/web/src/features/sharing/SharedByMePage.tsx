@@ -4,7 +4,16 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { errorMessage, thumbUrl } from '../../api/client';
 import { useLinkMutations, useSharedByMe } from '../../api/queries';
-import { Avatar, Button, EmptyState, QueryState, Skeleton, toast } from '../../components/ui';
+import { SHARED_SECTIONS } from '../../app/sections';
+import {
+  Avatar,
+  Button,
+  EmptyState,
+  QueryState,
+  SectionLinks,
+  Skeleton,
+  toast,
+} from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { FileIcon } from '../files/FileIcon';
 import { LinkRow, ShareDialog } from './ShareDialog';
@@ -70,6 +79,7 @@ export function SharedByMePage() {
   const shared = useSharedByMe();
   return (
     <>
+      <SectionLinks label="Shared" items={SHARED_SECTIONS} />
       <div className="mb-4">
         <h1 className="text-xl font-semibold">Shared by me</h1>
         <p className="mt-1 text-sm text-muted">

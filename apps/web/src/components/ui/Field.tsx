@@ -4,7 +4,7 @@ import { type ComponentProps, type ReactNode, useId, useState } from 'react';
 import { cn } from '../../lib/cn';
 
 const control =
-  'h-10 pointer-coarse:h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text placeholder:text-muted/70 transition-colors hover:border-border-strong focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 disabled:opacity-60 aria-[invalid=true]:border-danger';
+  'min-h-10 pointer-coarse:min-h-11 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-text placeholder:text-muted transition-colors hover:border-muted focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 disabled:opacity-60 aria-[invalid=true]:border-danger';
 
 interface FieldChrome {
   label: ReactNode;
@@ -250,7 +250,7 @@ export function Checkbox({ label, hideLabel, className, ...props }: CheckboxProp
     <label className={cn('inline-flex cursor-pointer items-center gap-2 text-sm', className)}>
       <input
         type="checkbox"
-        className="size-4 cursor-pointer rounded border-border-strong accent-[var(--accent)]"
+        className="size-4 cursor-pointer rounded border-field-border accent-[var(--accent)]"
         {...props}
       />
       <span className={hideLabel ? 'sr-only' : undefined}>{label}</span>

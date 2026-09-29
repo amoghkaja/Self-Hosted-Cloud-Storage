@@ -18,9 +18,9 @@ const variants: Record<ButtonVariant, string> = {
 
 // Touch screens get 44px-tall targets (Apple's minimum) whatever the size; mice keep compact ones.
 const sizes: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-sm pointer-coarse:h-11',
-  md: 'h-10 px-4 text-sm pointer-coarse:h-11',
-  lg: 'h-12 px-5 text-base',
+  sm: 'min-h-8 px-3 text-sm pointer-coarse:min-h-11',
+  md: 'min-h-10 px-4 text-sm pointer-coarse:min-h-11',
+  lg: 'min-h-12 px-5 text-base',
 };
 
 export interface ButtonProps extends ComponentProps<'button'> {
