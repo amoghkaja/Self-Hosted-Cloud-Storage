@@ -25,8 +25,17 @@ export interface MenuAction {
   separatorBefore?: boolean;
 }
 
+// A long menu (a file's ten actions) can be taller than the room beside its trigger on a phone:
+// it scrolls within the space Radix reports as available instead of running off the screen.
 const content =
-  'glass-thick z-50 min-w-[200px] overflow-hidden rounded-xl border border-(--glass-edge) p-1 shadow-(--glass-shadow) animate-pop-in';
+  'glass-thick z-50 min-w-[200px] overflow-y-auto overscroll-contain rounded-xl border border-(--glass-edge) p-1 shadow-(--glass-shadow) animate-pop-in';
+
+/** Keep menus clear of the sticky header and, on phones, the floating tab bar. */
+function collisionPadding() {
+  const root = getComputedStyle(document.documentElement);
+  const px = (name: string) => Number.parseFloat(root.getPropertyValue(name)) || 0;
+  return { top: px('--header-h') + 8, bottom: px('--tabbar-h') + 8, left: 8, right: 8 };
+}
 // Menus render in a portal, but React still bubbles their events up the component tree to
 // whatever contains the trigger (a file row, the file grid). Stop them at the menu boundary so
 // choosing an item doesn't also click/select the row or drive the grid's arrow-key navigation.
@@ -101,7 +110,8 @@ export function DropdownMenu({
         <DM.Content
           align={align}
           sideOffset={4}
-          className={content}
+          collisionPadding={collisionPadding()}
+          className={cn(content, 'max-h-(--radix-dropdown-menu-content-available-height)')}
           aria-label={label}
           onCloseAutoFocus={onCloseAutoFocus}
           {...isolate}
@@ -141,7 +151,12 @@ export function ContextMenu({
         {children}
       </CM.Trigger>
       <CM.Portal>
-        <CM.Content className={content} onCloseAutoFocus={onCloseAutoFocus} {...isolate}>
+        <CM.Content
+          collisionPadding={collisionPadding()}
+          className={cn(content, 'max-h-(--radix-context-menu-content-available-height)')}
+          onCloseAutoFocus={onCloseAutoFocus}
+          {...isolate}
+        >
           {actions.map((a) => (
             <Fragment key={a.id}>
               {a.separatorBefore && <CM.Separator className="my-1 h-px bg-border" />}
