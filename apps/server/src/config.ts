@@ -33,7 +33,9 @@ const Env = z.object({
    * Where this server's source code is published, linked from the app. The AGPL requires
    * offering the source of a modified version to its users: point this at your fork.
    */
-  SOURCE_URL: z.url({ protocol: /^https?$/ }).default('https://github.com/amoghkaja/Cloud-Storage'),
+  SOURCE_URL: z
+    .url({ protocol: /^https?$/ })
+    .default('https://github.com/amoghkaja/Self-Hosted-Cloud-Storage'),
   /**
    * Domain passkeys belong to. Defaults to PUBLIC_URL's host; set the parent domain
    * (e.g. example.com for cloud.example.com) to share passkeys across its subdomains.

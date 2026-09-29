@@ -121,7 +121,7 @@ chmod 600 "$TMP_ENV"
   env_line CLOUDFLARE_TUNNEL_TOKEN "$CLOUDFLARE_TUNNEL_TOKEN"
   env_line DOMAIN "${DOMAIN:-}"
   env_line APP_PORT "${APP_PORT:-3080}"
-  env_line IMAGE "${IMAGE:-ghcr.io/amoghkaja/cloud-storage:latest}"
+  env_line IMAGE "${IMAGE:-ghcr.io/amoghkaja/self-hosted-cloud-storage:latest}"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
   env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
   if [[ -n "$EXTRA_SETTINGS" ]]; then printf '%s\n' "$EXTRA_SETTINGS"; fi

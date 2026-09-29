@@ -36,7 +36,7 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 You need a Linux computer that stays on (a spare PC, a mini PC or a Raspberry Pi 5 works) with Docker. Then:
 
 ```bash
-git clone https://github.com/amoghkaja/Cloud-Storage.git familycloud
+git clone https://github.com/amoghkaja/Self-Hosted-Cloud-Storage.git familycloud
 cd familycloud
 ./scripts/install.sh            # add --install-docker if Docker isn't installed yet
 ```

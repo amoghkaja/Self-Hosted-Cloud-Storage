@@ -12,7 +12,7 @@ This guide takes you from a spare computer to a working family cloud on your own
 ## 2. Install
 
 ```bash
-git clone https://github.com/amoghkaja/Cloud-Storage.git familycloud
+git clone https://github.com/amoghkaja/Self-Hosted-Cloud-Storage.git familycloud
 cd familycloud
 ./scripts/install.sh --install-docker
 ```
@@ -108,7 +108,7 @@ cd familycloud && git pull
 cd deploy && docker compose pull && docker compose up -d
 ```
 
-If the installer built the image on this machine (it couldn't pull one), rebuild instead: `docker compose up -d --build`. Database changes are applied automatically on start. To stay on a specific release, set `IMAGE=ghcr.io/amoghkaja/cloud-storage:v0.1.0` in `deploy/.env`.
+If the installer built the image on this machine (it couldn't pull one), rebuild instead: `docker compose up -d --build`. Database changes are applied automatically on start. To stay on a specific release, set `IMAGE=ghcr.io/amoghkaja/self-hosted-cloud-storage:v0.1.0` in `deploy/.env`.
 
 ## Running a modified version
 
