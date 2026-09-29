@@ -16,6 +16,7 @@ import type {
   NodeDetail,
   NodePage,
   Passkey,
+  PasswordResetLink,
   SessionInfo,
   Settings,
   SetupStatus,
@@ -587,6 +588,11 @@ export function useAdminMutations() {
     }),
     signOut: useMutation({
       mutationFn: (id: string) => api(`/admin/users/${id}/sign-out`, { method: 'POST', json: {} }),
+    }),
+    createPasswordReset: useMutation({
+      mutationFn: (id: string) =>
+        api<PasswordResetLink>(`/admin/users/${id}/password-reset`, { json: {} }),
+      onSuccess: () => qc.invalidateQueries({ queryKey: qk.adminAudit }),
     }),
     createInvite: useMutation({
       mutationFn: (body: {

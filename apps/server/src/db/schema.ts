@@ -121,6 +121,29 @@ export const invites = pgTable(
   (t) => [uniqueIndex('invites_token_hash_key').on(t.tokenHash)],
 );
 
+/**
+ * One-time links an admin makes so a family member who forgot their password can choose a new
+ * one. Only the newest unused link for a person works; tokens are stored hashed.
+ */
+export const passwordResets = pgTable(
+  'password_resets',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+    usedAt: ts('used_at'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('password_resets_token_hash_key').on(t.tokenHash),
+    index('password_resets_user_idx').on(t.userId),
+  ],
+);
+
 export const storageVolumes = pgTable(
   'storage_volumes',
   {

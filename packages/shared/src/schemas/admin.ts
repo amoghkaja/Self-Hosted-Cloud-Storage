@@ -156,6 +156,10 @@ export const CreateInviteBody = z.object({
 
 export const CreateInviteResponse = z.object({ invite: AdminInvite, url: z.string() });
 
+/** A one-time link that lets a family member choose a new password. */
+export const PasswordResetLink = z.object({ url: z.string(), expiresAt: IsoDate });
+export type PasswordResetLink = z.infer<typeof PasswordResetLink>;
+
 export const VolumeCandidate = z.object({
   path: z.string(),
   name: z.string(),

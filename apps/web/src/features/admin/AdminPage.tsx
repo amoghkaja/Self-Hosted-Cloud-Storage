@@ -9,7 +9,6 @@ import {
 } from '@familycloud/shared';
 import {
   CircleAlert,
-  Copy,
   EllipsisVertical,
   HardDrive,
   PieChart,
@@ -48,9 +47,9 @@ import {
   toast,
   UsageBar,
 } from '../../components/ui';
-import { copyText } from '../../lib/clipboard';
 import { formatDate, formatDateTime, formatRelative } from '../../lib/format';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { LinkBox } from '../sharing/LinkActions';
 import { BrandingCard } from './BrandingCard';
 import { ByteSizeInput } from './ByteSizeInput';
 import { AllocateDialog, DiskBreakdown, FamilyBreakdown } from './StorageOverview';
@@ -320,17 +319,7 @@ function InviteDialog({
           <p className="text-sm">
             Send this link to them (text or email). It works once and expires in 7 days.
           </p>
-          <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
-            <code className="min-w-0 flex-1 font-mono text-xs break-all select-all">{url}</code>
-            <IconButton
-              label="Copy invite link"
-              icon={<Copy />}
-              onClick={async () => {
-                if (await copyText(url)) toast.success('Copied');
-                else toast.error('Copy failed. Select the link and copy it manually.');
-              }}
-            />
-          </div>
+          <LinkBox url={url} title="Join our family cloud" copyLabel="Copy invite link" />
         </div>
       ) : (
         <form onSubmit={submit} className="flex flex-col gap-4">
@@ -369,12 +358,77 @@ function InviteDialog({
   );
 }
 
+/** Makes a one-time link for someone who forgot their password, for the admin to send them. */
+function PasswordResetDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const m = useAdminMutations();
+  const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const create = async () => {
+    try {
+      setLink(await m.createPasswordReset.mutateAsync(user.id));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Reset ${user.displayName}'s password`}
+      size="md"
+      footer={
+        link ? (
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" loading={m.createPasswordReset.isPending} onClick={create}>
+              Create link
+            </Button>
+          </>
+        )
+      }
+    >
+      {link ? (
+        <div className="flex flex-col gap-3 text-sm">
+          <p>
+            Send this link to {user.displayName} (text or email). It works once, until{' '}
+            {formatDateTime(link.expiresAt)}.
+          </p>
+          <LinkBox url={link.url} title="Choose a new password" copyLabel="Copy reset link" />
+          <p className="text-xs text-muted">
+            Only send it to them: whoever opens it can choose the password.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>
+            For when {user.displayName} forgot their password. You get a link to send them, and they
+            choose a new password themselves (you never see it).
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-muted">
+            <li>They're signed out everywhere once they use it.</li>
+            <li>
+              {user.totpEnabled
+                ? 'Their two-factor sign-in stays on: they still need their code.'
+                : 'Any older reset link for them stops working.'}
+            </li>
+            <li>Network drive passwords on their devices keep working.</li>
+          </ul>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 function People() {
   const { me } = useShell();
   const q = useAdminOverview();
   const invites = useAdminInvites();
   const m = useAdminMutations();
   const [editing, setEditing] = useState<AdminUser | null>(null);
+  const [resetting, setResetting] = useState<AdminUser | null>(null);
   const [inviting, setInviting] = useState(false);
   const [confirm, setConfirm] = useState<{
     title: string;
@@ -450,6 +504,15 @@ function People() {
                                 m.updateUser.mutateAsync({ id: u.id, disabled: !u.disabled }),
                             }),
                         },
+                        ...(u.disabled
+                          ? []
+                          : [
+                              {
+                                id: 'password',
+                                label: 'Password reset link…',
+                                onSelect: () => setResetting(u),
+                              },
+                            ]),
                         {
                           id: 'signout',
                           label: 'Sign out everywhere',
@@ -505,6 +568,7 @@ function People() {
         </QueryState>
       </Card>
       {editing && <EditUserDialog user={editing} selfId={me.id} onClose={() => setEditing(null)} />}
+      {resetting && <PasswordResetDialog user={resetting} onClose={() => setResetting(null)} />}
       {inviting && (
         <InviteDialog
           defaultQuota={q.data?.settings.defaultQuotaBytes ?? 50 * GiB}

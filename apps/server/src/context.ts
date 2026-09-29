@@ -30,6 +30,7 @@ export function scrubUrl(url: string): string {
   return url
     .replace(/(\/public\/links\/)[^/?#]+/g, '$1[token]')
     .replace(/(\/invites?\/)[^/?#]+/g, '$1[token]') // API /invites/… and the web page /invite/…
+    .replace(/(\/(?:password-resets|reset)\/)[^/?#]+/g, '$1[token]') // API, and the web page
     .replace(/(\/s\/)[^/?#]+/g, '$1[token]');
 }
 

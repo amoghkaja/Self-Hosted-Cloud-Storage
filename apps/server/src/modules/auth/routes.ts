@@ -1,6 +1,7 @@
 import {
   AcceptInviteBody,
   ChangePasswordBody,
+  CompletePasswordResetBody,
   domainMessage,
   ErrorCode,
   emailAllowed,
@@ -11,6 +12,7 @@ import {
   LoginTotpBody,
   Me,
   Ok,
+  PasswordResetInfo,
   SessionInfo,
   SetupBody,
   SetupStatus,
@@ -26,7 +28,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ensureSetupToken } from '../../context';
-import { invites, sessions, type UserRow, users } from '../../db/schema';
+import { invites, passwordResets, sessions, type UserRow, users } from '../../db/schema';
 import { audit } from '../../lib/audit';
 import { safeEqual, sha256 } from '../../lib/crypto';
 import { toMe } from '../../lib/dto';
@@ -501,6 +503,94 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         ip: req.clientIp,
       });
       return toMe(user);
+    },
+  );
+
+  // ── password reset links (made by an admin) ───────────────────────────────
+
+  const resetInvalid = () =>
+    new AppError(
+      404,
+      ErrorCode.RESET_INVALID,
+      'This link is invalid, was already used, or has expired. Ask your admin for a new one.',
+    );
+
+  async function findReset(token: string) {
+    const [row] = await db
+      .select({ reset: passwordResets, user: users })
+      .from(passwordResets)
+      .innerJoin(users, eq(users.id, passwordResets.userId))
+      .where(
+        and(
+          eq(passwordResets.tokenHash, sha256(token)),
+          isNull(passwordResets.usedAt),
+          gt(passwordResets.expiresAt, new Date()),
+          isNull(users.disabledAt),
+        ),
+      );
+    if (!row) throw resetInvalid();
+    return row;
+  }
+
+  app.get(
+    '/password-resets/:token',
+    {
+      config: strictLimit(30),
+      schema: { params: TokenParams, response: { 200: PasswordResetInfo } },
+    },
+    async (req) => {
+      const { reset, user } = await findReset(req.params.token);
+      return {
+        email: user.email,
+        displayName: user.displayName,
+        expiresAt: toIso(reset.expiresAt),
+      };
+    },
+  );
+
+  app.post(
+    '/password-resets/:token',
+    {
+      config: strictLimit(10),
+      schema: { params: TokenParams, body: CompletePasswordResetBody, response: { 200: Ok } },
+    },
+    async (req) => {
+      // Checked before hashing, so a made-up token costs no argon2 work.
+      const { reset } = await findReset(req.params.token);
+      const passwordHash = await hashPassword(req.body.password);
+      const user = await db.transaction(async (tx) => {
+        // Single use: only one request can claim the link.
+        const [claimed] = await tx
+          .update(passwordResets)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(passwordResets.id, reset.id),
+              isNull(passwordResets.usedAt),
+              gt(passwordResets.expiresAt, new Date()),
+            ),
+          )
+          .returning({ userId: passwordResets.userId });
+        if (!claimed) throw resetInvalid();
+        const [updated] = await tx
+          .update(users)
+          .set({ passwordHash, failedLogins: 0, lockedUntil: null, updatedAt: new Date() })
+          .where(and(eq(users.id, claimed.userId), isNull(users.disabledAt)))
+          .returning();
+        if (!updated) throw resetInvalid();
+        return updated;
+      });
+      // Whoever knew the old password is out; the person signs in again with the new one
+      // (and their two-factor code, if they use one), so the link alone never gets past 2FA.
+      await ctx.sessions.revokeAll(db, user.id);
+      await audit(db, {
+        actorId: user.id,
+        action: 'auth.password_reset',
+        targetType: 'user',
+        targetId: user.id,
+        ip: req.clientIp,
+      });
+      return { ok: true as const };
     },
   );
 };

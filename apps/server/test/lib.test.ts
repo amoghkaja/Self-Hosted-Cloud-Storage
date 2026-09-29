@@ -64,6 +64,11 @@ describe('misc', () => {
     // The invite link itself (web page served by the SPA fallback) carries the token too.
     expect(scrubUrl('/invite/tok?x=1')).toBe('/invite/[token]?x=1');
     expect(scrubUrl('/s/tok')).toBe('/s/[token]');
+    // Password-reset links: the API call and the web page.
+    expect(scrubUrl('/api/v1/password-resets/tok')).toBe('/api/v1/password-resets/[token]');
+    expect(scrubUrl('/reset/tok')).toBe('/reset/[token]');
+    // Admin routes that merely mention "reset" keep their ids.
+    expect(scrubUrl('/api/v1/admin/users/u1/reset-totp')).toBe('/api/v1/admin/users/u1/reset-totp');
   });
 
   it('buckets IPv6 clients by /64 for rate limiting', () => {

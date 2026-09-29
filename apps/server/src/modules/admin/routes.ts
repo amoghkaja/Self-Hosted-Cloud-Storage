@@ -13,6 +13,7 @@ import {
   formatBytes,
   IdParams,
   Ok,
+  PasswordResetLink,
   Settings,
   UpdateSettingsBody,
   UpdateUserBody,
@@ -27,6 +28,7 @@ import type { AppContext } from '../../context';
 import {
   auditLog,
   invites,
+  passwordResets,
   sessions,
   storageVolumes,
   users,
@@ -42,6 +44,8 @@ import { requireAdmin } from '../../plugins/auth';
 
 /** Advisory lock taken while an admin is demoted or disabled (see the last-admin guard). */
 const ADMIN_GUARD_LOCK = 727_004;
+/** Long enough for family in other time zones to see the message; the link works once. */
+const PASSWORD_RESET_TTL_MS = 3 * DAY_MS;
 
 async function volumeDtos(
   ctx: AppContext,
@@ -289,6 +293,52 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         ip: req.clientIp,
       });
       return { ok: true as const };
+    },
+  );
+
+  /**
+   * A one-time link for someone who forgot their password; the admin sends it to them. Using it
+   * signs them out everywhere and never skips their two-factor sign-in, and both making and
+   * using it are in the audit log.
+   */
+  app.post(
+    '/admin/users/:id/password-reset',
+    { schema: { params: IdParams, response: { 200: PasswordResetLink } } },
+    async (req) => {
+      const { user: admin } = requireAdmin(req);
+      const [target] = await db.select().from(users).where(eq(users.id, req.params.id));
+      if (!target) throw notFound('User');
+      if (target.id === admin.id) throw badRequest('Change your own password in Settings');
+      if (target.disabledAt) throw badRequest('Turn this account back on first');
+      const token = randomToken(24);
+      const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+      await db.transaction(async (tx) => {
+        // Only the newest link works: an older one sent somewhere else stops working.
+        await tx
+          .update(passwordResets)
+          .set({ expiresAt: new Date() })
+          .where(
+            and(
+              eq(passwordResets.userId, target.id),
+              isNull(passwordResets.usedAt),
+              gt(passwordResets.expiresAt, new Date()),
+            ),
+          );
+        await tx.insert(passwordResets).values({
+          userId: target.id,
+          tokenHash: sha256(token),
+          expiresAt,
+          createdBy: admin.id,
+        });
+      });
+      await audit(db, {
+        actorId: admin.id,
+        action: 'admin.password_reset_created',
+        targetType: 'user',
+        targetId: target.id,
+        ip: req.clientIp,
+      });
+      return { url: `${ctx.config.publicUrl}/reset/${token}`, expiresAt: toIso(expiresAt) };
     },
   );
 

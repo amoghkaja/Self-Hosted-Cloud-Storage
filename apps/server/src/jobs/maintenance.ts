@@ -7,7 +7,15 @@ import { pipeline } from 'node:stream/promises';
 import { ErrorCode } from '@familycloud/shared/all';
 import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { AppContext } from '../context';
-import { blobs, invites, nodes, sessions, storageVolumes, uploadSessions } from '../db/schema';
+import {
+  blobs,
+  invites,
+  nodes,
+  passwordResets,
+  sessions,
+  storageVolumes,
+  uploadSessions,
+} from '../db/schema';
 import { audit } from '../lib/audit';
 import { DAY_MS } from '../lib/time';
 import { purgeTrashRoots, QUOTA_LOCK } from '../modules/files/tree';
@@ -138,7 +146,9 @@ export async function cleanupSessions(ctx: AppContext): Promise<void> {
   await ctx.db
     .delete(sessions)
     .where(or(lt(sessions.expiresAt, now), lt(sessions.absoluteExpiresAt, now)));
-  await ctx.db.delete(invites).where(lt(invites.expiresAt, new Date(Date.now() - 30 * DAY_MS)));
+  const monthAgo = new Date(Date.now() - 30 * DAY_MS);
+  await ctx.db.delete(invites).where(lt(invites.expiresAt, monthAgo));
+  await ctx.db.delete(passwordResets).where(lt(passwordResets.expiresAt, monthAgo));
 }
 
 /**

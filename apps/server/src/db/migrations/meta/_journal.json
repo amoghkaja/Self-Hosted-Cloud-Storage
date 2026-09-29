@@ -71,6 +71,13 @@
       "when": 1790683990907,
       "tag": "0009_revoke_trashed_links",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790685921707,
+      "tag": "0010_password_resets",
+      "breakpoints": true
     }
   ]
 }

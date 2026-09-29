@@ -97,6 +97,17 @@ export const AcceptInviteBody = z.object({
 
 export const TokenParams = z.object({ token: z.string().min(16).max(200) });
 
+// ── password reset (a one-time link from an admin) ──────────────────────────
+
+export const PasswordResetInfo = z.object({
+  email: z.string(),
+  displayName: z.string(),
+  expiresAt: IsoDate,
+});
+export type PasswordResetInfo = z.infer<typeof PasswordResetInfo>;
+
+export const CompletePasswordResetBody = z.object({ password: Password });
+
 // ── app passwords (network drive / WebDAV) ──────────────────────────────────
 
 export const AppPassword = z.object({

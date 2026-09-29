@@ -36,6 +36,14 @@ export const router = createBrowserRouter([
   { path: '/setup', element: <SetupPage />, errorElement: <RouteError /> },
   { path: '/invite/:token', element: <AcceptInvitePage />, errorElement: <RouteError /> },
   {
+    path: '/reset/:token',
+    lazy: () =>
+      import('../features/auth/ResetPasswordPage').then((m) => ({
+        Component: m.ResetPasswordPage,
+      })),
+    errorElement: <RouteError />,
+  },
+  {
     path: '/s/:token',
     lazy: () =>
       import('../features/public/PublicLinkPage').then((m) => ({ Component: m.PublicLinkPage })),

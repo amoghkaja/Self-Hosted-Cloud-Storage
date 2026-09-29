@@ -1,6 +1,6 @@
 import type { ShareLink as ShareLinkDto, SharePermission } from '@familycloud/shared';
-import { Check, Copy, Link2, Share, Trash2, Users } from 'lucide-react';
-import { type FormEvent, useEffect, useState } from 'react';
+import { Link2, Trash2, Users } from 'lucide-react';
+import { type FormEvent, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import {
   useDirectory,
@@ -24,48 +24,15 @@ import {
   Tabs,
   toast,
 } from '../../components/ui';
-import { copyText, copyTextLater } from '../../lib/clipboard';
+import { copyTextLater } from '../../lib/clipboard';
 import { cn } from '../../lib/cn';
 import { formatDateTime, formatRelative } from '../../lib/format';
 import { canShareNatively, shareNatively } from '../../lib/share';
+import { CopyButton, ShareButton } from './LinkActions';
 
 const onError = (err: unknown) => {
   toast.error(errorMessage(err));
 };
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied]);
-  return (
-    <IconButton
-      label={copied ? 'Copied' : label}
-      icon={copied ? <Check className="text-success" /> : <Copy />}
-      onClick={async () => {
-        if (await copyText(text)) setCopied(true);
-        else toast.error('Copy failed. Select the link and copy it manually.');
-      }}
-    />
-  );
-}
-
-function ShareButton({ url, title }: { url: string; title: string }) {
-  if (!canShareNatively()) return null;
-  return (
-    <IconButton
-      label="Share…"
-      icon={<Share />}
-      onClick={async () => {
-        if ((await shareNatively({ title, url })) === 'unavailable') {
-          toast.error('Sharing is not available here. Copy the link instead.');
-        }
-      }}
-    />
-  );
-}
 
 /** "Expires in 6 days · Oct 5, 2:00 PM": how long is left, and exactly when. */
 export function expiryLabel(expiresAt: string | null) {

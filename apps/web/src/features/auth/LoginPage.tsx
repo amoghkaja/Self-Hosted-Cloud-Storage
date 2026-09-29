@@ -175,7 +175,7 @@ export function LoginPage() {
           </Button>
         )}
         <p className="text-center text-xs text-muted">
-          Forgot your password? Ask a family admin to reset it.
+          Forgot your password? Ask a family admin for a reset link.
         </p>
       </form>
     </AuthLayout>

@@ -19,6 +19,8 @@ export const ErrorCode = {
   MFA_UNAVAILABLE: 'MFA_UNAVAILABLE',
   SETUP_COMPLETE: 'SETUP_COMPLETE',
   INVITE_INVALID: 'INVITE_INVALID',
+  /** A password-reset link that is unknown, used, expired or replaced by a newer one. */
+  RESET_INVALID: 'RESET_INVALID',
   /** The address isn't in the admin's "allowed email domains" list. */
   EMAIL_DOMAIN: 'EMAIL_DOMAIN',
   QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
