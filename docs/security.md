@@ -13,6 +13,7 @@
 | --- | --- | --- |
 | Internet stranger | Can reach the public URL | Take over the admin account, read files, abuse storage, deny service |
 | Holder of a share link | One public link | See beyond what was shared, brute-force a link password |
+| Holder of a file request | One upload-only link | See what's in the folder, fill the owner's storage, plant files that run code |
 | Family member | A normal account | Read another member's private files, escape their quota |
 | Malicious file | Something uploaded or downloaded | Run script in the app's origin (stored XSS), crash the thumbnailer |
 | Someone on the home network | LAN access | Reach the database or internal services |
@@ -29,7 +30,11 @@
 | **Password guessing** | argon2id (19 MiB, t=2). 10 sign-ins/min per IP. Per-account progressive lockout after 5 failures. Dummy hash for unknown emails (no timing oracle). Optional TOTP with replay protection (a code can't be reused). | `auth.test.ts` lockout, rate limit, TOTP replay |
 | **Phishing and password reuse** | Passkeys (WebAuthn): bound to the site's domain, need Face ID / Touch ID / device PIN (user verification required), public keys only on the server. Each challenge is signed, expires in 5 minutes and is accepted once. A passkey sign-in counts as two factors. | `core-passkeys.test.ts` (replay, wrong origin, removed key) |
 | **First-run takeover** | Creating the first account needs a one-time token that is only visible in server logs / CLI. Compared in constant time; rate-limited; creation serialized by a lock. | `auth.test.ts` setup |
-| **Share-link guessing** | 192-bit link tokens stored hashed (plus AES-GCM for owner re-display). Optional argon2 password with a 10/min unlock limit. Expiry and revocation. A link only ever reaches its own subtree. | `links.test.ts` |
+| **Share-link guessing** | 192-bit link tokens stored hashed (plus AES-GCM for owner re-display). Optional argon2 password with a 10/min unlock limit per IP **and** 20 tries per 15 minutes per link from anywhere. Expiry, optional download limit, and revocation. A link only ever reaches its own subtree, and stops when its owner's account is disabled. | `links.test.ts`, `links-requests.test.ts` |
+| **File requests (anonymous uploads)** | A request link reaches nothing: every view route refuses its token, and replies to the sender never name the folder, its owner or the new file. Uploads are tied to the request, re-checked when they commit, charged to the owner's quota, capped per request (5 GB by default) and at 20 in flight, and stopped (their space given back) the moment the request is revoked. Names are validated; nothing is ever replaced. No instant uploads (the checksum would reveal what's stored). | `links-requests.test.ts` |
+| **Losing files to a bad save** | Saving over a file (network drive, "Replace" on upload, an editor's save-by-rename) keeps the old contents as a version, restorable by anyone who can edit the file; only the owner can delete versions. | `data-versions.test.ts` |
+| **Forgotten passwords, lost phones** | One-time reset links from an admin (192-bit, hashed, 3 days, single use, newest only), which sign the person out everywhere and never skip two-factor. Ten single-use recovery codes (≈49 bits each, hashed) when two-factor is turned on; each try counts toward the lockout. | `core-password-reset.test.ts`, `core-recovery.test.ts` |
+| **Plain HTTP** | Behind a proxy that reports `X-Forwarded-Proto: http`, every request is redirected (308) to `PUBLIC_URL`, never to the Host header. HSTS on HTTPS. | `core-https.test.ts` |
 | **Network-drive credentials** | Device passwords are random (~99 bits), separate from the account password, hashed, revocable per device, and never accepted by the web API. 10 failures/min per IP triggers a throttle. | `webdav.test.ts` |
 | **Quota bypass by racing uploads** | Atomic conditional reservation under an advisory lock; nightly reconciliation. | `uploads.test.ts` "never over-commits under concurrent uploads" |
 | **Malicious media (decompression bombs, exploits in decoders)** | Decoding happens only in the worker, never the API. Pixel limit 16384². Each external tool has a 60 s timeout and SIGKILL. Arguments are passed as arrays (no shell). Containers run non-root with no capabilities. | Code review |
@@ -90,6 +95,22 @@
 | 32 | Low | API responses had no `Cache-Control`. | `private, no-store` unless a route sets its own. |
 | 33 | Low | A `PUBLIC_URL` with another scheme or a path made the CSRF origin `"null"` or dropped the path from links. | Must be `http(s)://host[:port]` with no path. |
 
+### Fourth review (full audit: security, safety of files, standard workflows), all fixed
+
+| # | Severity | Finding | Fix |
+| --- | --- | --- | --- |
+| 34 | **High** (data loss) | Saving over a file from the network drive destroyed what it held, with no way back. | Version history: the old contents are kept (30 days by default, up to 50 per file) and can be downloaded or restored. |
+| 35 | Medium | Word, Excel and LibreOffice save over WebDAV by writing a temporary file and renaming it over the original. Each save trashed the original, which **revoked its public links and dropped its shares**. | A file renamed over another file moves its contents onto the original, which keeps its identity; the old contents become a version. |
+| 36 | Medium | A disabled account's public links kept working. | Links stop with the account (`resolveLink` checks the owner). |
+| 37 | Medium | Link passwords were limited per IP only; many IPs could guess a short link password quickly. | Also 20 tries per 15 minutes per link, counted before the (slow) check. |
+| 38 | Medium | The sign-in page said "ask a family admin to reset it", but admins had no way to do that without server access. | One-time reset links (see Controls). |
+| 39 | Low | Rename, move and trash through a share checked access before their transaction but not inside it, so a share revoked in between let the change through. | Re-checked under lock (`lockWriteAccess`), like uploads. Regression test calls the write after a revoke. |
+| 40 | Low | A visitor reaching the app over plain HTTP through a proxy wasn't sent to HTTPS by the app itself. | 308 redirect to `PUBLIC_URL`. |
+| 41 | Low | The audit log was kept forever. | Kept a year. |
+| 42 | Low | `maximum-scale=1` stopped pinch-zoom on Android (WCAG 1.4.4). | Removed; phone inputs are 16px, so iOS doesn't zoom into them anyway. |
+
+Reliability fixes from the same audit: documents saved from the network drive never got an Office preview (the job wasn't queued); a job lost while enqueueing (a database blip) waited for the next worker restart (now an hourly recovery, with every media job idempotent); the upload finalizer's clean-up path sat in the same `try` as post-commit work, so a future error there could have deleted a committed file's bytes (moved out).
+
 ## Accepted risks
 
 | Severity | Item | Rationale / mitigation |
@@ -98,8 +119,10 @@
 | Low | PDFs viewed inline aren't served with `CSP: sandbox`, because built-in browser PDF viewers refuse to render under it. | Browser PDF engines run document scripts in their own sandbox without access to the page's origin. Every other type keeps the sandbox. |
 | Info | Every family member can see the names and emails of other members (share picker). | By design for a family app. |
 | Info | Device passwords don't require a two-factor code. | Standard for app passwords. Mitigated by high entropy, WebDAV-only scope, per-device revocation and the failure throttle. |
-| Info | WebDAV `LOCK` is advisory; two devices editing the same file can overwrite each other (last write wins). | Needed for Finder/Windows compatibility. Overwrites keep the file identity; old content is not versioned (future work). |
-| Info | There are no two-factor recovery codes. | An admin can reset a member's two-factor; the sole admin can use `cli reset-totp` on the server. |
+| Info | WebDAV `LOCK` is advisory; two devices editing the same file can overwrite each other (last write wins). | Needed for Finder/Windows compatibility. Overwrites keep the file identity, and what was overwritten is kept in Version history. |
+| Low | An admin can issue a password-reset link for a member, and could use it themselves to get into that account (a member who also uses two-factor would need the admin to reset that too). | Needed for forgotten passwords without email. Using it signs the member out everywhere (they'd notice), both steps are in the audit log, and it never skips two-factor. |
+| Low | A file request's link lets whoever has it use up to the request's size limit (5 GB by default) of the owner's storage. | Owner-chosen limit and expiry, 20 uploads in flight at most, per-IP rate limits, revocable at once (releasing what's in flight). |
+| Info | Older versions count toward the owner's storage, and the oldest are deleted automatically when the owner's own save wouldn't otherwise fit. | Versions are a safety net that shouldn't stop their owner saving (Nextcloud does the same). Other people's uploads, through a share or a file request, never clear them. |
 | Info | Session changes (disable, role change) are instant on a single server; with multiple app replicas, another replica may honour a revoked session for up to 30 s (cache TTL). | Single-replica by default; documented in the scaling path. |
 
 ## Deployment recommendations

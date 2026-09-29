@@ -10,17 +10,20 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 
 - **Private files for everyone.** Each person's **My Files** is theirs alone: nobody else (admins included) can see it unless they share something.
 - **Family Photos.** Trip albums for the whole family: give a trip a name, dates and who went, and everyone on it adds photos straight from their phone. Every family member can see every album and filter by person; each person's photos still count against their own storage.
-- **Accounts for the whole family.** Invite people with a link. Optionally allow only your family's email domain (e.g. `@smithfamily.com`) to be invited or sign in.
-- **Sign in with Face ID or Touch ID.** Passkeys (synced through iCloud Keychain or Google Password Manager), plus passwords with optional two-factor codes.
+- **Accounts for the whole family.** Invite people with a link. Optionally allow only your family's email domain (e.g. `@smithfamily.com`) to be invited or sign in. Forgotten password? An admin sends a one-time reset link; nobody needs to touch the server.
+- **Sign in with Face ID or Touch ID.** Passkeys (synced through iCloud Keychain or Google Password Manager), plus passwords with optional two-factor codes and recovery codes for a lost phone.
 - **Upload anything, from anywhere.** Big uploads are sent in pieces, survive a dropped Wi‑Fi connection, and resume where they left off. Drag in whole folders.
 - **Photos and videos look right.** Thumbnails for photos (including iPhone HEIC), videos and PDFs. The viewer works like a phone's photo app: swipe between photos, pinch or double-tap to zoom, swipe down to close.
-- **Share inside the family** (view or edit), or **with anyone** through a link with an optional password and expiry date.
+- **Share inside the family** (view or edit), or **with anyone** through a link with an optional password, expiry date and download limit.
+- **Ask anyone for files.** A file request link lets people without an account send files into a folder, or photos straight into a trip album. They see an upload page, never your files.
+- **Version history.** Save over a file from any device, or choose "Replace" when uploading one that's already there, and what it held is kept for 30 days to download or put back.
+- **Find things fast.** Recent files, Starred, and search that includes what's shared with you. Copying files and folders is instant.
 - **A real network drive.** Open your files in the iPhone/iPad Files app, macOS Finder or Windows Explorer (WebDAV), with a separate revocable password per device.
 - **Storage you can see and share out.** The admin screen shows where the space on your disks goes and how the family's space is split between people, and lets you hand out, even out and move allowances. Everyone sees how much space they have left.
 - **Grow storage by adding disks.** Plug in a new drive and add it from the admin screen, without restarting. Retire an old drive and every file is moved off it and checked first.
 - **Trash with undo**, a 30-day safety net before anything is gone for good.
 - **Your family's look.** Upload your own logo (also used as the home-screen icon), choose the word beside it and link back to your family website. Light and dark themes, and it installs to a phone's home screen like an app.
-- **Secure and private by default.** Two-factor and passkey sign-in, rate limiting, no open router ports (with Cloudflare Tunnel), uploaded files that can never run code in your browser, and it asks search engines not to list it. See the [security report](docs/security.md).
+- **Secure and private by default.** Two-factor and passkey sign-in, rate limiting, no open router ports (with Cloudflare Tunnel), uploaded files that can never run code in your browser, no tracking or analytics, and it asks search engines not to list it. A built-in Privacy page tells everyone what's kept and who can see what. See the [security report](docs/security.md).
 
 | Private files | Admin: storage and allowances |
 | --- | --- |

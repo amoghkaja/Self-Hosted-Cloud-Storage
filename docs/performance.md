@@ -34,7 +34,7 @@ Measured on the production build (`node dist/index.js`, Node 24, PostgreSQL 18) 
 | DOM rows rendered for 10,000 items | 17 (virtualized) |
 | Scroll through all 10,000 items (50 pages loaded on the way) | 2.6 s |
 | JS heap with 10,000 items loaded | 46 MB |
-| Initial JavaScript (gzipped) | ~185 KB, with admin, settings, preview and public pages loaded on demand |
+| Initial JavaScript and CSS (gzipped) | ~213 KB (204 KB JS + 9 KB CSS), with admin, settings, preview, public, sharing and version-history screens loaded on demand |
 
 Reproduce: `E2E_PERF_FOLDER=<folder id> pnpm e2e e2e/perf.spec.ts`.
 
@@ -50,6 +50,9 @@ Reproduce: `E2E_PERF_FOLDER=<folder id> pnpm e2e e2e/perf.spec.ts`.
 
 **Design choices that keep it fast:**
 
+- **Copies and repeat uploads cost nothing.** Copies, instant uploads and versions point at stored bytes that already exist, so they're immediate and take no disk (they still count toward the owner's quota).
+- **Branding is cached.** The logo (up to a few hundred KB in the database) is read once every few seconds, not on every page load, favicon and manifest request.
+
 - **Streaming end to end.** Uploads go from the socket straight into a pre-allocated file at the chunk's offset; downloads and zips stream from disk. Memory stays flat regardless of file size.
 - **Keyset pagination with a covering index** on `(parent_id, type, lower(name), id)`. Pages stay fast at any depth; offsets would degrade linearly.
 - **One query for permissions and breadcrumbs** (recursive CTE) instead of a query per ancestor.
@@ -60,7 +63,7 @@ Reproduce: `E2E_PERF_FOLDER=<folder id> pnpm e2e e2e/perf.spec.ts`.
   - The file list is virtualized against the window scroll.
   - Upload progress is batched to one update per animation frame, from a store outside React.
   - Thumbnails lazy-load and decode asynchronously in fixed-size boxes (no layout shift).
-  - Admin, settings, the previewer and the public link page are separate chunks.
+  - Admin, settings, the previewer, the public link page and dialogs opened on demand (sharing, version history) are separate chunks.
 
 ## Scaling recommendations
 

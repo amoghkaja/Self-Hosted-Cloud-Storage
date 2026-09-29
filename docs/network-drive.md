@@ -40,7 +40,8 @@ In GNOME Files / Nautilus: **Other Locations → Connect to Server** → `davs:/
 ## Good to know
 
 - **Deleting** from a network drive moves items to the website's **Trash**, so mistakes can be undone.
-- **Saving over a file** keeps its sharing and links; only the contents change.
+- **Saving over a file** keeps its sharing and links; only the contents change. What it held before is kept in **Version history** (in the file's menu on the website) for 30 days by default, so a save that went wrong can be undone. Apps that save by writing a temporary file and renaming it over the original (Word, Excel, LibreOffice) get the same treatment.
+- **Copying** a file or folder in Finder or Explorer is instant: the copy shares the stored bytes until one of them changes. It still counts toward the storage of whoever owns the folder it lands in.
 - **Large files through Cloudflare:** single files over 100 MB can't be uploaded through the network drive from outside your home (Cloudflare's per-request limit). Use the website's Upload button, which sends big files in pieces, or connect while on your home network / Tailscale, where there's no such limit.
 - **Offline:** the network drive needs a connection. It isn't a sync client like Dropbox; files open from the server.
 - Too many wrong passwords from one address lock that address out for a minute.

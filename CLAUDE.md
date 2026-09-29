@@ -26,6 +26,8 @@ Node 24+ is required. If `node -v` is older, put nvm's Node 24 first on PATH:
   - Writes re-check inside the transaction with `lockWriteAccess`.
   - An item the user can't see returns 404, not 403.
 - **Quota changes** run under the `QUOTA_LOCK` advisory lock (`modules/files/tree.ts`). Never update `used_bytes`/`reserved_bytes` outside it.
+- **File contents** change only through `replaceContent` (`modules/versions/service.ts`), which keeps the old contents as a version. Blobs are shared (instant uploads, copies, versions): delete one only with `blobUnused`/`deleteUnusedBlobs`, under the quota lock.
+- **Public links** have two kinds. Every route that shows content resolves the token with `resolveUnlocked(…, 'view')`; file requests (`'upload'`) must never reach one.
 - **File names never touch disk.** Blobs are stored by UUID, and names are validated in `packages/shared/src/names.ts`.
 - **Errors** are `AppError` with a stable `code` and come back as RFC 9457 problem+json.
 - **Browser entry:** web code imports `@familycloud/shared` (types plus helpers only). The server imports `@familycloud/shared/all` (runtime Zod schemas).

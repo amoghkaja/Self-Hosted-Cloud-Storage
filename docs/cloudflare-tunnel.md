@@ -41,7 +41,7 @@ Make sure `PUBLIC_URL=https://cloud.example.com` in `deploy/.env` (then `cd depl
 
 All of these are optional and free:
 
-- **SSL/TLS → Edge Certificates → Always Use HTTPS**: on.
+- **SSL/TLS → Edge Certificates → Always Use HTTPS**: on. (The app also sends anyone who arrives over plain `http://` to your `https://` address, but doing it at Cloudflare saves a round trip.)
 - **Caching → Cache Rules**: add a rule "URI Path starts with `/api/` or `/dav/`" → **Bypass cache**. The app already marks private responses `Cache-Control: private`; this rule is a second safeguard.
 - **Security → WAF → Rate limiting rules**: e.g. requests to `/api/v1/auth/` limited to 20 per minute per IP. The app enforces its own limits too.
 - **Zero Trust → Access → Applications**: protect `cloud.example.com/admin*` with a policy listing the admins' emails, for an extra sign-in in front of the admin pages.

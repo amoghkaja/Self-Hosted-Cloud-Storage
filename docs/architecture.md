@@ -41,6 +41,11 @@ The worker is a separate process so decoding a 50-megapixel photo or a 4K video 
 - A blob lives at `<volume>/blobs/<last-2-hex>/<prev-2-hex>/<uuidv7>` on exactly one volume (`blobs.volume_id`). UUIDv7 starts with a timestamp, so the directory fan-out uses the random tail.
 - Names never touch the filesystem, which eliminates path traversal and filename-encoding problems. Rename and move are single-row updates.
 - Case-insensitive unique names per folder are enforced by a partial unique index on `(parent_id, lower(name)) WHERE deleted_at IS NULL`. Names are NFC-normalized, so macOS and Windows spellings of "é" compare equal.
+- One blob can back several files and versions: an instant upload of bytes the uploader can already see, a copy, or older versions of a file. Each still counts toward its owner's storage. Bytes are deleted only once no file or version points at them (`blobUnused`), and every such deletion runs under the quota lock, so it can't race a new reference.
+
+### Versions
+
+A file's contents change in one place, `replaceContent` (network-drive saves, "Replace" on upload, restoring a version, an editor's save-by-rename over WebDAV). It points the file at the new blob and keeps the old one as a `file_versions` row, newest 50 per file. Versions count toward the owner's storage, expire after the admin's retention period (a nightly job), and the oldest make way automatically when the owner's own upload would otherwise not fit their quota (`withRoomFromVersions`, like Nextcloud). Someone else's upload (through a share or a file request) never clears another person's history. The file keeps its id throughout, so shares, links and album membership survive every save.
 
 ### Volumes
 
@@ -63,7 +68,7 @@ Uploads into a shared folder are charged to the folder's owner, because the tree
 
 ## Upload protocol
 
-Built around Cloudflare's limits (100 MB per request, 100 s per response):
+Built around Cloudflare's limits (100 MB per request, 100 s per response). With `onConflict: "replace"` the commit saves over the folder's file of that name instead of adding "name (1)" (see Versions).
 
 ```
 POST /uploads {parentId, name, size}      → authorize, reserve quota, pick volume,
@@ -90,7 +95,9 @@ A single function, `loadAccess(user, node)`, decides everything. In one recursiv
 - a share on a folder grants **view** or **edit** on that folder and everything below;
 - anything else returns **404**, whether the item doesn't exist or you just can't see it (no existence leaks).
 
-Changing where an item appears (rename, move, trash) needs edit access on its **parent**. So someone you shared a folder with can manage its contents but can't rename or delete the shared folder itself, which lives in your space. Moves across owners are refused because they would silently shift quota. Admins manage accounts and disks but **cannot read anyone's files**.
+Changing where an item appears (rename, move, trash) needs edit access on its **parent**. So someone you shared a folder with can manage its contents but can't rename or delete the shared folder itself, which lives in your space. Moves across owners are refused because they would silently shift quota. Every write through a share re-checks that edit access inside its transaction (`lockWriteAccess`), with the folder and granting share rows locked, so a revoke lands entirely before or after it. Admins manage accounts and disks but **cannot read anyone's files** (they can issue a password-reset link, which signs the person out and never skips their two-factor sign-in, and both are in the audit log).
+
+Older versions need **edit** access to see, download or restore (they may hold things the owner removed on purpose), and ownership to delete. **Public links** come in two kinds: *view* links reach their own subtree only; *upload* links (file requests) reach nothing at all: every view route refuses them, and an upload through one is tied to the request, re-checked when it commits, capped in size, and stopped the moment the request is revoked.
 
 ## Data model
 
@@ -102,12 +109,16 @@ Changing where an item appears (rename, move, trash) needs edit access on its **
 | `nodes` | Folder tree: owner, parent, name, blob, trash state (`deleted_at`, `trash_root_id`) |
 | `blobs` | Where bytes live: volume, size, SHA-256, thumbnail status |
 | `storage_volumes` | Disks: path, status (active/readonly/draining/retired), limit, reserve |
-| `upload_sessions`, `upload_chunks` | Resumable upload state |
+| `upload_sessions`, `upload_chunks` | Resumable upload state (plus "replace" and, for file requests, the link) |
 | `shares` | Family shares (view/edit) |
-| `share_links` | Public links: token hash + encrypted token (so owners can copy it again), optional password, expiry |
+| `share_links` | Public links: token hash + encrypted token (so owners can copy it again), kind (view or file request), optional password, expiry, download limit, request size limit, counters |
+| `file_versions` | Earlier contents of files (blob, size, who saved it, when replaced) |
+| `stars` | Starred items, per person |
+| `password_resets` | Hashed one-time reset links made by admins |
+| `recovery_codes` | Hashed single-use two-factor recovery codes |
 | `app_passwords` | Per-device WebDAV passwords (hashed) |
-| `settings` | Family limit, max file size, trash retention, default quota |
-| `audit_log` | Sign-ins, admin actions, sharing, deletions |
+| `settings` | Family limit, max file size, trash and version retention, default quota, allowed email domains, branding |
+| `audit_log` | Sign-ins, admin actions, sharing, deletions (kept a year) |
 
 Migrations are generated by drizzle-kit and applied automatically on start, guarded by an advisory lock so the app and worker can start together.
 
@@ -135,9 +146,11 @@ pg-boss queues live in PostgreSQL (no Redis). Jobs are retried with backoff; rec
 | `thumbnail`, `hash` | After each upload (and re-queued on worker start if missed) |
 | `drain-volume` | Admin clicks "Move files off & retire"; resumed on worker start |
 | `purge-trash` | Daily 03:17 (items older than the retention period) |
+| `purge-versions` | Daily 03:27 (older versions past their retention period) |
 | `reconcile-usage` | Daily 03:47 |
 | `expire-uploads` | Every 15 min (abandoned or crashed uploads release their reservation; temp files older than 2 days are removed) |
-| `cleanup-sessions` | Daily |
+| `cleanup-sessions` | Daily (also old invites and reset links, and audit entries older than a year) |
+| `recover-work` | Hourly: re-queues thumbnails, previews, streams and checksums whose job was lost. Every media job does nothing if its work is already done, so a second run is harmless |
 
 ## Scaling path
 

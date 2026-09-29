@@ -84,6 +84,10 @@ Allowances can be changed any time, one by one or all together with **Admin → 
 
 Each person's **My Files** is private. **Family Photos** is for trips: an album has a name, dates and who went, everyone on the trip adds photos, and the whole family can see it.
 
+**Someone forgot their password?** **Admin → People → ⋮ → Password reset link.** Send them the link; it works once, for 3 days, and they choose the new password themselves. It signs them out everywhere and never skips their two-factor sign-in. People who use two-factor also get recovery codes when they turn it on, for when a phone is lost.
+
+**Someone leaving?** Disable their account (**⋮ → Disable account**): they're signed out, can't sign in, and their public links stop working, but their files are kept. To delete everything of theirs for good, choose **⋮ → Delete account** afterwards and type their email to confirm.
+
 ## 6. Set up backups
 
 Do this before your family relies on it. A single disk will fail eventually. Follow [backup-restore.md](backup-restore.md): at minimum, run `scripts/backup.sh` nightly with an offsite restic repository.
@@ -91,6 +95,8 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 ## 7. Optional extras
 
 - **Your family's look:** **Admin → Settings → Branding** takes a logo (also the home-screen icon), the word beside it and a link to your family website.
+- **Privacy page:** every install has a **Privacy** page (linked from the sign-in page) that says what the app keeps and who can see what. Under **Branding** you can add who runs the server and how to reach you, and any terms of your own. If you host it for people outside your household, the law where you live may require this.
+- **Versions and trash:** **Admin → Settings** sets how long deleted items stay in the trash (30 days) and how long older versions of files are kept when they're saved over (30 days; 0 turns versions off).
 - **Network drive:** each person can connect their iPhone, iPad, Mac or Windows PC under **Settings → Network drive**. See [network-drive.md](network-drive.md).
 - **More disks:** [storage-and-disks.md](storage-and-disks.md).
 - **Protect the admin pages further:** with Cloudflare, add a Cloudflare Access policy for `/admin*` (Zero Trust → Access → Applications) so only listed emails can even load them.
@@ -118,7 +124,7 @@ Run these from the `deploy/` folder.
 | Follow logs | `docker compose logs -f app worker` |
 | Restart | `docker compose restart app worker` |
 | Stop everything | `docker compose down` |
-| Reset someone's password | `docker compose exec app node dist/cli.js reset-password --email them@example.com` |
+| Reset someone's password (easier: **Admin → People → Password reset link**) | `docker compose exec app node dist/cli.js reset-password --email them@example.com` |
 | Turn off someone's two-factor | `docker compose exec app node dist/cli.js reset-totp --email them@example.com` |
 | Recount storage usage | `docker compose exec app node dist/cli.js reconcile` |
 
