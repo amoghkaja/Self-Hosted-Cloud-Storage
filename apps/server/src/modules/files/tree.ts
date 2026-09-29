@@ -262,7 +262,9 @@ export async function moveNode(
 // ── trash ───────────────────────────────────────────────────────────────────
 
 /**
- * Moves a node and its live descendants to the trash as one restorable unit.
+ * Moves a node and its live descendants to the trash as one restorable unit, and revokes every
+ * public link into it for good: deleting something must end its links at once, and restoring it
+ * doesn't bring them back (share again if that's wanted).
  * The subtree's folders are locked first: an upload committing into one of them holds that
  * folder (lockWriteAccess), so it finishes before the trash, and the UPDATE (a new statement,
  * with a fresh snapshot) then takes its file along instead of leaving it live in a trashed
@@ -281,6 +283,10 @@ export async function trashSubtree(exec: Executor, nodeId: string): Promise<void
     await tx.execute(sql`
       SELECT id FROM nodes WHERE type = 'folder' AND id IN (${subtree})
       ORDER BY id FOR NO KEY UPDATE
+    `);
+    await tx.execute(sql`
+      UPDATE share_links SET revoked_at = now()
+      WHERE revoked_at IS NULL AND node_id IN (${subtree})
     `);
     await tx.execute(sql`
       UPDATE nodes SET deleted_at = now(), trash_root_id = ${nodeId}

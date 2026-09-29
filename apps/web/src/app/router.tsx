@@ -50,6 +50,13 @@ export const router = createBrowserRouter([
       { path: 'files', element: <FilesPage /> },
       { path: 'files/:folderId', element: <FilesPage /> },
       { path: 'shared', element: <SharedPage /> },
+      {
+        path: 'shared-by-me',
+        lazy: () =>
+          import('../features/sharing/SharedByMePage').then((m) => ({
+            Component: m.SharedByMePage,
+          })),
+      },
       { path: 'trash', element: <TrashPage /> },
       {
         path: 'photos',

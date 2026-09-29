@@ -1009,6 +1009,7 @@ export function AdminPage() {
       <h1 className="text-xl font-semibold">Admin</h1>
       <Tabs
         label="Admin sections"
+        sticky
         value={tab}
         onValueChange={(v) => setParams({ tab: v }, { replace: true })}
         items={[

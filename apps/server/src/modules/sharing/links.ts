@@ -8,19 +8,22 @@ import {
   PublicLinkInfo,
   type PublicNode,
   PublicNodeParams,
+  type Share,
+  SharedByMeItem,
   ShareLink,
   ThumbQuery,
   TokenParams,
   UnlockLinkBody,
 } from '@familycloud/shared/all';
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { AppContext } from '../../context';
-import { blobs, nodes, type ShareLinkRow, shareLinks, users } from '../../db/schema';
+import { blobs, nodes, type ShareLinkRow, shareLinks, shares, users } from '../../db/schema';
 import { audit } from '../../lib/audit';
 import { randomToken, sha256 } from '../../lib/crypto';
+import { toFileNode } from '../../lib/dto';
 import { AppError, notFound } from '../../lib/errors';
 import { isInlineSafe } from '../../lib/http';
 import { hashPassword, verifyPassword } from '../../lib/passwords';
@@ -229,6 +232,78 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     });
     return { ok: true as const };
   });
+
+  // Everything in the user's space that family or a link can currently reach: live links only
+  // (revoked and expired ones are gone), newest first.
+  app.get(
+    '/shared-by-me',
+    { schema: { response: { 200: z.object({ items: z.array(SharedByMeItem) }) } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      const mine = and(eq(nodes.ownerId, user.id), isNull(nodes.deletedAt));
+      const [linkRows, shareRows] = await Promise.all([
+        db
+          .select({ link: shareLinks })
+          .from(shareLinks)
+          .innerJoin(nodes, eq(nodes.id, shareLinks.nodeId))
+          .where(
+            and(
+              mine,
+              isNull(shareLinks.revokedAt),
+              or(isNull(shareLinks.expiresAt), sql`${shareLinks.expiresAt} > now()`),
+            ),
+          )
+          .orderBy(desc(shareLinks.createdAt)),
+        db
+          .select({
+            share: shares,
+            grantee: { id: users.id, displayName: users.displayName, email: users.email },
+          })
+          .from(shares)
+          .innerJoin(nodes, eq(nodes.id, shares.nodeId))
+          .innerJoin(users, eq(users.id, shares.granteeId))
+          .where(mine)
+          .orderBy(desc(shares.createdAt)),
+      ]);
+      const items = new Map<string, { people: Share[]; links: ShareLink[]; latest: number }>();
+      const entry = (nodeId: string, at: Date) => {
+        let e = items.get(nodeId);
+        if (!e) {
+          e = { people: [], links: [], latest: 0 };
+          items.set(nodeId, e);
+        }
+        e.latest = Math.max(e.latest, at.getTime());
+        return e;
+      };
+      for (const { link } of linkRows) {
+        entry(link.nodeId, link.createdAt).links.push(toLinkDto(ctx, link));
+      }
+      for (const { share, grantee } of shareRows) {
+        entry(share.nodeId, share.createdAt).people.push({
+          id: share.id,
+          nodeId: share.nodeId,
+          grantee,
+          permission: share.permission,
+          createdAt: toIso(share.createdAt),
+        });
+      }
+      if (items.size === 0) return { items: [] };
+      const nodeRows = await db
+        .select({ node: nodes, thumb: blobs.thumbStatus })
+        .from(nodes)
+        .leftJoin(blobs, eq(blobs.id, nodes.blobId))
+        .where(inArray(nodes.id, [...items.keys()]));
+      return {
+        items: nodeRows
+          .map((r) => ({
+            node: toFileNode({ ...r.node, thumb: r.thumb }),
+            ...items.get(r.node.id)!,
+          }))
+          .sort((a, b) => b.latest - a.latest)
+          .map(({ latest: _, ...item }) => item),
+      };
+    },
+  );
 
   // ── public (no account) ───────────────────────────────────────────────────
 

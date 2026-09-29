@@ -4,6 +4,7 @@ import { scrubUrl } from '../src/context';
 import { rateLimitKey } from '../src/lib/client-ip';
 import { Keyring } from '../src/lib/crypto';
 import { contentDisposition, isInlineSafe, parseRange } from '../src/lib/http';
+import { renderShell } from '../src/lib/shell';
 import { toIso } from '../src/lib/time';
 
 describe('parseRange', () => {
@@ -137,5 +138,28 @@ describe('request logging', () => {
     expect(out).not.toContain('INVITESECRET');
     expect(out).not.toContain('INVITEPAGE');
     expect(out).toContain('/public/links/[token]');
+  });
+});
+
+describe('renderShell', () => {
+  const html =
+    '<head><link rel="icon" href="/favicon.svg" type="image/svg+xml" />\n<link rel="apple-touch-icon" href="/apple-touch-icon.png" />\n<title>Family Cloud</title></head><body><noscript>Family Cloud needs JavaScript to run.</noscript></body>';
+  const opts = { appName: 'Kaja <Family> Cloud', publicUrl: 'https://cloud.example.com' };
+
+  it('uses the uploaded logo and name, escaped', () => {
+    const out = renderShell(html, { ...opts, logoVersion: 'v1', sharePage: false });
+    expect(out).toContain('<title>Kaja &#60;Family&#62; Cloud</title>');
+    expect(out).toContain('href="/api/v1/brand/icon/192?v=v1" type="image/png"');
+    expect(out).toContain('rel="apple-touch-icon" href="/api/v1/brand/icon/180?v=v1"');
+    expect(out).toContain('content="https://cloud.example.com/api/v1/brand/icon/512?v=v1"');
+    expect(out).not.toContain('/favicon.svg');
+    expect(out).toContain('<noscript>Kaja &#60;Family&#62; Cloud needs JavaScript');
+  });
+
+  it('keeps share-link previews generic, and falls back to the built-in icons', () => {
+    const out = renderShell(html, { ...opts, logoVersion: null, sharePage: true });
+    expect(out).toContain('<title>Shared with you · Kaja');
+    expect(out).toContain('href="/favicon.svg"');
+    expect(out).toContain('content="https://cloud.example.com/icon-512.png"');
   });
 });

@@ -30,3 +30,25 @@ export async function copyText(text: string): Promise<boolean> {
     previous?.focus?.({ preventScroll: true });
   }
 }
+
+/**
+ * Copies text that is still being fetched, such as a link being created. Safari only allows
+ * copying during the tap itself, so the clipboard write starts now with the text to follow;
+ * elsewhere it falls back to copying once the text arrives.
+ */
+export async function copyTextLater(text: Promise<string | null>): Promise<boolean> {
+  if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+    try {
+      const blob = text.then((t) => {
+        if (t === null) throw new Error('nothing to copy');
+        return new Blob([t], { type: 'text/plain' });
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+      return true;
+    } catch {
+      // Not supported with a pending value, or the text never came: try the plain way.
+    }
+  }
+  const t = await text.catch(() => null);
+  return t !== null && copyText(t);
+}

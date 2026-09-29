@@ -7,6 +7,7 @@ import {
   Menu,
   Search,
   Settings,
+  Share2,
   Shield,
   ShieldCheck,
   Trash2,
@@ -14,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useLogout, useSetupStatus } from '../api/queries';
 import { Avatar, DropdownMenu, IconButton } from '../components/ui';
@@ -32,6 +33,7 @@ const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
   { to: '/photos', label: 'Family Photos', icon: Images, end: false },
   { to: '/shared', label: 'Shared with me', icon: Users, end: true },
+  { to: '/shared-by-me', label: 'Shared by me', icon: Share2, end: true },
   { to: '/trash', label: 'Trash', icon: Trash2, end: true },
 ];
 
@@ -181,6 +183,19 @@ function UserMenu({ me }: { me: Me }) {
 export function AppShell({ me }: { me: Me }) {
   const [drawer, setDrawer] = useState(false);
   const location = useLocation();
+  const header = useRef<HTMLElement>(null);
+  // Sticky bars below the header (page tabs) sit at its real height, which varies with the
+  // notch and wrapping.
+  useEffect(() => {
+    const el = header.current;
+    if (!el) return;
+    const set = () =>
+      document.documentElement.style.setProperty('--header-h', `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on navigation to close the drawer
   useEffect(() => setDrawer(false), [location.pathname]);
 
@@ -234,7 +249,10 @@ export function AppShell({ me }: { me: Me }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Installed on an iPhone home screen the page runs under the status bar: pad for it. */}
-        <header className="sticky top-0 z-30 flex min-h-16 items-center gap-2 border-b border-border bg-bg/90 pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur md:gap-3 md:px-6">
+        <header
+          ref={header}
+          className="sticky top-0 z-30 flex min-h-16 items-center gap-2 border-b border-border bg-bg/90 pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur md:gap-3 md:px-6"
+        >
           <IconButton
             label="Open menu"
             icon={<Menu />}

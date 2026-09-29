@@ -20,6 +20,7 @@ import type {
   Settings,
   SetupStatus,
   Share,
+  SharedByMeItem,
   SharedWithMeItem,
   ShareLink,
   SharePermission,
@@ -57,6 +58,7 @@ export const qk = {
   childrenSorted: (id: string, sort: SortKey, dir: SortDir) => ['children', id, sort, dir] as const,
   trash: ['trash'] as const,
   shared: ['shared-with-me'] as const,
+  sharedByMe: ['shared-by-me'] as const,
   searches: ['search'] as const,
   search: (q: string) => ['search', q] as const,
   shares: (id: string) => ['shares', id] as const,
@@ -244,6 +246,7 @@ function invalidateNodeViews(qc: QueryClient, folders: (string | null | undefine
   }
   void qc.invalidateQueries({ queryKey: qk.nodes });
   void qc.invalidateQueries({ queryKey: qk.searches });
+  void qc.invalidateQueries({ queryKey: qk.sharedByMe });
 }
 
 /** Applies `fn` to every cached page of a folder listing (optimistic updates). */
@@ -415,6 +418,13 @@ export function useSharedWithMe() {
   });
 }
 
+export function useSharedByMe() {
+  return useQuery({
+    queryKey: qk.sharedByMe,
+    queryFn: () => api<{ items: SharedByMeItem[] }>('/shared-by-me'),
+  });
+}
+
 export function useDirectory() {
   return useQuery({
     queryKey: qk.directory,
@@ -432,7 +442,11 @@ export function useShares(nodeId: string) {
 
 export function useShareMutations(nodeId: string) {
   const qc = useQueryClient();
-  const refresh = () => qc.invalidateQueries({ queryKey: qk.shares(nodeId) });
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: qk.shares(nodeId) }),
+      qc.invalidateQueries({ queryKey: qk.sharedByMe }),
+    ]);
   return {
     add: useMutation({
       mutationFn: (body: { userId: string; permission: SharePermission }) =>
@@ -460,7 +474,11 @@ export function useLinks(nodeId: string) {
 
 export function useLinkMutations(nodeId: string) {
   const qc = useQueryClient();
-  const refresh = () => qc.invalidateQueries({ queryKey: qk.links(nodeId) });
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: qk.links(nodeId) }),
+      qc.invalidateQueries({ queryKey: qk.sharedByMe }),
+    ]);
   return {
     create: useMutation({
       mutationFn: (body: {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
+import { addMember, Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
 
 let env: TestEnv;
 let owner: Client;
@@ -106,14 +106,45 @@ describe('public share links', () => {
     const expired = await guest.get(`/public/links/${tokenOf(soon.body.url)}`);
     expect(expired.status).toBe(410);
 
+    // Deleting ends every link into the deleted items for good, including links to files
+    // inside a deleted folder; restoring doesn't bring them back.
     const live = await owner.post(`/nodes/${folder}/links`, {});
+    const toFile = await owner.post(`/nodes/${inside}/links`, {});
     await owner.del(`/nodes/${folder}`);
     expect((await guest.get(`/public/links/${tokenOf(live.body.url)}`)).status).toBe(404);
     await owner.post(`/trash/${folder}/restore`);
-    expect((await guest.get(`/public/links/${tokenOf(live.body.url)}`)).status).toBe(200);
+    expect((await guest.get(`/public/links/${tokenOf(live.body.url)}`)).status).toBe(404);
+    expect((await guest.get(`/public/links/${tokenOf(toFile.body.url)}`)).status).toBe(404);
+    expect((await owner.get(`/nodes/${folder}/links`)).body.items).toEqual([]);
+  });
+
+  it('lists what the user shares, with live links and family members', async () => {
+    const other = await addMember(env, owner, 'aunt@example.com');
+    const note = (await uploadFile(owner, root, 'plan.txt', Buffer.from('plan'))).final!.body.node;
+    const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+    const link = await owner.post(`/nodes/${note.id}/links`, { expiresAt });
+    const dead = await owner.post(`/nodes/${note.id}/links`, {});
+    await owner.del(`/links/${dead.body.id}`);
+    await owner.post(`/nodes/${outside}/shares`, { userId: other.me.id, permission: 'view' });
+
+    const res = await owner.get('/shared-by-me');
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      res.body.items.map((i: { node: { name: string } }) => [i.node.name, i]),
+    );
+    expect(byName['plan.txt'].links).toEqual([
+      expect.objectContaining({ id: link.body.id, expiresAt, url: link.body.url }),
+    ]);
+    expect(byName['taxes.txt'].people).toEqual([
+      expect.objectContaining({ grantee: expect.objectContaining({ id: other.me.id }) }),
+    ]);
+    // Deleted items and other people's things are not listed.
+    expect(byName.Trip).toBeUndefined();
+    expect((await other.client.get('/shared-by-me')).body.items).toEqual([]);
   });
 
   it('the owner can list links again later with a working URL', async () => {
+    await owner.post(`/nodes/${folder}/links`, {});
     const list = await owner.get(`/nodes/${folder}/links`);
     expect(list.body.items.length).toBeGreaterThan(0);
     const guest = new Client(env.app);

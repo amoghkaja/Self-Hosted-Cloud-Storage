@@ -45,6 +45,14 @@ export const ShareLink = z.object({
 });
 export type ShareLink = z.infer<typeof ShareLink>;
 
+/** Something the user shares with family or by link, for the "Shared by me" page. */
+export const SharedByMeItem = z.object({
+  node: FileNode,
+  people: z.array(Share),
+  links: z.array(ShareLink),
+});
+export type SharedByMeItem = z.infer<typeof SharedByMeItem>;
+
 export const CreateLinkBody = z.object({
   password: z.string().min(4).max(128).optional(),
   expiresAt: IsoDate.nullable().optional(),

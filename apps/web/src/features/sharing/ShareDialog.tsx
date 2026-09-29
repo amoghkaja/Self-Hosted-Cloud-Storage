@@ -1,5 +1,5 @@
-import type { SharePermission } from '@familycloud/shared';
-import { Check, Copy, Link2, Trash2, Users } from 'lucide-react';
+import type { ShareLink as ShareLinkDto, SharePermission } from '@familycloud/shared';
+import { Check, Copy, Link2, Share, Trash2, Users } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import {
@@ -24,8 +24,10 @@ import {
   Tabs,
   toast,
 } from '../../components/ui';
-import { copyText } from '../../lib/clipboard';
-import { formatDate, formatRelative } from '../../lib/format';
+import { copyText, copyTextLater } from '../../lib/clipboard';
+import { cn } from '../../lib/cn';
+import { formatDateTime, formatRelative } from '../../lib/format';
+import { canShareNatively, shareNatively } from '../../lib/share';
 
 const onError = (err: unknown) => {
   toast.error(errorMessage(err));
@@ -47,6 +49,76 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         else toast.error('Copy failed. Select the link and copy it manually.');
       }}
     />
+  );
+}
+
+function ShareButton({ url, title }: { url: string; title: string }) {
+  if (!canShareNatively()) return null;
+  return (
+    <IconButton
+      label="Share…"
+      icon={<Share />}
+      onClick={async () => {
+        if ((await shareNatively({ title, url })) === 'unavailable') {
+          toast.error('Sharing is not available here. Copy the link instead.');
+        }
+      }}
+    />
+  );
+}
+
+/** "Expires in 6 days · Oct 5, 2:00 PM": how long is left, and exactly when. */
+export function expiryLabel(expiresAt: string | null) {
+  return expiresAt
+    ? `Expires ${formatRelative(expiresAt)} · ${formatDateTime(expiresAt)}`
+    : 'Never expires';
+}
+
+/** One public link with its settings, time left, and share/copy/delete actions. */
+export function LinkRow({
+  link: l,
+  title,
+  highlight = false,
+  deleting,
+  onDelete,
+}: {
+  link: ShareLinkDto;
+  title: string;
+  highlight?: boolean;
+  deleting: boolean;
+  onDelete: () => void;
+}) {
+  const soon = l.expiresAt && new Date(l.expiresAt).getTime() - Date.now() < 86_400_000;
+  return (
+    <li
+      className={cn(
+        'flex items-center gap-2 rounded-xl border px-3 py-2',
+        highlight ? 'border-accent bg-accent-soft' : 'border-border',
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        {l.url ? (
+          <p className="truncate font-mono text-xs select-all">{l.url}</p>
+        ) : (
+          <p className="text-xs text-muted">
+            Address unavailable after a server key change. Delete and recreate it.
+          </p>
+        )}
+        <div className="mt-1 flex flex-wrap gap-1">
+          <Badge tone={soon ? 'danger' : l.expiresAt ? 'warning' : 'neutral'}>
+            {expiryLabel(l.expiresAt)}
+          </Badge>
+          {l.hasPassword && <Badge>Password</Badge>}
+          {!l.allowDownload && <Badge>View only</Badge>}
+          {l.lastAccessedAt && (
+            <Badge tone="accent">Opened {formatRelative(l.lastAccessedAt)}</Badge>
+          )}
+        </div>
+      </div>
+      {l.url && <ShareButton url={l.url} title={title} />}
+      {l.url && <CopyButton text={l.url} label="Copy link" />}
+      <IconButton label="Delete link" icon={<Trash2 />} disabled={deleting} onClick={onDelete} />
+    </li>
   );
 }
 
@@ -161,8 +233,9 @@ const EXPIRY = [
   { value: '30', label: '30 days' },
 ];
 
-function LinkTab({ nodeId }: { nodeId: string }) {
+function LinkTab({ nodeId, name }: { nodeId: string; name: string }) {
   const links = useLinks(nodeId);
+  const [fresh, setFresh] = useState<string | null>(null);
   const m = useLinkMutations(nodeId);
   const [password, setPassword] = useState('');
   const [usePassword, setUsePassword] = useState(false);
@@ -171,16 +244,23 @@ function LinkTab({ nodeId }: { nodeId: string }) {
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
+    const created = m.create.mutateAsync({
+      allowDownload,
+      ...(usePassword && password ? { password } : {}),
+      expiresAt: days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null,
+    });
+    // Started during the tap: browsers only allow copying (and sharing) straight after one.
+    const copied = copyTextLater(created.then((l) => l.url));
     try {
-      const link = await m.create.mutateAsync({
-        allowDownload,
-        ...(usePassword && password ? { password } : {}),
-        expiresAt: days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null,
-      });
+      const link = await created;
       setPassword('');
-      toast.success(
-        link.url && (await copyText(link.url)) ? 'Link created and copied' : 'Link created',
-      );
+      setFresh(link.id);
+      const didCopy = await copied;
+      if (link.url && canShareNatively()) {
+        const outcome = await shareNatively({ title: name, url: link.url });
+        if (outcome !== 'unavailable') return;
+      }
+      toast.success(didCopy ? 'Link created and copied' : 'Link created');
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -238,37 +318,14 @@ function LinkTab({ nodeId }: { nodeId: string }) {
         {(d) => (
           <ul className="flex flex-col gap-2">
             {d.items.map((l) => (
-              <li
+              <LinkRow
                 key={l.id}
-                className="flex items-center gap-2 rounded-xl border border-border px-3 py-2"
-              >
-                <div className="min-w-0 flex-1">
-                  {l.url ? (
-                    <p className="truncate font-mono text-xs select-all">{l.url}</p>
-                  ) : (
-                    <p className="text-xs text-muted">
-                      Address unavailable after a server key change. Delete and recreate it.
-                    </p>
-                  )}
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {l.hasPassword && <Badge>Password</Badge>}
-                    {!l.allowDownload && <Badge>View only</Badge>}
-                    <Badge tone={l.expiresAt ? 'warning' : 'neutral'}>
-                      {l.expiresAt ? `Expires ${formatDate(l.expiresAt)}` : 'No expiry'}
-                    </Badge>
-                    {l.lastAccessedAt && (
-                      <Badge tone="accent">Opened {formatRelative(l.lastAccessedAt)}</Badge>
-                    )}
-                  </div>
-                </div>
-                {l.url && <CopyButton text={l.url} label="Copy link" />}
-                <IconButton
-                  label="Delete link"
-                  icon={<Trash2 />}
-                  disabled={m.revoke.isPending && m.revoke.variables === l.id}
-                  onClick={() => m.revoke.mutate(l.id, { onError })}
-                />
-              </li>
+                link={l}
+                title={name}
+                highlight={l.id === fresh}
+                deleting={m.revoke.isPending && m.revoke.variables === l.id}
+                onDelete={() => m.revoke.mutate(l.id, { onError })}
+              />
             ))}
           </ul>
         )}
@@ -293,7 +350,11 @@ export function ShareDialog({
         onValueChange={setTab}
         items={[
           { value: 'family', label: 'Family', content: <FamilyTab nodeId={node.id} /> },
-          { value: 'link', label: 'Public link', content: <LinkTab nodeId={node.id} /> },
+          {
+            value: 'link',
+            label: 'Public link',
+            content: <LinkTab nodeId={node.id} name={node.name} />,
+          },
         ]}
       />
     </Dialog>

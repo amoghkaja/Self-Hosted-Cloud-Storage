@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { Tabs as T } from 'radix-ui';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { cn } from '../../lib/cn';
 
@@ -60,29 +60,46 @@ export interface TabItem {
   content: ReactNode;
 }
 
-/** Arrow keys move between tabs (roving focus), as per the WAI-ARIA tabs pattern. */
+/**
+ * Arrow keys move between tabs (roving focus), as per the WAI-ARIA tabs pattern. On phones the
+ * tabs share the width, and the strip only scrolls sideways if they truly don't fit (with the
+ * active one kept in view). `sticky` pins the strip under the app header while the page scrolls.
+ */
 export function Tabs({
   items,
   value,
   onValueChange,
   label,
+  sticky = false,
 }: {
   items: TabItem[];
   value: string;
   onValueChange: (v: string) => void;
   label: string;
+  sticky?: boolean;
 }) {
+  const list = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs when the active tab changes
+  useEffect(() => {
+    list.current
+      ?.querySelector<HTMLElement>('[data-state="active"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [value]);
   return (
     <T.Root value={value} onValueChange={onValueChange} className="flex flex-col gap-5">
       <T.List
+        ref={list}
         aria-label={label}
-        className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1 [scrollbar-width:none]"
+        className={cn(
+          'flex overflow-x-auto overscroll-x-contain border-b border-border [scrollbar-width:none]',
+          sticky && 'sticky top-(--header-h,0px) z-20 -mx-3 bg-bg px-3 md:mx-0 md:px-0',
+        )}
       >
         {items.map((t) => (
           <T.Trigger
             key={t.value}
             value={t.value}
-            className="relative h-10 pointer-coarse:h-11 shrink-0 rounded-t-md px-3 text-sm font-medium text-muted hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent"
+            className="relative h-10 pointer-coarse:h-11 min-w-fit flex-1 rounded-t-md px-2 text-sm font-medium whitespace-nowrap text-muted hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:inset-x-2 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent sm:flex-none sm:px-3"
           >
             {t.label}
           </T.Trigger>

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { API_PREFIX, ErrorCode } from '@familycloud/shared/all';
 import cookie from '@fastify/cookie';
@@ -13,6 +13,7 @@ import {
 import type { AppContext } from './context';
 import { storageVolumes } from './db/schema';
 import { createClientIpResolver } from './lib/client-ip';
+import { renderShell } from './lib/shell';
 import { brandingRoutes, loadBranding } from './modules/admin/branding';
 import { adminRoutes } from './modules/admin/routes';
 import { passkeyRoutes } from './modules/auth/passkeys';
@@ -137,6 +138,7 @@ export async function buildApp(
 
   const webDist = ctx.config.webDistDir;
   const hasWeb = !!webDist && existsSync(path.join(webDist, 'index.html'));
+  const shellHtml = hasWeb ? readFileSync(path.join(webDist, 'index.html'), 'utf8') : '';
   if (hasWeb) {
     await app.register(fastifyStatic, {
       root: webDist,
@@ -150,6 +152,18 @@ export async function buildApp(
       },
     });
   }
+
+  // Browsers and link previewers ask for this without reading the page.
+  app.get('/favicon.ico', { config: { rateLimit: false } }, async (_req, reply) => {
+    const logo = (await loadBranding(ctx)).logo;
+    return reply
+      .header('Cache-Control', 'public, max-age=86400')
+      .redirect(
+        logo
+          ? `${API_PREFIX}/brand/icon/192?v=${encodeURIComponent(logo.version)}`
+          : '/icon-192.png',
+      );
+  });
 
   // Web-app manifest built from APP_NAME, so "Add to Home Screen" shows the family's name.
   app.get('/manifest.webmanifest', { config: { rateLimit: false } }, async (_req, reply) => {
@@ -188,15 +202,30 @@ export async function buildApp(
 
   app.setNotFoundHandler(async (req, reply) => {
     const accept = req.headers.accept ?? '';
+    // Link previewers (WhatsApp and others) often ask for */* rather than HTML; a page address
+    // has no file extension, a missing asset does.
+    const wantsPage =
+      accept.includes('text/html') ||
+      (accept.includes('*/*') && !path.extname(req.url.split('?')[0] ?? ''));
     if (
       hasWeb &&
       (req.method === 'GET' || req.method === 'HEAD') &&
       !req.url.startsWith('/api/') &&
-      accept.includes('text/html')
+      wantsPage
     ) {
       // Client-side routes (/files/…, /s/<token>) all render the SPA shell.
-      reply.header('Cache-Control', 'no-cache');
-      return reply.sendFile('index.html');
+      const logo = (await loadBranding(ctx)).logo;
+      return reply
+        .header('Cache-Control', 'no-cache')
+        .type('text/html; charset=utf-8')
+        .send(
+          renderShell(shellHtml, {
+            appName: ctx.config.appName,
+            publicUrl: ctx.config.publicUrl,
+            logoVersion: logo?.version ?? null,
+            sharePage: req.url.startsWith('/s/'),
+          }),
+        );
     }
     return sendProblem(reply, 404, ErrorCode.NOT_FOUND, 'Not found');
   });
