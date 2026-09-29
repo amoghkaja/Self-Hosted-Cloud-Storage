@@ -1,5 +1,6 @@
 import {
   type AdminUser,
+  emailAllowed,
   formatBytes,
   GiB,
   percent,
@@ -806,9 +807,32 @@ function Storage() {
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
-function SettingsForm({ initial, usable }: { initial: Settings; usable: number }) {
+/** "kajafamily.com, @example.org" → ["kajafamily.com", "example.org"] */
+const parseDomains = (text: string) => [
+  ...new Set(
+    text
+      .split(/[\s,;]+/)
+      .map((d) => d.trim().replace(/^@/, '').toLowerCase())
+      .filter(Boolean),
+  ),
+];
+
+function SettingsForm({
+  initial,
+  usable,
+  people,
+}: {
+  initial: Settings;
+  usable: number;
+  people: AdminUser[];
+}) {
   const m = useAdminMutations();
+  const { me } = useShell();
   const [s, setS] = useState(initial);
+  const [domainsText, setDomainsText] = useState(initial.allowedEmailDomains.join(', '));
+  const domains = parseDomains(domainsText);
+  const lockedOut = people.filter((u) => !u.disabled && !emailAllowed(domains, u.email));
+  const selfLockout = !emailAllowed(domains, me.email);
   // Raw text, so the field can be cleared and retyped (a number state would snap back to 1).
   const [retention, setRetention] = useState(String(initial.trashRetentionDays));
   const retentionDays = Number(retention);
@@ -818,9 +842,13 @@ function SettingsForm({ initial, usable }: { initial: Settings; usable: number }
       : 'Enter a whole number of days from 1 to 365.';
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    if (retentionError) return;
+    if (retentionError || selfLockout) return;
     try {
-      await m.updateSettings.mutateAsync({ ...s, trashRetentionDays: retentionDays });
+      await m.updateSettings.mutateAsync({
+        ...s,
+        trashRetentionDays: retentionDays,
+        allowedEmailDomains: domains,
+      });
       toast.success('Settings saved');
     } catch (err) {
       toast.error(errorMessage(err));
@@ -858,10 +886,45 @@ function SettingsForm({ initial, usable }: { initial: Settings; usable: number }
         error={retention === '' ? null : retentionError}
         required
       />
+      <div className="flex flex-col gap-2">
+        <TextField
+          label="Only allow these email domains"
+          value={domainsText}
+          onChange={(e) => setDomainsText(e.target.value)}
+          placeholder="e.g. kajafamily.com"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          error={
+            selfLockout
+              ? `Your own address (${me.email}) isn't covered, so you'd be locked out.`
+              : null
+          }
+          hint={
+            domains.length
+              ? `Only @${domains.join(', @')} addresses can be invited or sign in (web, passkeys and the network drive).`
+              : 'Empty: any address can be invited. Add your family domain to allow only those.'
+          }
+        />
+        {lockedOut.length > 0 && !selfLockout && (
+          <p
+            role="status"
+            className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+          >
+            <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
+            <span>
+              {lockedOut.map((u) => `${u.displayName} (${u.email})`).join(', ')}{' '}
+              {lockedOut.length === 1 ? 'is' : 'are'} outside these domains and will be signed out
+              when you save.
+            </span>
+          </p>
+        )}
+      </div>
       <Button
         type="submit"
         variant="primary"
         loading={m.updateSettings.isPending}
+        disabled={selfLockout}
         className="self-start"
       >
         Save settings
@@ -876,7 +939,13 @@ function AppSettings() {
     <div className="flex flex-col gap-4">
       <Card title="Settings">
         <QueryState query={q} loading={<Skeleton className="h-64" />}>
-          {(d) => <SettingsForm initial={d.settings} usable={d.totals.usableTotalBytes} />}
+          {(d) => (
+            <SettingsForm
+              initial={d.settings}
+              usable={d.totals.usableTotalBytes}
+              people={d.users}
+            />
+          )}
         </QueryState>
       </Card>
       <BrandingCard />

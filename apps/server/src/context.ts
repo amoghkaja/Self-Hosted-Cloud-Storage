@@ -87,6 +87,7 @@ export async function createContext(
       onError: (err) => log.error({ err }, 'job queue error'),
     }));
 
+  const settings = new SettingsStore(db);
   return {
     config,
     log,
@@ -95,9 +96,9 @@ export async function createContext(
     volumes,
     jobs,
     keys: new Keyring(config.secretKey),
-    settings: new SettingsStore(db),
+    settings,
     sessions: new SessionService(db),
-    davAuth: new DavAuthenticator(db),
+    davAuth: new DavAuthenticator(db, settings),
     async close() {
       await jobs.stop();
       await client.end({ timeout: 5 });

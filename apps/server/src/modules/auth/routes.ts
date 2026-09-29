@@ -1,7 +1,9 @@
 import {
   AcceptInviteBody,
   ChangePasswordBody,
+  domainMessage,
   ErrorCode,
+  emailAllowed,
   IdParams,
   InviteInfo,
   LoginBody,
@@ -176,8 +178,14 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       const [user] = await db.select().from(users).where(eq(users.email, req.body.email));
       const attempts = user ? await claimAttempt(user.id) : 0;
       const ok = await verifyPassword(user?.passwordHash ?? null, req.body.password);
-      if (!user || !ok || user.disabledAt) {
-        if (user) await auditFailure(user.id, req, !ok ? 'password' : 'disabled', attempts);
+      // Outside the allowed email domains the answer is the same as a wrong password, so the
+      // rule doesn't reveal which accounts exist.
+      const allowed = emailAllowed((await ctx.settings.get()).allowedEmailDomains, req.body.email);
+      if (!user || !ok || user.disabledAt || !allowed) {
+        if (user) {
+          const reason = !ok ? 'password' : user.disabledAt ? 'disabled' : 'email_domain';
+          await auditFailure(user.id, req, reason, attempts);
+        }
         throw invalidCredentials();
       }
       // With two-factor on, the counter keeps running until the code is also correct, so knowing
@@ -210,7 +218,13 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
       }
       const [user] = await db.select().from(users).where(eq(users.id, claims.uid));
-      if (!user || user.disabledAt || !user.totpEnabled || !user.totpSecretEnc) {
+      if (
+        !user ||
+        user.disabledAt ||
+        !user.totpEnabled ||
+        !user.totpSecretEnc ||
+        !emailAllowed((await ctx.settings.get()).allowedEmailDomains, user.email)
+      ) {
         throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
       }
       const attempts = await claimAttempt(user.id);
@@ -452,6 +466,10 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       const { invite } = await findInvite(req.params.token);
       if (invite.email && invite.email !== req.body.email) {
         throw new AppError(400, ErrorCode.INVITE_INVALID, `This invite is for ${invite.email}`);
+      }
+      const { allowedEmailDomains } = await ctx.settings.get();
+      if (!emailAllowed(allowedEmailDomains, req.body.email)) {
+        throw new AppError(400, ErrorCode.EMAIL_DOMAIN, domainMessage(allowedEmailDomains));
       }
       const passwordHash = await hashPassword(req.body.password);
       const user = await db.transaction(async (tx) => {

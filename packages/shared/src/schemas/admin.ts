@@ -50,6 +50,24 @@ export const Settings = z.object({
   trashRetentionDays: z.number().int().min(1).max(365),
   /** Quota pre-filled for new invites. Null = unlimited. */
   defaultQuotaBytes: Bytes.max(MAX_BYTES).nullable(),
+  /**
+   * Only addresses at these domains may be invited or sign in (web, passkeys, network drive).
+   * Empty = any address.
+   */
+  allowedEmailDomains: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(
+          /^(?=.{3,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/,
+          {
+            message: 'Enter domains like example.com',
+          },
+        ),
+    )
+    .max(10),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -58,6 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxFileSizeBytes: null,
   trashRetentionDays: 30,
   defaultQuotaBytes: 50 * GiB,
+  allowedEmailDomains: [],
 };
 
 export const UpdateSettingsBody = Settings.partial();

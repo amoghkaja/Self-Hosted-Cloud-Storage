@@ -1,10 +1,12 @@
 import { randomInt } from 'node:crypto';
+import { emailAllowed } from '@familycloud/shared/all';
 import { and, eq, isNull } from 'drizzle-orm';
 import { LRUCache } from 'lru-cache';
 import type { Db } from '../../db/client';
 import { appPasswords, type UserRow, users } from '../../db/schema';
 import { rateLimitKey } from '../../lib/client-ip';
 import { sha256 } from '../../lib/crypto';
+import type { SettingsStore } from '../../lib/settings';
 
 // No 0/o/1/l/i so passwords are easy to read and type on a phone keyboard.
 const ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -40,7 +42,10 @@ export class DavAuthenticator {
   private readonly cache = new LRUCache<string, CachedAuth>({ max: 1000, ttl: 60_000 });
   private readonly failures = new LRUCache<string, number>({ max: 10_000, ttl: 60_000 });
 
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly settings: SettingsStore,
+  ) {}
 
   /** Failures count per rateLimitKey: an IPv6 client could otherwise rotate within its /64. */
   isThrottled(ip: string): boolean {
@@ -50,8 +55,9 @@ export class DavAuthenticator {
   async authenticate(header: string | undefined, ip: string): Promise<UserRow | null> {
     if (!header?.startsWith('Basic ')) return null;
     const key = sha256(header);
+    const { allowedEmailDomains } = await this.settings.get();
     const hit = this.cache.get(key);
-    if (hit) return hit.user;
+    if (hit) return emailAllowed(allowedEmailDomains, hit.user.email) ? hit.user : this.fail(ip);
 
     let decoded: string;
     try {
@@ -64,6 +70,7 @@ export class DavAuthenticator {
     const email = decoded.slice(0, sep).trim().toLowerCase();
     const password = decoded.slice(sep + 1);
     if (!email || password.length < 10 || password.length > 100) return this.fail(ip);
+    if (!emailAllowed(allowedEmailDomains, email)) return this.fail(ip);
 
     const [row] = await this.db
       .select({ user: users, app: appPasswords })

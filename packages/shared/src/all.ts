@@ -1,5 +1,6 @@
 // Server entry: helpers plus the runtime Zod schemas used for request/response validation.
 export * from './constants';
+export * from './emails';
 export * from './errors';
 export * from './format';
 export * from './mime';

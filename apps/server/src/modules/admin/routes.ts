@@ -7,7 +7,9 @@ import {
   AuditQuery,
   CreateInviteBody,
   CreateInviteResponse,
+  domainMessage,
   ErrorCode,
+  emailAllowed,
   formatBytes,
   IdParams,
   Ok,
@@ -151,6 +153,12 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     if (allocated > ceiling) {
       warnings.push(
         `Quotas add up to ${formatBytes(allocated)}, more than the ${formatBytes(ceiling)} available. That's fine as long as not everyone fills up.`,
+      );
+    }
+    const outside = active.filter((u) => !emailAllowed(settings.allowedEmailDomains, u.email));
+    if (outside.length) {
+      warnings.push(
+        `${outside.map((u) => u.displayName).join(', ')} can't sign in: ${domainMessage(settings.allowedEmailDomains)}`,
       );
     }
     for (const u of active) {
@@ -319,6 +327,9 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       const token = randomToken(24);
       const quota =
         req.body.quotaBytes === undefined ? settings.defaultQuotaBytes : req.body.quotaBytes;
+      if (req.body.email && !emailAllowed(settings.allowedEmailDomains, req.body.email)) {
+        throw badRequest(domainMessage(settings.allowedEmailDomains), ErrorCode.EMAIL_DOMAIN);
+      }
       if (req.body.email) {
         const [exists] = await db
           .select({ id: users.id })
@@ -579,8 +590,28 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { body: UpdateSettingsBody, response: { 200: Settings } } },
     async (req) => {
       const { user: admin } = requireAdmin(req);
+      const domains = req.body.allowedEmailDomains
+        ? [...new Set(req.body.allowedEmailDomains)]
+        : undefined;
+      if (domains && !emailAllowed(domains, admin.email)) {
+        throw badRequest(
+          `Your own address (${admin.email}) isn't in that list, so you'd be locked out. Add its domain too.`,
+          ErrorCode.EMAIL_DOMAIN,
+        );
+      }
       const before = await ctx.settings.get();
-      const next = await ctx.settings.update(req.body);
+      const next = await ctx.settings.update(
+        domains ? { ...req.body, allowedEmailDomains: domains } : req.body,
+      );
+      if (domains?.length) {
+        // Anyone now outside the list is signed out everywhere, including the network drive.
+        const everyone = await db.select({ id: users.id, email: users.email }).from(users);
+        for (const u of everyone.filter((x) => !emailAllowed(domains, x.email))) {
+          await ctx.sessions.revokeAll(db, u.id);
+          ctx.sessions.forgetUser(u.id);
+          ctx.davAuth.forgetUser(u.id);
+        }
+      }
       await audit(db, {
         actorId: admin.id,
         action: 'admin.settings_updated',

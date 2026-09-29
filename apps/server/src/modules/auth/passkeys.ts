@@ -1,5 +1,6 @@
 import {
   ErrorCode,
+  emailAllowed,
   LoginResponse,
   Ok,
   Passkey,
@@ -269,6 +270,9 @@ export const passkeyRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       if (!result.verified) throw invalid();
       if (row.user.disabledAt) throw invalid('This account is disabled. Ask a family admin.');
+      if (!emailAllowed((await ctx.settings.get()).allowedEmailDomains, row.user.email)) {
+        throw invalid('This account can’t sign in here. Ask a family admin.');
+      }
 
       await db
         .update(passkeys)
