@@ -64,6 +64,13 @@
       "when": 1790683252138,
       "tag": "0008_csv_previews",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790683990907,
+      "tag": "0009_revoke_trashed_links",
+      "breakpoints": true
     }
   ]
 }
