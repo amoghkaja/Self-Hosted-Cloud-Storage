@@ -1,5 +1,10 @@
-import type { ShareLink as ShareLinkDto, SharePermission } from '@familycloud/shared';
-import { Link2, Trash2, Users } from 'lucide-react';
+import {
+  formatBytes,
+  GiB,
+  type ShareLink as ShareLinkDto,
+  type SharePermission,
+} from '@familycloud/shared';
+import { Inbox, Link2, Trash2, Users } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import {
@@ -22,6 +27,7 @@ import {
   Skeleton,
   SwitchField,
   Tabs,
+  TextField,
   toast,
 } from '../../components/ui';
 import { copyTextLater } from '../../lib/clipboard';
@@ -64,6 +70,9 @@ export function LinkRow({
       )}
     >
       <div className="min-w-0 flex-1">
+        {l.kind === 'upload' && l.title && (
+          <p className="truncate text-sm font-medium">{l.title}</p>
+        )}
         {l.url ? (
           <p className="truncate font-mono text-xs select-all">{l.url}</p>
         ) : (
@@ -72,11 +81,26 @@ export function LinkRow({
           </p>
         )}
         <div className="mt-1 flex flex-wrap gap-1">
+          {l.kind === 'upload' && <Badge tone="accent">File request</Badge>}
           <Badge tone={soon ? 'danger' : l.expiresAt ? 'warning' : 'neutral'}>
             {expiryLabel(l.expiresAt)}
           </Badge>
           {l.hasPassword && <Badge>Password</Badge>}
-          {!l.allowDownload && <Badge>View only</Badge>}
+          {l.kind === 'view' && !l.allowDownload && <Badge>View only</Badge>}
+          {l.kind === 'upload' && (
+            <Badge>
+              {l.uploadCount === 1 ? '1 file received' : `${l.uploadCount} files received`}
+              {l.maxUploadBytes !== null &&
+                ` · ${formatBytes(l.uploadBytes)} of ${formatBytes(l.maxUploadBytes)}`}
+            </Badge>
+          )}
+          {l.kind === 'view' && (l.downloadCount > 0 || l.maxDownloads !== null) && (
+            <Badge>
+              {l.maxDownloads !== null
+                ? `${l.downloadCount} of ${l.maxDownloads} downloads`
+                : `Downloaded ${l.downloadCount}×`}
+            </Badge>
+          )}
           {l.lastAccessedAt && (
             <Badge tone="accent">Opened {formatRelative(l.lastAccessedAt)}</Badge>
           )}
@@ -200,19 +224,51 @@ const EXPIRY = [
   { value: '30', label: '30 days' },
 ];
 
-function LinkTab({ nodeId, name }: { nodeId: string; name: string }) {
+const REQUEST_LIMITS = [
+  { value: String(GiB), label: 'Up to 1 GB' },
+  { value: String(5 * GiB), label: 'Up to 5 GB' },
+  { value: String(20 * GiB), label: 'Up to 20 GB' },
+  { value: '', label: 'No limit (only my storage)' },
+];
+
+const DOWNLOAD_LIMITS = [
+  { value: '', label: 'No limit' },
+  { value: '1', label: 'After 1 download' },
+  { value: '5', label: 'After 5 downloads' },
+  { value: '10', label: 'After 10 downloads' },
+  { value: '25', label: 'After 25 downloads' },
+];
+
+function LinkTab({
+  nodeId,
+  name,
+  kind,
+}: {
+  nodeId: string;
+  name: string;
+  /** "view": a public link to see it. "upload": a file request into this folder. */
+  kind: 'view' | 'upload';
+}) {
   const links = useLinks(nodeId);
   const [fresh, setFresh] = useState<string | null>(null);
   const m = useLinkMutations(nodeId);
+  const request = kind === 'upload';
+  const [title, setTitle] = useState('');
   const [password, setPassword] = useState('');
   const [usePassword, setUsePassword] = useState(false);
   const [days, setDays] = useState('7');
   const [allowDownload, setAllowDownload] = useState(true);
+  const [limit, setLimit] = useState('');
+  const [takeUpTo, setTakeUpTo] = useState(String(5 * GiB));
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
     const created = m.create.mutateAsync({
+      kind,
       allowDownload,
+      ...(request && title.trim() ? { title: title.trim() } : {}),
+      ...(request ? { maxUploadBytes: takeUpTo ? Number(takeUpTo) : null } : {}),
+      ...(!request && limit ? { maxDownloads: Number(limit) } : {}),
       ...(usePassword && password ? { password } : {}),
       expiresAt: days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null,
     });
@@ -237,21 +293,68 @@ function LinkTab({ nodeId, name }: { nodeId: string; name: string }) {
     <div className="flex flex-col gap-5">
       <form onSubmit={create} className="flex flex-col gap-3 rounded-xl border border-border p-4">
         <p className="text-sm text-muted">
-          Anyone with the link can open it, even without an account.
+          {request
+            ? "Anyone with the link can send files into this folder, even without an account. They can't see what's in it."
+            : 'Anyone with the link can open it, even without an account.'}
         </p>
-        <SelectField label="Link expires" value={days} onChange={(e) => setDays(e.target.value)}>
+        {request && (
+          <TextField
+            label="What are you asking for?"
+            placeholder="e.g. Photos from the wedding"
+            maxLength={120}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            hint="Shown to the people you send the link to. Files count toward your storage."
+          />
+        )}
+        <SelectField
+          label={request ? 'Stop taking files' : 'Link expires'}
+          value={days}
+          onChange={(e) => setDays(e.target.value)}
+        >
           {EXPIRY.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
           ))}
         </SelectField>
-        <SwitchField
-          label="Allow downloads"
-          description="Turn off to allow viewing only."
-          checked={allowDownload}
-          onCheckedChange={setAllowDownload}
-        />
+        {request && (
+          <SelectField
+            label="How much it takes"
+            value={takeUpTo}
+            onChange={(e) => setTakeUpTo(e.target.value)}
+            hint="In total, from everyone with the link."
+          >
+            {REQUEST_LIMITS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        {!request && (
+          <>
+            <SwitchField
+              label="Allow downloads"
+              description="Turn off to allow viewing only."
+              checked={allowDownload}
+              onCheckedChange={setAllowDownload}
+            />
+            {allowDownload && (
+              <SelectField
+                label="Stop working"
+                value={limit}
+                onChange={(e) => setLimit(e.target.value)}
+              >
+                {DOWNLOAD_LIMITS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </SelectField>
+            )}
+          </>
+        )}
         <SwitchField
           label="Require a password"
           checked={usePassword}
@@ -269,31 +372,33 @@ function LinkTab({ nodeId, name }: { nodeId: string; name: string }) {
         <Button
           type="submit"
           variant="primary"
-          icon={<Link2 size={16} />}
+          icon={request ? <Inbox size={16} /> : <Link2 size={16} />}
           loading={m.create.isPending}
           disabled={usePassword && password.length < 4}
         >
-          Create link
+          {request ? 'Create request link' : 'Create link'}
         </Button>
       </form>
       <QueryState
         query={links}
         loading={<Skeleton className="h-16" />}
-        isEmpty={(d) => d.items.length === 0}
+        isEmpty={(d) => d.items.every((l) => l.kind !== kind)}
         empty={null}
       >
         {(d) => (
           <ul className="flex flex-col gap-2">
-            {d.items.map((l) => (
-              <LinkRow
-                key={l.id}
-                link={l}
-                title={name}
-                highlight={l.id === fresh}
-                deleting={m.revoke.isPending && m.revoke.variables === l.id}
-                onDelete={() => m.revoke.mutate(l.id, { onError })}
-              />
-            ))}
+            {d.items
+              .filter((l) => l.kind === kind)
+              .map((l) => (
+                <LinkRow
+                  key={l.id}
+                  link={l}
+                  title={name}
+                  highlight={l.id === fresh}
+                  deleting={m.revoke.isPending && m.revoke.variables === l.id}
+                  onDelete={() => m.revoke.mutate(l.id, { onError })}
+                />
+              ))}
           </ul>
         )}
       </QueryState>
@@ -305,7 +410,7 @@ export function ShareDialog({
   node,
   onClose,
 }: {
-  node: { id: string; name: string };
+  node: { id: string; name: string; type?: 'file' | 'folder' };
   onClose: () => void;
 }) {
   const [tab, setTab] = useState('family');
@@ -320,8 +425,17 @@ export function ShareDialog({
           {
             value: 'link',
             label: 'Public link',
-            content: <LinkTab nodeId={node.id} name={node.name} />,
+            content: <LinkTab nodeId={node.id} name={node.name} kind="view" />,
           },
+          ...(node.type === 'folder'
+            ? [
+                {
+                  value: 'request',
+                  label: 'Request files',
+                  content: <LinkTab nodeId={node.id} name={node.name} kind="upload" />,
+                },
+              ]
+            : []),
         ]}
       />
     </Dialog>

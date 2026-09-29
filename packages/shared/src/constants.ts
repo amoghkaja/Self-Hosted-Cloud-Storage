@@ -9,6 +9,9 @@ export type ThumbSize = (typeof THUMB_SIZES)[number];
 
 export const NAME_MAX_LENGTH = 255;
 
+/** How much a file request takes in total unless its owner picks otherwise. */
+export const DEFAULT_REQUEST_LIMIT_BYTES = 5 * 1024 * 1024 * 1024;
+
 /** Older versions kept per file; the oldest goes when a file is saved again (like Google Drive's 100). */
 export const MAX_VERSIONS_PER_FILE = 50;
 export const PASSWORD_MIN_LENGTH = 10;

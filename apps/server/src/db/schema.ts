@@ -52,6 +52,8 @@ export const uploadStatus = pgEnum('upload_status', [
   'expired',
 ]);
 export const sharePermission = pgEnum('share_permission', ['view', 'edit']);
+/** A public link lets people see what's shared (view), or only send files into a folder (upload). */
+export const shareLinkKind = pgEnum('share_link_kind', ['view', 'upload']);
 
 export const users = pgTable(
   'users',
@@ -298,6 +300,8 @@ export const uploadSessions = pgTable(
     nodeId: uuid('node_id'),
     /** Save over a file of the same name in the folder (keeping its old version) instead of "name (1)". */
     replaceExisting: boolean('replace_existing').notNull().default(false),
+    /** Sent by someone without an account through this file request. */
+    linkId: uuid('link_id').references((): AnyPgColumn => shareLinks.id, { onDelete: 'set null' }),
     status: uploadStatus('status').notNull().default('uploading'),
     expiresAt: ts('expires_at').notNull(),
     createdAt: ts('created_at').notNull().defaultNow(),
@@ -350,7 +354,19 @@ export const shareLinks = pgTable(
     /** AES-GCM encrypted token so the owner can copy the link again later. */
     tokenEnc: text('token_enc').notNull(),
     passwordHash: text('password_hash'),
+    kind: shareLinkKind('kind').notNull().default('view'),
+    /** File requests: what's being asked for ("Photos from the wedding"). */
+    title: text('title'),
     allowDownload: boolean('allow_download').notNull().default(true),
+    /** Files downloaded through the link (previews and streaming don't count). */
+    downloadCount: integer('download_count').notNull().default(0),
+    /** The link stops working after this many downloads. */
+    maxDownloads: integer('max_downloads'),
+    /** File requests: files received, and their size. */
+    uploadCount: integer('upload_count').notNull().default(0),
+    uploadBytes: bytes('upload_bytes').notNull().default(0),
+    /** File requests: stop taking files past this total (null: only the owner's quota). */
+    maxUploadBytes: bytes('max_upload_bytes'),
     expiresAt: ts('expires_at'),
     revokedAt: ts('revoked_at'),
     lastAccessedAt: ts('last_accessed_at'),

@@ -1,7 +1,9 @@
 import {
   CreateLinkBody,
+  DEFAULT_REQUEST_LIMIT_BYTES,
   ErrorCode,
   IdParams,
+  type LinkKind,
   Ok,
   PublicFolder,
   PublicFolderQuery,
@@ -21,7 +23,15 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { LRUCache } from 'lru-cache';
 import { z } from 'zod';
 import type { AppContext } from '../../context';
-import { blobs, nodes, type ShareLinkRow, shareLinks, shares, users } from '../../db/schema';
+import {
+  blobs,
+  nodes,
+  type ShareLinkRow,
+  shareLinks,
+  shares,
+  uploadSessions,
+  users,
+} from '../../db/schema';
 import { audit } from '../../lib/audit';
 import { randomToken, sha256 } from '../../lib/crypto';
 import { toFileNode } from '../../lib/dto';
@@ -40,6 +50,7 @@ import {
   sendZip,
 } from '../files/serve';
 import { listChildren } from '../files/tree';
+import { releaseUpload } from '../uploads/service';
 
 const UNLOCK_TTL = 12 * 60 * 60;
 const COOKIE_PATH = '/api/v1/public/links/';
@@ -64,9 +75,16 @@ function toLinkDto(ctx: AppContext, l: ShareLinkRow) {
   return {
     id: l.id,
     nodeId: l.nodeId,
+    kind: l.kind,
+    title: l.title,
     url,
     hasPassword: l.passwordHash !== null,
     allowDownload: l.allowDownload,
+    downloadCount: l.downloadCount,
+    maxDownloads: l.maxDownloads,
+    uploadCount: l.uploadCount,
+    uploadBytes: l.uploadBytes,
+    maxUploadBytes: l.maxUploadBytes,
     expiresAt: toIsoOrNull(l.expiresAt),
     createdAt: toIso(l.createdAt),
     lastAccessedAt: toIsoOrNull(l.lastAccessedAt),
@@ -97,16 +115,26 @@ async function loadNode(ctx: AppContext, nodeId: string): Promise<NodeWithBlob |
 }
 
 /** Resolves a public token. Unknown, revoked and trashed targets all look identical (404). */
-async function resolveLink(ctx: AppContext, req: FastifyRequest, token: string) {
+export async function resolveLink(ctx: AppContext, req: FastifyRequest, token: string) {
   const [row] = await ctx.db
     .select({ link: shareLinks, sharedBy: users.displayName })
     .from(shareLinks)
     .innerJoin(nodes, eq(nodes.id, shareLinks.nodeId))
     .innerJoin(users, eq(users.id, nodes.ownerId))
-    .where(and(eq(shareLinks.tokenHash, sha256(token)), isNull(shareLinks.revokedAt)));
+    .where(
+      and(
+        eq(shareLinks.tokenHash, sha256(token)),
+        isNull(shareLinks.revokedAt),
+        // A disabled account's links stop too (it may have been disabled for a reason).
+        isNull(users.disabledAt),
+      ),
+    );
   if (!row) throw notFound('Link');
   if (row.link.expiresAt && row.link.expiresAt.getTime() < Date.now()) {
     throw new AppError(410, ErrorCode.LINK_EXPIRED, 'This link has expired');
+  }
+  if (row.link.maxDownloads !== null && row.link.downloadCount >= row.link.maxDownloads) {
+    throw new AppError(410, ErrorCode.LINK_EXPIRED, 'This link has reached its download limit');
   }
   const root = await loadNode(ctx, row.link.nodeId);
   if (!root) throw notFound('Link');
@@ -125,10 +153,44 @@ async function resolveLink(ctx: AppContext, req: FastifyRequest, token: string) 
   return { link: row.link, sharedBy: row.sharedBy, root, unlocked };
 }
 
-async function resolveUnlocked(ctx: AppContext, req: FastifyRequest, token: string) {
+/**
+ * A link of `kind`, unlocked. A file request never shows what's in its folder, so every "view"
+ * route asks for kind 'view' and treats a request's token as unknown.
+ */
+export async function resolveUnlocked(
+  ctx: AppContext,
+  req: FastifyRequest,
+  token: string,
+  kind: LinkKind,
+) {
   const r = await resolveLink(ctx, req, token);
+  if (r.link.kind !== kind) throw notFound('Link');
   if (!r.unlocked) throw new AppError(401, ErrorCode.LINK_LOCKED, 'This link needs a password');
   return r;
+}
+
+/**
+ * Counts a download through a link, refusing it once the link's download limit is used up
+ * (checked and counted in one statement, so parallel downloads can't overshoot). A download
+ * resumed part-way, or a HEAD, continues one already counted.
+ */
+async function countDownload(ctx: AppContext, req: FastifyRequest, linkId: string) {
+  if (req.method === 'HEAD') return;
+  const range = req.headers.range;
+  if (range && !/^bytes=0-/.test(range.trim())) return;
+  const [counted] = await ctx.db
+    .update(shareLinks)
+    .set({ downloadCount: sql`${shareLinks.downloadCount} + 1` })
+    .where(
+      and(
+        eq(shareLinks.id, linkId),
+        sql`(${shareLinks.maxDownloads} IS NULL OR ${shareLinks.downloadCount} < ${shareLinks.maxDownloads})`,
+      ),
+    )
+    .returning({ id: shareLinks.id });
+  if (!counted) {
+    throw new AppError(410, ErrorCode.LINK_EXPIRED, 'This link has reached its download limit');
+  }
 }
 
 /** Finds `nodeId` inside the link's subtree and returns breadcrumbs relative to the link root. */
@@ -195,15 +257,29 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       if (req.body.expiresAt && new Date(req.body.expiresAt).getTime() <= Date.now()) {
         throw new AppError(400, ErrorCode.VALIDATION, 'Expiry must be in the future');
       }
+      const request = req.body.kind === 'upload';
+      if (request && a.node.type !== 'folder') {
+        throw new AppError(400, ErrorCode.VALIDATION, 'Files can only be requested into a folder');
+      }
       const token = randomToken(24);
       const [row] = await db
         .insert(shareLinks)
         .values({
           nodeId: a.node.id,
+          kind: req.body.kind,
+          title: request ? (req.body.title ?? null) : null,
           tokenHash: sha256(token),
           tokenEnc: ctx.keys.encrypt('link', token),
           passwordHash: req.body.password ? await hashPassword(req.body.password) : null,
-          allowDownload: req.body.allowDownload,
+          // A request never lets anyone see or download what's in the folder.
+          allowDownload: request ? false : req.body.allowDownload,
+          maxDownloads: request ? null : (req.body.maxDownloads ?? null),
+          // A request can't fill the disks for everyone even if its link gets around.
+          maxUploadBytes: request
+            ? req.body.maxUploadBytes === undefined
+              ? DEFAULT_REQUEST_LIMIT_BYTES
+              : req.body.maxUploadBytes
+            : null,
           expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null,
           createdBy: user.id,
         })
@@ -216,8 +292,10 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
         ip: req.clientIp,
         meta: {
           linkId: row!.id,
+          kind: req.body.kind,
           password: !!req.body.password,
           expiresAt: req.body.expiresAt ?? null,
+          maxDownloads: row!.maxDownloads,
         },
       });
       return toLinkDto(ctx, row!);
@@ -236,6 +314,17 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       .update(shareLinks)
       .set({ revokedAt: new Date() })
       .where(eq(shareLinks.id, row.link.id));
+    // Uploads still coming in through a file request stop now and give back the space they held.
+    const open = await db
+      .select({ id: uploadSessions.id })
+      .from(uploadSessions)
+      .where(
+        and(
+          eq(uploadSessions.linkId, row.link.id),
+          inArray(uploadSessions.status, ['uploading', 'finalizing']),
+        ),
+      );
+    for (const s of open) await releaseUpload(ctx, s.id, 'aborted');
     await audit(db, {
       actorId: user.id,
       action: 'link.revoked',
@@ -328,12 +417,17 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const r = await resolveLink(ctx, req, req.params.token);
+      const request = r.link.kind === 'upload';
       return {
+        kind: r.link.kind,
+        // Like the item's name on a view link, a request's title can be private.
+        title: r.unlocked ? r.link.title : null,
         locked: !r.unlocked,
         allowDownload: r.link.allowDownload,
         expiresAt: toIsoOrNull(r.link.expiresAt),
         sharedBy: r.sharedBy,
-        node: r.unlocked ? toPublicNode(r.root) : null,
+        // A file request doesn't even say what its folder is called.
+        node: r.unlocked && !request ? toPublicNode(r.root) : null,
       };
     },
   );
@@ -393,7 +487,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      const r = await resolveUnlocked(ctx, req, req.params.token);
+      const r = await resolveUnlocked(ctx, req, req.params.token, 'view');
       const target = await nodeWithinLink(ctx, r.root.id, req.query.folderId ?? r.root.id);
       if (target?.node.type !== 'folder') throw notFound('Folder');
       const page = await listChildren(db, target.node.id, {
@@ -420,7 +514,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   async function publicFile(req: FastifyRequest, token: string, nodeId: string) {
-    const r = await resolveUnlocked(ctx, req, token);
+    const r = await resolveUnlocked(ctx, req, token, 'view');
     const target = await nodeWithinLink(ctx, r.root.id, nodeId);
     if (!target) throw notFound('File');
     return { ...r, node: target.node };
@@ -444,6 +538,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
         throw new AppError(403, ErrorCode.FORBIDDEN, 'Downloads are turned off for this link');
       }
       if (n.type !== 'file' || !n.blobId || !n.volumeId) throw notFound('File');
+      if (!inline) await countDownload(ctx, req, r.link.id);
       return sendBlob(
         ctx,
         req,
@@ -515,6 +610,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
         throw new AppError(403, ErrorCode.FORBIDDEN, 'Downloads are turned off for this link');
       }
       const n = r.node;
+      await countDownload(ctx, req, r.link.id);
       return sendZip(
         ctx,
         req,

@@ -1,14 +1,20 @@
 import { formatBytes } from '@familycloud/shared';
 import { ChevronDown, CircleAlert, CircleCheck, RotateCcw, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { UploadItem } from '../../api/upload-manager';
+import type { UploadItem, UploadManager } from '../../api/upload-manager';
 import { uploadManager, useUploads } from '../../app/providers';
 import { announce, IconButton, Progress } from '../../components/ui';
 import { cn } from '../../lib/cn';
 
 // Memoized: the manager keeps an unchanged item's snapshot object, so a progress tick only
 // re-renders the row that moved.
-const Row = memo(function Row({ item }: { item: UploadItem }) {
+export const UploadRow = memo(function UploadRow({
+  item,
+  manager = uploadManager,
+}: {
+  item: UploadItem;
+  manager?: UploadManager;
+}) {
   const pct = item.size
     ? Math.round((item.loaded / item.size) * 100)
     : item.status === 'done'
@@ -55,7 +61,7 @@ const Row = memo(function Row({ item }: { item: UploadItem }) {
           size="sm"
           label={`Retry ${item.name}`}
           icon={<RotateCcw />}
-          onClick={() => uploadManager.retry(item.id)}
+          onClick={() => manager.retry(item.id)}
         />
       )}
       {(item.status === 'queued' || item.status === 'uploading') && (
@@ -63,7 +69,7 @@ const Row = memo(function Row({ item }: { item: UploadItem }) {
           size="sm"
           label={`Cancel ${item.name}`}
           icon={<X />}
-          onClick={() => uploadManager.cancel(item.id)}
+          onClick={() => manager.cancel(item.id)}
         />
       )}
     </li>
@@ -175,7 +181,7 @@ export function UploadPanel() {
       {!collapsed && (
         <ul className="max-h-72 divide-y divide-border overflow-y-auto">
           {items.map((i) => (
-            <Row key={i.id} item={i} />
+            <UploadRow key={i.id} item={i} />
           ))}
         </ul>
       )}

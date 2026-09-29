@@ -1,10 +1,11 @@
-import type { AlbumPhoto } from '@familycloud/shared';
+import { type AlbumPhoto, GiB, type ShareLink } from '@familycloud/shared';
 import {
   ArrowLeft,
   Download,
   EllipsisVertical,
   ImagePlus,
   Images,
+  Inbox,
   Pencil,
   Play,
   Trash2,
@@ -12,7 +13,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { apiUrl, errorMessage } from '../../api/client';
+import { api, apiUrl, errorMessage } from '../../api/client';
 import { albumFolder, useAlbum, useAlbumMutations, useAlbumPhotos } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { uploadManager } from '../../app/providers';
@@ -20,16 +21,19 @@ import {
   Avatar,
   Button,
   ConfirmDialog,
+  Dialog,
   DropdownMenu,
   EmptyState,
   IconButton,
   QueryState,
+  SelectField,
   Skeleton,
   toast,
 } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
 import { triggerDownload } from '../files/actions';
 import type { PreviewItem, PreviewSource } from '../files/PreviewModal';
+import { LinkBox } from '../sharing/LinkActions';
 import { TripDialog, tripDates } from './TripForm';
 
 const PreviewModal = lazy(() => import('../files/PreviewModal'));
@@ -71,6 +75,96 @@ function Tile({ p, albumId, onOpen }: { p: AlbumPhoto; albumId: string; onOpen: 
   );
 }
 
+/**
+ * A file request into the caller's own folder for this album: relatives without an account send
+ * their photos straight into the family album (they count toward the caller's storage).
+ */
+function AskForPhotosDialog({
+  albumId,
+  title,
+  onClose,
+}: {
+  albumId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [days, setDays] = useState('30');
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    setBusy(true);
+    try {
+      const { folderId } = await albumFolder(albumId);
+      const link = await api<ShareLink>(`/nodes/${folderId}/links`, {
+        json: {
+          kind: 'upload',
+          title: `Photos for “${title}”`,
+          allowDownload: false,
+          // Trips bring videos: more room than a request's usual 5 GB.
+          maxUploadBytes: 20 * GiB,
+          expiresAt: days ? new Date(Date.now() + Number(days) * 86_400_000).toISOString() : null,
+        },
+      });
+      setUrl(link.url);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Ask for photos"
+      size="md"
+      footer={
+        url ? (
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" loading={busy} onClick={create}>
+              Create link
+            </Button>
+          </>
+        )
+      }
+    >
+      {url ? (
+        <div className="flex flex-col gap-3 text-sm">
+          <p>
+            Send this to anyone who has photos from the trip. They don't need an account, and they
+            can't see the album.
+          </p>
+          <LinkBox url={url} title={`Photos for “${title}”`} copyLabel="Copy link" />
+          <p className="text-xs text-muted">
+            Stop it any time from Shared by me. What they send counts toward your storage.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 text-sm">
+          <p>
+            Get a link for friends and relatives to send their photos and videos straight into this
+            album, without an account. They only see an upload page, never the album itself.
+          </p>
+          <SelectField
+            label="Take photos for"
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+          >
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="">No end date</option>
+          </SelectField>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 export function AlbumPage() {
   const { albumId = '' } = useParams();
   const { me } = useShell();
@@ -84,6 +178,7 @@ export function AlbumPage() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [asking, setAsking] = useState(false);
   usePageTitle(album.data?.title ?? 'Photos');
 
   const items = useMemo(() => photos.data?.pages.flatMap((p) => p.items) ?? [], [photos.data]);
@@ -216,6 +311,16 @@ export function AlbumPage() {
                     disabled: a.photoCount === 0,
                     onSelect: () => triggerDownload(apiUrl(`/albums/${a.id}/zip`)),
                   },
+                  ...(a.canContribute
+                    ? [
+                        {
+                          id: 'ask',
+                          label: 'Ask for photos…',
+                          icon: <Inbox />,
+                          onSelect: () => setAsking(true),
+                        },
+                      ]
+                    : []),
                   ...(a.canEdit
                     ? [
                         {
@@ -289,6 +394,9 @@ export function AlbumPage() {
                 source={source}
               />
             </Suspense>
+          )}
+          {asking && (
+            <AskForPhotosDialog albumId={a.id} title={a.title} onClose={() => setAsking(false)} />
           )}
           {editing && (
             <TripDialog

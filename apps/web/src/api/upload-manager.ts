@@ -1,4 +1,10 @@
-import type { ChunkResult, FileNode, UploadSession } from '@familycloud/shared';
+import type {
+  ChunkResult,
+  FileNode,
+  PublicChunkResult,
+  PublicUploadSession,
+  UploadSession,
+} from '@familycloud/shared';
 import { ApiError, api, apiUrl } from './client';
 
 export type UploadStatus = 'queued' | 'uploading' | 'finalizing' | 'done' | 'error' | 'canceled';
@@ -619,7 +625,45 @@ export class UploadManager {
   }
 }
 
-/** Browser transport: JSON via fetch, chunks via XHR (the only API with upload progress). */
+/** Sends one chunk with XHR (the only browser API that reports upload progress). */
+function putChunkXhr<T>(
+  path: string,
+  data: Blob,
+  onProgress: (loaded: number) => void,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    // An already-aborted signal never fires 'abort' again: don't start sending at all.
+    if (signal.aborted) return reject(aborted());
+    const xhr = new XMLHttpRequest();
+    const onAbort = () => xhr.abort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    xhr.onloadend = () => signal.removeEventListener('abort', onAbort);
+    xhr.open('PUT', apiUrl(path));
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => {
+      let body: { detail?: string; code?: string } = {};
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as T);
+      else
+        reject(
+          new ApiError(
+            xhr.status,
+            (body.code ?? 'INTERNAL_ERROR') as never,
+            body.detail ?? `Upload failed (${xhr.status})`,
+          ),
+        );
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK_ERROR', 'Connection lost'));
+    xhr.onabort = () => reject(aborted());
+    xhr.send(data);
+  });
+}
+
+/** Browser transport: JSON via fetch, chunks via XHR. */
 export const httpTransport: UploadTransport = {
   createUpload: (body) => api<UploadSession>('/uploads', { json: body }),
   getUpload: (id) => api<UploadSession>(`/uploads/${id}`),
@@ -629,33 +673,63 @@ export const httpTransport: UploadTransport = {
   instantUpload: async (body) =>
     (await api<{ node: FileNode | null }>('/uploads/instant', { json: body })).node,
   putChunk: (sessionId, index, data, onProgress, signal) =>
-    new Promise((resolve, reject) => {
-      // An already-aborted signal never fires 'abort' again: don't start sending at all.
-      if (signal.aborted) return reject(aborted());
-      const xhr = new XMLHttpRequest();
-      const onAbort = () => xhr.abort();
-      signal.addEventListener('abort', onAbort, { once: true });
-      xhr.onloadend = () => signal.removeEventListener('abort', onAbort);
-      xhr.open('PUT', apiUrl(`/uploads/${sessionId}/chunks/${index}`));
-      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-      xhr.upload.onprogress = (e) => onProgress(e.loaded);
-      xhr.onload = () => {
-        let body: { detail?: string; code?: string } & Partial<ChunkResult> = {};
-        try {
-          body = JSON.parse(xhr.responseText);
-        } catch {}
-        if (xhr.status >= 200 && xhr.status < 300) resolve(body as ChunkResult);
-        else
-          reject(
-            new ApiError(
-              xhr.status,
-              (body.code ?? 'INTERNAL_ERROR') as never,
-              body.detail ?? `Upload failed (${xhr.status})`,
-            ),
-          );
-      };
-      xhr.onerror = () => reject(new ApiError(0, 'NETWORK_ERROR', 'Connection lost'));
-      xhr.onabort = () => reject(aborted());
-      xhr.send(data);
-    }),
+    putChunkXhr<ChunkResult>(`/uploads/${sessionId}/chunks/${index}`, data, onProgress, signal),
 };
+
+/**
+ * Sending files through a file request (no account). The server never says where a file went,
+ * only that it arrived, so finished uploads get a stand-in node for the manager to show.
+ * `from` is the sender's name, read when each upload starts.
+ */
+export function requestTransport(token: string, from: () => string): UploadTransport {
+  const base = `/public/links/${token}/uploads`;
+  const arrived = (s: { id: string; name: string; size: number }): FileNode => {
+    const now = new Date().toISOString();
+    return {
+      id: s.id,
+      type: 'file',
+      name: s.name,
+      size: s.size,
+      mimeType: null,
+      parentId: null,
+      ownerId: '',
+      thumb: 'none',
+      createdAt: now,
+      updatedAt: now,
+    };
+  };
+  const session = (s: PublicUploadSession): UploadSession => ({
+    ...s,
+    node: s.done ? arrived(s) : null,
+  });
+  return {
+    createUpload: async ({ name, size, mimeType }) =>
+      session(
+        await api<PublicUploadSession>(base, {
+          json: {
+            name,
+            size,
+            ...(mimeType ? { mimeType } : {}),
+            ...(from() ? { from: from() } : {}),
+          },
+        }),
+      ),
+    getUpload: async (id) => session(await api<PublicUploadSession>(`${base}/${id}`)),
+    abortUpload: (id) => api(`${base}/${id}`, { method: 'DELETE' }),
+    ensureFolder: () => Promise.reject(new Error("Folders can't be sent here, only files")),
+    putChunk: async (sessionId, index, data, onProgress, signal) => {
+      const r = await putChunkXhr<PublicChunkResult>(
+        `${base}/${sessionId}/chunks/${index}`,
+        data,
+        onProgress,
+        signal,
+      );
+      return {
+        receivedCount: r.receivedCount,
+        totalChunks: r.totalChunks,
+        status: r.status,
+        node: r.done ? arrived({ id: sessionId, name: '', size: 0 }) : null,
+      };
+    },
+  };
+}

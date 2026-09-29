@@ -19,6 +19,7 @@ import {
   blobs,
   type NodeRow,
   nodes,
+  shareLinks,
   type UploadSessionRow,
   uploadChunks,
   uploadSessions,
@@ -39,6 +40,8 @@ import {
 
 const SESSION_TTL_MS = DAY_MS;
 const MAX_OPEN_SESSIONS_PER_USER = 100;
+/** Uploads in progress at once through one file request (each holds some of the owner's space). */
+const MAX_OPEN_SESSIONS_PER_LINK = 20;
 
 export function expectedChunkLength(
   s: Pick<UploadSessionRow, 'size' | 'chunkSize' | 'totalChunks'>,
@@ -148,6 +151,8 @@ export async function createUpload(
     size: number;
     mimeType?: string | undefined;
     onConflict?: UploadConflict;
+    /** Sent through this file request by someone without an account (`userId` is the owner). */
+    linkId?: string;
   },
 ): Promise<UploadSessionRow> {
   const parent = await requireFolder(ctx.db, userId, input.parentId, 'edit');
@@ -158,7 +163,8 @@ export async function createUpload(
   const totalChunks = Math.max(1, Math.ceil(input.size / chunkSize));
   const mimeType = guessMimeType(input.name, input.mimeType);
 
-  const who = { owner: chargeUserId, actor: userId };
+  // A file request's sender is nobody: they can't make the owner's old versions go.
+  const who = { owner: chargeUserId, actor: input.linkId ? null : userId };
   const { session, volume } = await withRoomFromVersions(ctx, who, input.size, () =>
     ctx.db.transaction(async (tx) => {
       await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
@@ -173,6 +179,39 @@ export async function createUpload(
           ErrorCode.RATE_LIMITED,
           'Too many uploads in progress. Wait for some to finish.',
         );
+      }
+      if (input.linkId) {
+        const [viaLink] = await tx
+          .select({
+            n: sql<number>`count(*) FILTER (WHERE ${uploadSessions.status} = 'uploading')::int`,
+            bytes: sql<number>`coalesce(sum(${uploadSessions.size}), 0)::bigint`,
+          })
+          .from(uploadSessions)
+          .where(
+            and(
+              eq(uploadSessions.linkId, input.linkId),
+              inArray(uploadSessions.status, ['uploading', 'finalizing']),
+            ),
+          );
+        if ((viaLink?.n ?? 0) >= MAX_OPEN_SESSIONS_PER_LINK) {
+          throw new AppError(
+            429,
+            ErrorCode.RATE_LIMITED,
+            'Too many uploads at once through this link. Wait for some to finish.',
+          );
+        }
+        // Received so far plus on the way, under the same lock as every reservation.
+        const [link] = await tx
+          .select({ got: shareLinks.uploadBytes, max: shareLinks.maxUploadBytes })
+          .from(shareLinks)
+          .where(eq(shareLinks.id, input.linkId));
+        if (link?.max != null && link.got + Number(viaLink?.bytes ?? 0) + input.size > link.max) {
+          throw new AppError(
+            507,
+            ErrorCode.CAPACITY_EXCEEDED,
+            "This link can't take that much more. Ask whoever sent it for a new one.",
+          );
+        }
       }
       const volume = await ctx.volumes.pickVolume(tx, input.size);
       const [row] = await tx
@@ -189,6 +228,7 @@ export async function createUpload(
           volumeId: volume.id,
           blobId: uuidv7(),
           replaceExisting: input.onConflict === 'replace',
+          linkId: input.linkId ?? null,
           expiresAt: new Date(Date.now() + SESSION_TTL_MS),
         })
         .returning();
@@ -523,6 +563,24 @@ export async function finalizeUpload(
         .where(and(eq(uploadSessions.id, claimed.id), eq(uploadSessions.status, 'finalizing')))
         .returning({ id: uploadSessions.id });
       if (!live) throw conflict('The upload was cancelled', ErrorCode.UPLOAD_STATE);
+      // Sent through a file request: the request must still be on (a revoke waits for us).
+      if (claimed.linkId) {
+        const [link] = await tx
+          .select({ revokedAt: shareLinks.revokedAt })
+          .from(shareLinks)
+          .where(eq(shareLinks.id, claimed.linkId))
+          .for('share');
+        if (!link || link.revokedAt) {
+          throw conflict('This upload link was turned off', ErrorCode.UPLOAD_STATE);
+        }
+        await tx
+          .update(shareLinks)
+          .set({
+            uploadCount: sql`${shareLinks.uploadCount} + 1`,
+            uploadBytes: sql`${shareLinks.uploadBytes} + ${claimed.size}`,
+          })
+          .where(eq(shareLinks.id, claimed.linkId));
+      }
       // Access is re-checked here, under row locks, because a share may have been revoked
       // (or the folder trashed) while the chunks were uploading.
       const parent = await lockWriteAccess(tx, claimed.userId, claimed.parentId);

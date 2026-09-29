@@ -9,16 +9,27 @@ import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../c
 import { usePageTitle } from '../../lib/usePageTitle';
 import { triggerDownload } from '../files/actions';
 import { FileView } from '../files/FileView';
+import { RequestUpload } from './RequestUpload';
 
 const PreviewModal = lazy(() => import('../files/PreviewModal'));
 
-function Frame({ sharedBy, children }: { sharedBy?: string; children: React.ReactNode }) {
+function Frame({
+  sharedBy,
+  request = false,
+  children,
+}: {
+  sharedBy?: string;
+  request?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <div className="min-h-dvh">
       <header className="flex h-14 items-center gap-2 border-b border-border px-4">
         <Logo size="sm" />
         {sharedBy && (
-          <span className="ml-auto shrink-0 text-xs text-muted">Shared by {sharedBy}</span>
+          <span className="ml-auto shrink-0 text-xs text-muted">
+            {request ? 'Requested' : 'Shared'} by {sharedBy}
+          </span>
         )}
       </header>
       <main className="mx-auto max-w-5xl px-3 py-5 md:px-6">{children}</main>
@@ -59,7 +70,13 @@ export function PublicLinkPage() {
   // By id: the index would drift if the listing refreshes while a preview is open.
   const [previewId, setPreviewId] = useState<string | null>(null);
 
-  usePageTitle(info.data?.node ? info.data.node.name : 'Shared with you');
+  usePageTitle(
+    info.data?.node
+      ? info.data.node.name
+      : info.data?.kind === 'upload'
+        ? (info.data.title ?? 'Send files')
+        : 'Shared with you',
+  );
 
   const source = useMemo(
     () => ({
@@ -133,6 +150,14 @@ export function PublicLinkPage() {
             Open
           </Button>
         </form>
+      </Frame>
+    );
+  }
+
+  if (data.kind === 'upload') {
+    return (
+      <Frame sharedBy={data.sharedBy} request>
+        <RequestUpload token={token} info={data} />
       </Frame>
     );
   }

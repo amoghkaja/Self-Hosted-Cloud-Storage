@@ -21,6 +21,7 @@ import { authRoutes } from './modules/auth/routes';
 import { fileRoutes } from './modules/files/routes';
 import { photoRoutes } from './modules/photos/routes';
 import { linkRoutes } from './modules/sharing/links';
+import { requestRoutes } from './modules/sharing/requests';
 import { sharingRoutes } from './modules/sharing/routes';
 import { uploadRoutes } from './modules/uploads/routes';
 import { versionRoutes } from './modules/versions/routes';
@@ -99,6 +100,7 @@ export async function buildApp(
       await api.register(versionRoutes);
       await api.register(sharingRoutes);
       await api.register(linkRoutes);
+      await api.register(requestRoutes);
       await api.register(adminRoutes);
       await api.register(photoRoutes);
       await api.register(brandingRoutes);

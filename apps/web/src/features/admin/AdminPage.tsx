@@ -498,7 +498,7 @@ function People() {
                                 : `Disable ${u.displayName}?`,
                               description: u.disabled
                                 ? 'They can sign in again.'
-                                : 'They are signed out everywhere and cannot sign in. Their files are kept.',
+                                : 'They are signed out everywhere, cannot sign in, and their public links stop working. Their files are kept.',
                               label: u.disabled ? 'Enable' : 'Disable',
                               run: () =>
                                 m.updateUser.mutateAsync({ id: u.id, disabled: !u.disabled }),

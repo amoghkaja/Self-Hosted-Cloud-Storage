@@ -583,9 +583,13 @@ export function useLinkMutations(nodeId: string) {
   return {
     create: useMutation({
       mutationFn: (body: {
+        kind?: 'view' | 'upload';
+        title?: string;
         password?: string;
         expiresAt?: string | null;
         allowDownload: boolean;
+        maxDownloads?: number | null;
+        maxUploadBytes?: number | null;
       }) => api<ShareLink>(`/nodes/${nodeId}/links`, { json: body }),
       onSuccess: refresh,
     }),
