@@ -4,10 +4,11 @@ import { ErrorCode, guessMimeType, nameProblem, normalizeName } from '@familyclo
 import { and, asc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../../context';
-import { blobs, type NodeRow, nodes, shares, type UserRow, users } from '../../db/schema';
+import { type NodeRow, nodes, shares, type UserRow, users } from '../../db/schema';
 import { AppError } from '../../lib/errors';
 import { storageFor } from '../../lib/space';
 import { loadAccess, type NodeAccess, satisfies } from '../files/access';
+import { copyNode, MAX_COPY_ENTRIES } from '../files/copy';
 import { etagMatches, listTree, sendBlob } from '../files/serve';
 import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
 import { ingest } from '../uploads/ingest';
@@ -38,7 +39,6 @@ export const DAV_METHODS = [
 ] as const;
 const ALLOW =
   'OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK';
-const MAX_COPY_ENTRIES = 10_000;
 
 type Resolved =
   | { kind: 'root' }
@@ -403,10 +403,9 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
             name,
             typeof contentType === 'string' ? contentType.split(';')[0] : null,
           ),
-          source: { kind: 'stream', body: req.raw },
+          body: req.raw,
           replaceNodeId: existing?.id ?? null,
           expectBlobId: ifMatch !== undefined && ifMatch.trim() !== '*' ? existing?.blobId : null,
-          onConflict: 'fail',
         });
         return reply
           .status(created ? 201 : 204)
@@ -501,21 +500,23 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
         }
 
         // Checked before anything changes, so a refused copy leaves the destination alone.
+        const shallow = req.headers.depth === '0';
         const tree =
-          src.node.type === 'folder' && req.headers.depth !== '0'
+          src.node.type === 'folder' && !shallow
             ? await listTree(ctx.db, src.node.id, MAX_COPY_ENTRIES + 1)
             : [];
         if (tree.length > MAX_COPY_ENTRIES)
           throw new AppError(413, ErrorCode.VALIDATION, 'Folder is too large to copy in one go');
-        if (d.existing) await trashSubtree(ctx.db, d.existing.node.id);
-        await copyInto(
-          ctx,
-          user.id,
-          src.node,
-          { id: destParent.node.id, ownerId: destParent.node.ownerId },
-          d.name,
+        if (d.existing) await trashSubtree(ctx.db, d.existing.node.id, { actorId: user.id });
+        await copyNode(ctx, {
+          userId: user.id,
+          source: src.node,
+          dest: { id: destParent.node.id, ownerId: destParent.node.ownerId },
+          name: d.name,
+          onConflict: 'fail',
+          shallow,
           tree,
-        );
+        });
         return reply.status(d.existing ? 204 : 201).send();
       }
 
@@ -563,68 +564,3 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
   app.route({ method: methods, url: '/dav', config, handler });
   app.route({ method: methods, url: '/dav/*', config, handler });
 };
-
-/** Copies a file or folder tree (new blobs, quota charged to the destination owner). */
-async function copyInto(
-  ctx: AppContext,
-  userId: string,
-  src: NodeRow,
-  destParent: { id: string; ownerId: string },
-  name: string,
-  /** The source folder's contents (listTree), or [] for a Depth: 0 copy. */
-  tree: Awaited<ReturnType<typeof listTree>>,
-) {
-  const copyFile = async (
-    blobId: string,
-    parentId: string,
-    fileName: string,
-    size: number,
-    mimeType: string | null,
-  ) => {
-    const [blob] = await ctx.db.select().from(blobs).where(eq(blobs.id, blobId));
-    if (!blob) return;
-    await ingest(ctx, {
-      uploaderId: userId,
-      parent: { id: parentId, ownerId: destParent.ownerId },
-      name: fileName,
-      size,
-      mimeType: mimeType ?? 'application/octet-stream',
-      source: { kind: 'copy', fromFile: await ctx.volumes.blobFile(blob) },
-      onConflict: 'rename',
-    });
-  };
-
-  if (src.type === 'file') {
-    if (src.blobId) await copyFile(src.blobId, destParent.id, name, src.size, src.mimeType);
-    return;
-  }
-  const root = await insertNode(
-    ctx.db,
-    {
-      ownerId: destParent.ownerId,
-      parentId: destParent.id,
-      type: 'folder',
-      name,
-      createdBy: userId,
-    },
-    'fail',
-  );
-  const folderIds = new Map<string, string>([['', root.id]]);
-  for (const e of tree) {
-    const slash = e.path.lastIndexOf('/');
-    const parentPath = slash < 0 ? '' : e.path.slice(0, slash);
-    const leaf = slash < 0 ? e.path : e.path.slice(slash + 1);
-    const parentId = folderIds.get(parentPath);
-    if (!parentId) continue;
-    if (e.type === 'folder') {
-      const f = await insertNode(
-        ctx.db,
-        { ownerId: destParent.ownerId, parentId, type: 'folder', name: leaf, createdBy: userId },
-        'reuse',
-      );
-      folderIds.set(e.path, f.id);
-    } else if (e.blobId) {
-      await copyFile(e.blobId, parentId, leaf, Number(e.size), e.mimeType);
-    }
-  }
-}

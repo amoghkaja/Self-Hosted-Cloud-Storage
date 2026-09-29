@@ -337,6 +337,27 @@ export function useMoveNodes() {
   });
 }
 
+/**
+ * Copies items into one folder (instant on the server: copies share the stored bytes). With no
+ * name given, a copy in its own folder is called "name (copy)".
+ */
+export function useCopyNodes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ ids, parentId }: { ids: string[]; parentId: string }) => {
+      const copies: FileNode[] = [];
+      const failed = await eachLimited(ids, 4, async (id) => {
+        copies.push(await api<FileNode>(`/nodes/${id}/copy`, { json: { parentId } }));
+      });
+      return { copies, failed: failed.map((f) => ({ id: f.item, error: f.error })) };
+    },
+    onSettled: (_d, _e, vars) => {
+      invalidateNodeViews(qc, [vars.parentId]);
+      void qc.invalidateQueries({ queryKey: qk.me });
+    },
+  });
+}
+
 /** Moves items to the trash. Items may come from different folders (e.g. search results). */
 export function useTrashNodes() {
   const qc = useQueryClient();

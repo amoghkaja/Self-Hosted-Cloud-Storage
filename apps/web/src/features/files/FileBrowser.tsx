@@ -9,6 +9,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpDown,
+  Copy,
   Download,
   FolderInput,
   FolderPlus,
@@ -123,6 +124,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
     canEdit: () => canEdit,
     canShare: () => access === 'owner',
     moveStartId: detail.data?.breadcrumbs[0]?.id ?? me.rootNodeId,
+    copyStartId: me.rootNodeId,
   });
 
   const name = detail.data ? (detail.data.isRoot ? 'My Files' : detail.data.node.name) : '';
@@ -353,6 +355,12 @@ function FileBrowser({ folderId }: { folderId: string }) {
             label="Download selected"
             icon={<Download />}
             onClick={() => downloadNodes(selectedNodes)}
+          />
+          <IconButton
+            size="sm"
+            label="Copy selected to…"
+            icon={<Copy />}
+            onClick={() => actions.copy(selectedNodes)}
           />
           {canEdit && (
             <>

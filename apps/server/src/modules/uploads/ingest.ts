@@ -1,5 +1,4 @@
-import { constants as fsConstants } from 'node:fs';
-import { copyFile, mkdir, open, rename, unlink } from 'node:fs/promises';
+import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -16,29 +15,24 @@ import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
 import { replaceContent, type StoredBlob, withRoomFromVersions } from '../versions/service';
 import { assertFileSizeAllowed, releaseUpload, reserveSpace } from './service';
 
-export type IngestSource =
-  | { kind: 'stream'; body: NodeJS.ReadableStream }
-  | { kind: 'copy'; fromFile: string };
-
 export interface IngestInput {
   uploaderId: string;
   parent: { id: string; ownerId: string };
   name: string;
   size: number;
   mimeType: string;
-  source: IngestSource;
+  /** The file's bytes (a WebDAV PUT body), exactly `size` of them. */
+  body: NodeJS.ReadableStream;
   /** Replace this file's contents in place (WebDAV PUT over an existing file). */
   replaceNodeId?: string | null;
   /** If-Match: only replace while the file still has this blob (else 412). */
   expectBlobId?: string | null;
-  /** On a name clash when creating: fail (WebDAV) or pick "name (1)". */
-  onConflict?: 'fail' | 'rename';
 }
 
 class TooLarge extends Error {}
 
 /**
- * Single-request file write used by WebDAV PUT/COPY. Same guarantees as chunked uploads: quota
+ * Single-request file write used by WebDAV PUT. Same guarantees as chunked uploads: quota
  * is reserved up front, bytes land in a temp file on the chosen volume, and the node/blob rows
  * plus usage counters change in one transaction. Replacing keeps the node id (so shares and
  * links survive) and swaps in a new blob.
@@ -89,34 +83,29 @@ export async function ingest(
   try {
     await ctx.volumes.assertOnline(volume);
     await mkdir(path.dirname(tmp), { recursive: true });
-    if (input.source.kind === 'copy') {
-      // Reflink (instant, no extra space) where the filesystem supports it; plain copy otherwise.
-      await copyFile(input.source.fromFile, tmp, fsConstants.COPYFILE_FICLONE);
-    } else {
-      let written = 0;
-      const limit = input.size;
-      const counter = new Transform({
-        transform(chunk: Buffer, _e, cb) {
-          written += chunk.length;
-          if (written > limit) cb(new TooLarge());
-          else cb(null, chunk);
-        },
-      });
-      try {
-        await pipeline(input.source.body, counter, (await open(tmp, 'w')).createWriteStream());
-      } catch (err) {
-        if (err instanceof TooLarge) {
-          throw new AppError(400, ErrorCode.VALIDATION, 'Body is larger than the declared length');
-        }
-        throw err;
+    let written = 0;
+    const limit = input.size;
+    const counter = new Transform({
+      transform(chunk: Buffer, _e, cb) {
+        written += chunk.length;
+        if (written > limit) cb(new TooLarge());
+        else cb(null, chunk);
+      },
+    });
+    try {
+      await pipeline(input.body, counter, (await open(tmp, 'w')).createWriteStream());
+    } catch (err) {
+      if (err instanceof TooLarge) {
+        throw new AppError(400, ErrorCode.VALIDATION, 'Body is larger than the declared length');
       }
-      if (written !== limit) {
-        throw new AppError(
-          400,
-          ErrorCode.VALIDATION,
-          `Expected ${limit} bytes but received ${written}`,
-        );
-      }
+      throw err;
+    }
+    if (written !== limit) {
+      throw new AppError(
+        400,
+        ErrorCode.VALIDATION,
+        `Expected ${limit} bytes but received ${written}`,
+      );
     }
     const fh = await open(tmp, 'r+');
     await fh.datasync();
@@ -193,7 +182,7 @@ export async function ingest(
             mimeType: input.mimeType,
             createdBy: input.uploaderId,
           },
-          input.onConflict ?? 'fail',
+          'fail', // WebDAV addresses a file by its path: a clash means someone created it first
         );
         await tx.update(nodes).set({ updatedAt: new Date() }).where(eq(nodes.id, input.parent.id));
       }

@@ -1,6 +1,7 @@
 import {
   ChildrenQuery,
   ContentQuery,
+  CopyNodeBody,
   CreateFolderBody,
   ErrorCode,
   FileNode,
@@ -27,6 +28,7 @@ import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
 import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { loadAccess, requireAccess, requireFolder, satisfies } from './access';
+import { copyNode } from './copy';
 import {
   sendBlob,
   sendOfficePreview,
@@ -36,6 +38,7 @@ import {
   type ZipRoot,
 } from './serve';
 import {
+  findFreeName,
   insertNode,
   isAncestor,
   listChildren,
@@ -131,6 +134,37 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
         req.body.reuseExisting ? 'reuse' : 'fail',
       );
       return toFileNode(row);
+    },
+  );
+
+  // "Make a copy" / "Copy to…": instant, the copy shares the stored bytes (see copyNode).
+  app.post(
+    '/nodes/:id/copy',
+    { schema: { params: IdParams, body: CopyNodeBody, response: { 200: FileNode } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      const src = await requireAccess(db, user.id, req.params.id, 'view');
+      if (src.isRoot) throw badRequest('Pick the folders or files to copy');
+      const dest = await requireFolder(db, user.id, req.body.parentId, 'edit');
+      if (
+        src.node.type === 'folder' &&
+        (dest.node.id === src.node.id || (await isAncestor(db, src.node.id, dest.node.id)))
+      ) {
+        throw new AppError(400, ErrorCode.INVALID_MOVE, 'A folder cannot be copied into itself');
+      }
+      const name =
+        req.body.name ??
+        (dest.node.id === src.node.parentId
+          ? await findFreeName(db, dest.node.id, src.node.name, 'copy')
+          : src.node.name);
+      const row = await copyNode(ctx, {
+        userId: user.id,
+        source: src.node,
+        dest: { id: dest.node.id, ownerId: dest.node.ownerId },
+        name,
+        onConflict: 'rename',
+      });
+      return toFileNode({ ...row, thumb: src.node.type === 'file' ? src.node.thumb : null });
     },
   );
 

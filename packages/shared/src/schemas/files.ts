@@ -63,6 +63,9 @@ export const CreateFolderBody = z.object({
   reuseExisting: z.boolean().default(false),
 });
 
+/** Copy into `parentId`; the name defaults to the original's ("name (copy)" in the same folder). */
+export const CopyNodeBody = z.object({ parentId: Id, name: NodeName.optional() });
+
 export const UpdateNodeBody = z
   .object({ name: NodeName.optional(), parentId: Id.optional() })
   .refine((b) => b.name !== undefined || b.parentId !== undefined, 'Nothing to update');

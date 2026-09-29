@@ -1,15 +1,27 @@
 import type { FileNode } from '@familycloud/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, FolderInput, FolderOpen, History, Pencil, Share2, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  CopyPlus,
+  Download,
+  FolderInput,
+  FolderOpen,
+  History,
+  Pencil,
+  Share2,
+  Trash2,
+} from 'lucide-react';
 import { lazy, Suspense, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, contentUrl, errorMessage, zipUrl } from '../../api/client';
 import { type BatchResult, qk, useTrashNodes } from '../../api/queries';
 import { type MenuAction, toast } from '../../components/ui';
-import { ShareDialog } from '../sharing/ShareDialog';
 import { MoveDialog, RenameDialog } from './dialogs';
 
 // Opened on demand: kept out of the first page load.
+const ShareDialog = lazy(() =>
+  import('../sharing/ShareDialog').then((m) => ({ default: m.ShareDialog })),
+);
 const VersionsDialog = lazy(() =>
   import('./VersionsDialog').then((m) => ({ default: m.VersionsDialog })),
 );
@@ -33,6 +45,7 @@ export function downloadNodes(nodes: Pick<FileNode, 'id' | 'type'>[]) {
 type Dialog =
   | { kind: 'rename'; node: FileNode }
   | { kind: 'move'; nodes: FileNode[] }
+  | { kind: 'copy'; nodes: FileNode[] }
   | { kind: 'share'; node: FileNode }
   | { kind: 'versions'; node: FileNode }
   | null;
@@ -49,6 +62,8 @@ export interface FileActionOptions {
   canEditContent?: (node: FileNode) => boolean;
   /** Where the move picker starts (usually the owner's root). */
   moveStartId: string;
+  /** Where the copy picker starts (the user's own My Files); defaults to moveStartId. */
+  copyStartId?: string;
 }
 
 /**
@@ -116,6 +131,21 @@ export function useFileActions(o: FileActionOptions) {
     [trashMany, qc],
   );
 
+  const makeCopy = useCallback(
+    async (n: FileNode) => {
+      if (!n.parentId) return;
+      try {
+        const copy = await api<FileNode>(`/nodes/${n.id}/copy`, { json: { parentId: n.parentId } });
+        void qc.invalidateQueries({ queryKey: qk.children(n.parentId) });
+        void qc.invalidateQueries({ queryKey: qk.me });
+        toast.success(`Made “${copy.name}”`);
+      } catch (err) {
+        toast.error(errorMessage(err));
+      }
+    },
+    [qc],
+  );
+
   const actionsFor = useCallback(
     (n: FileNode): MenuAction[] => {
       const edit = o.canEdit(n);
@@ -161,6 +191,24 @@ export function useFileActions(o: FileActionOptions) {
             onSelect: () => setDialog({ kind: 'rename', node: n }),
           },
           {
+            id: 'duplicate',
+            label: 'Make a copy',
+            icon: <CopyPlus />,
+            onSelect: () => void makeCopy(n),
+          },
+        );
+      }
+      // Anything you can see you can copy into your own files (like downloading it).
+      list.push({
+        id: 'copy',
+        label: 'Copy to…',
+        icon: <Copy />,
+        separatorBefore: !edit,
+        onSelect: () => setDialog({ kind: 'copy', nodes: [n] }),
+      });
+      if (edit) {
+        list.push(
+          {
             id: 'move',
             label: 'Move…',
             icon: <FolderInput />,
@@ -178,7 +226,7 @@ export function useFileActions(o: FileActionOptions) {
       }
       return list;
     },
-    [o, open, trashNodes],
+    [o, open, trashNodes, makeCopy],
   );
 
   const dialogs = (
@@ -198,10 +246,19 @@ export function useFileActions(o: FileActionOptions) {
           onClose={() => setDialog(null)}
         />
       )}
-      {dialog?.kind === 'share' && (
-        <ShareDialog node={dialog.node} onClose={() => setDialog(null)} />
+      {dialog?.kind === 'copy' && (
+        <MoveDialog
+          mode="copy"
+          nodes={dialog.nodes}
+          fromParentId={dialog.nodes[0]!.parentId!}
+          startFolderId={o.copyStartId ?? o.moveStartId}
+          onClose={() => setDialog(null)}
+        />
       )}
       <Suspense fallback={null}>
+        {dialog?.kind === 'share' && (
+          <ShareDialog node={dialog.node} onClose={() => setDialog(null)} />
+        )}
         {dialog?.kind === 'versions' && (
           <VersionsDialog node={dialog.node} onClose={() => setDialog(null)} />
         )}
@@ -216,5 +273,6 @@ export function useFileActions(o: FileActionOptions) {
     dialogs,
     rename: (n: FileNode) => setDialog({ kind: 'rename', node: n }),
     move: (nodes: FileNode[]) => setDialog({ kind: 'move', nodes }),
+    copy: (nodes: FileNode[]) => setDialog({ kind: 'copy', nodes }),
   };
 }

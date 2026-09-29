@@ -4,6 +4,7 @@ import { type FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import {
   useChildren,
+  useCopyNodes,
   useCreateFolder,
   useMoveNodes,
   useNode,
@@ -153,74 +154,87 @@ export function RenameDialog({
   );
 }
 
-/** Folder picker for moving items within the same person's files. */
+/**
+ * Folder picker for moving items within the same person's files, or copying them anywhere the
+ * user can add files (a copy made in its own folder is called "name (copy)").
+ */
 export function MoveDialog({
   nodes,
   fromParentId,
   startFolderId,
+  mode = 'move',
   onClose,
 }: {
   nodes: Pick<FileNode, 'id' | 'name' | 'type'>[];
   fromParentId: string;
   startFolderId: string;
+  mode?: 'move' | 'copy';
   onClose: () => void;
 }) {
   const [folderId, setFolderId] = useState(startFolderId);
   const detail = useNode(folderId);
   const children = useChildren(folderId, 'name', 'asc');
   const moveNodes = useMoveNodes();
+  const copyNodes = useCopyNodes();
+  const copying = mode === 'copy';
   const moving = new Set(nodes.map((n) => n.id));
   const folders = (children.data?.pages.flatMap((p) => p.items) ?? []).filter(
     (n) => n.type === 'folder',
   );
   // Only once we know the destination and that we may add to it.
   const canMoveHere =
-    folderId !== fromParentId &&
+    (copying || folderId !== fromParentId) &&
     !moving.has(folderId) &&
     !!detail.data &&
     detail.data.access !== 'view';
 
   const move = async () => {
-    let result: Awaited<ReturnType<typeof moveNodes.mutateAsync>>;
+    const ids = nodes.map((n) => n.id);
+    let failed: { id: string; error: unknown }[];
     try {
-      result = await moveNodes.mutateAsync({
-        ids: nodes.map((n) => n.id),
-        parentId: folderId,
-        fromParentId,
-      });
+      failed = copying
+        ? (await copyNodes.mutateAsync({ ids, parentId: folderId })).failed
+        : (await moveNodes.mutateAsync({ ids, parentId: folderId, fromParentId })).failed;
     } catch (err) {
       toast.error(errorMessage(err));
       return;
     }
-    for (const f of result.failed) {
+    for (const f of failed) {
       const name = nodes.find((n) => n.id === f.id)?.name ?? 'Item';
       toast.error(`${name}: ${errorMessage(f.error)}`);
     }
-    if (result.failed.length === 0) {
+    if (failed.length === 0) {
+      const verb = copying ? 'Copied' : 'Moved';
       toast.success(
-        nodes.length === 1 ? `Moved “${nodes[0]!.name}”` : `Moved ${nodes.length} items`,
+        nodes.length === 1 ? `${verb} “${nodes[0]!.name}”` : `${verb} ${nodes.length} items`,
       );
       onClose();
     }
   };
 
-  const title = nodes.length === 1 ? `Move “${nodes[0]!.name}”` : `Move ${nodes.length} items`;
+  const verb = copying ? 'Copy' : 'Move';
+  const title =
+    nodes.length === 1 ? `${verb} “${nodes[0]!.name}”` : `${verb} ${nodes.length} items`;
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
       title={title}
-      description="Choose a destination folder."
+      description={
+        copying
+          ? 'Choose where the copy goes. Copies are instant and count toward the storage of whoever owns that folder.'
+          : 'Choose a destination folder.'
+      }
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button
             variant="primary"
             onClick={move}
-            loading={moveNodes.isPending}
+            loading={copying ? copyNodes.isPending : moveNodes.isPending}
             disabled={!canMoveHere}
           >
-            Move here
+            {verb} here
           </Button>
         </>
       }
