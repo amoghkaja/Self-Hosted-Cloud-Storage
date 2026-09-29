@@ -71,7 +71,32 @@ export const UpdateProfileBody = z.object({ displayName: DisplayName });
 
 export const TotpSetupResponse = z.object({ secret: z.string(), otpauthUrl: z.string() });
 export const TotpEnableBody = z.object({ code: TotpCode });
-export const TotpDisableBody = z.object({ password: z.string().min(1).max(256), code: TotpCode });
+
+/** A recovery code as typed: any case, with or without dashes and spaces. */
+export const RecoveryCode = z.string().trim().min(10).max(40);
+
+/** Turning two-factor on also hands out recovery codes, shown once. */
+export const TotpEnableResponse = Me.extend({ recoveryCodes: z.array(z.string()) });
+export type TotpEnableResponse = z.infer<typeof TotpEnableResponse>;
+
+/** Needs the password, and the current code or (phone lost) a recovery code. */
+export const TotpDisableBody = z
+  .object({
+    password: z.string().min(1).max(256),
+    code: TotpCode.optional(),
+    recoveryCode: RecoveryCode.optional(),
+  })
+  .refine((b) => b.code || b.recoveryCode, 'Enter the code from your app or a recovery code');
+
+export const LoginRecoveryBody = z.object({
+  mfaToken: z.string().min(1).max(1000),
+  code: RecoveryCode,
+});
+
+export const NewRecoveryCodesBody = z.object({ password: z.string().min(1).max(256) });
+export const RecoveryCodeList = z.object({ codes: z.array(z.string()) });
+export const RecoveryCodeStatus = z.object({ remaining: z.number().int() });
+export type RecoveryCodeStatus = z.infer<typeof RecoveryCodeStatus>;
 
 export const SessionInfo = z.object({
   id: Id,

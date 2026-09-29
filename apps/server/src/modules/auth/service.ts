@@ -1,9 +1,11 @@
+import { randomInt } from 'node:crypto';
 import { ErrorCode, type UserRole } from '@familycloud/shared/all';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
-import { nodes, type UserRow, users } from '../../db/schema';
+import { nodes, recoveryCodes, type UserRow, users } from '../../db/schema';
+import { sha256 } from '../../lib/crypto';
 import { AppError, conflict, isUniqueViolation } from '../../lib/errors';
 
 /** Creates an account together with its root folder ("My Files"). */
@@ -98,4 +100,63 @@ export function checkTotp(
   const step = Math.floor(now / 1000 / PERIOD) + delta;
   if (lastStep !== null && step <= lastStep) return null;
   return step;
+}
+
+// ── recovery codes ──────────────────────────────────────────────────────────
+
+const RECOVERY_CODES = 10;
+// No 0/o/1/l/i: easy to read off paper and type on a phone.
+const RECOVERY_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+
+const normalizeRecoveryCode = (code: string) => code.toLowerCase().replace(/[^a-z0-9]/g, '');
+const hashRecoveryCode = (code: string) => sha256(`recovery:${normalizeRecoveryCode(code)}`);
+
+/**
+ * Replaces a person's recovery codes with ten new ones (10 characters each, about 49 bits,
+ * shown as "abcde-fghjk") and returns them: this is the only time they're seen.
+ */
+export async function newRecoveryCodes(exec: Executor, userId: string): Promise<string[]> {
+  const codes = Array.from({ length: RECOVERY_CODES }, () => {
+    const chars = Array.from(
+      { length: 10 },
+      () => RECOVERY_ALPHABET[randomInt(RECOVERY_ALPHABET.length)],
+    ).join('');
+    return `${chars.slice(0, 5)}-${chars.slice(5)}`;
+  });
+  await exec.delete(recoveryCodes).where(eq(recoveryCodes.userId, userId));
+  await exec
+    .insert(recoveryCodes)
+    .values(codes.map((c) => ({ userId, codeHash: hashRecoveryCode(c) })));
+  return codes;
+}
+
+/** Uses up a recovery code; true when it was valid and unused (one request wins a race). */
+export async function useRecoveryCode(
+  exec: Executor,
+  userId: string,
+  code: string,
+): Promise<boolean> {
+  const used = await exec
+    .update(recoveryCodes)
+    .set({ usedAt: new Date() })
+    .where(
+      and(
+        eq(recoveryCodes.userId, userId),
+        eq(recoveryCodes.codeHash, hashRecoveryCode(code)),
+        isNull(recoveryCodes.usedAt),
+      ),
+    )
+    .returning({ id: recoveryCodes.id });
+  return used.length > 0;
+}
+
+export async function recoveryCodesLeft(exec: Executor, userId: string): Promise<number> {
+  return exec.$count(
+    recoveryCodes,
+    and(eq(recoveryCodes.userId, userId), isNull(recoveryCodes.usedAt)),
+  );
+}
+
+export async function dropRecoveryCodes(exec: Executor, userId: string): Promise<void> {
+  await exec.delete(recoveryCodes).where(eq(recoveryCodes.userId, userId));
 }

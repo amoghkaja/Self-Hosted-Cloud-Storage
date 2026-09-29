@@ -1,5 +1,11 @@
-import type { CreateAppPasswordResponse, Me, Passkey } from '@familycloud/shared';
-import { useQueryClient } from '@tanstack/react-query';
+import type {
+  CreateAppPasswordResponse,
+  Me,
+  Passkey,
+  RecoveryCodeStatus,
+  TotpEnableResponse,
+} from '@familycloud/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Fingerprint,
   HardDrive,
@@ -172,12 +178,130 @@ function PasswordSection() {
   );
 }
 
+/** Recovery codes, shown once: keep them somewhere safe, off the phone that has the app. */
+function RecoveryCodesPanel({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+  const text = `Family Cloud recovery codes. Each works once, in place of the code from your authenticator app.\n\n${codes.join('\n')}\n`;
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'recovery-codes.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <div className="flex max-w-md flex-col gap-3 rounded-xl border border-warning/40 bg-warning-soft p-4">
+      <p className="text-sm font-medium">Save your recovery codes</p>
+      <p className="text-sm">
+        If you lose your phone, each of these gets you in once instead of a code. Keep them
+        somewhere safe that isn't that phone (printed, or in a password manager). You won't see them
+        again.
+      </p>
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-surface px-3 py-2 font-mono text-sm select-all">
+        {codes.map((c) => (
+          <li key={c}>{c}</li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={async () => {
+            if (await copyText(codes.join('\n'))) toast.success('Codes copied');
+            else toast.error('Copy failed. Select the codes and copy them manually.');
+          }}
+        >
+          Copy
+        </Button>
+        <Button size="sm" onClick={download}>
+          Download
+        </Button>
+        <Button size="sm" variant="primary" onClick={onDone}>
+          I've saved them
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RecoveryCodesStatus() {
+  const status = useQuery({
+    queryKey: ['recovery-codes'],
+    queryFn: () => api<RecoveryCodeStatus>('/auth/recovery-codes'),
+  });
+  const [asking, setAsking] = useState(false);
+  const [password, setPassword] = useState('');
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  if (codes) {
+    return (
+      <RecoveryCodesPanel
+        codes={codes}
+        onDone={() => {
+          setCodes(null);
+          void qc.invalidateQueries({ queryKey: ['recovery-codes'] });
+        }}
+      />
+    );
+  }
+  const left = status.data?.remaining;
+  const renew = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      setCodes(
+        (await api<{ codes: string[] }>('/auth/recovery-codes', { json: { password } })).codes,
+      );
+      setAsking(false);
+      setPassword('');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex max-w-md flex-col gap-2 border-t border-border pt-4">
+      <p className="text-sm">
+        <span className="font-medium">Recovery codes: </span>
+        {left === undefined ? '…' : left === 1 ? '1 left' : `${left} left`}
+        {left !== undefined && left <= 3 && ' — get new ones before you run out.'}
+      </p>
+      {asking ? (
+        <form onSubmit={renew} className="flex flex-col gap-3">
+          <PasswordField
+            label="Your password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            hint="New codes replace the old ones."
+            autoFocus
+            required
+          />
+          <div className="flex gap-2">
+            <Button type="submit" variant="primary" loading={busy}>
+              Get new codes
+            </Button>
+            <Button onClick={() => setAsking(false)}>Cancel</Button>
+          </div>
+        </form>
+      ) : (
+        <Button className="self-start" onClick={() => setAsking(true)}>
+          Get new recovery codes
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function TwoFactorSection({ me }: { me: Me }) {
   const qc = useQueryClient();
   const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [newCodes, setNewCodes] = useState<string[] | null>(null);
+  const [useRecovery, setUseRecovery] = useState(false);
 
   const start = async () => {
     setBusy(true);
@@ -199,9 +323,13 @@ function TwoFactorSection({ me }: { me: Me }) {
     e.preventDefault();
     setBusy(true);
     try {
-      qc.setQueryData(qk.me, await api<Me>('/auth/totp/enable', { json: { code } }));
+      const { recoveryCodes, ...updated } = await api<TotpEnableResponse>('/auth/totp/enable', {
+        json: { code },
+      });
+      qc.setQueryData(qk.me, updated);
       setSetup(null);
       setCode('');
+      setNewCodes(recoveryCodes);
       toast.success('Two-factor sign-in is on');
     } catch (err) {
       toast.error(errorMessage(err));
@@ -213,9 +341,15 @@ function TwoFactorSection({ me }: { me: Me }) {
     e.preventDefault();
     setBusy(true);
     try {
-      qc.setQueryData(qk.me, await api<Me>('/auth/totp/disable', { json: { password, code } }));
+      qc.setQueryData(
+        qk.me,
+        await api<Me>('/auth/totp/disable', {
+          json: useRecovery ? { password, recoveryCode: code } : { password, code },
+        }),
+      );
       setCode('');
       setPassword('');
+      setUseRecovery(false);
       toast.success('Two-factor sign-in is off');
     } catch (err) {
       toast.error(errorMessage(err));
@@ -230,31 +364,60 @@ function TwoFactorSection({ me }: { me: Me }) {
       title="Two-factor sign-in"
       description="Ask for a code from an authenticator app (Google Authenticator, 1Password, iPhone Passwords) when signing in on the web."
     >
-      {me.totpEnabled ? (
-        <form onSubmit={disable} className="flex max-w-md flex-col gap-3">
-          <Badge tone="success" className="self-start">
-            <ShieldCheck size={12} aria-hidden /> On
-          </Badge>
-          <PasswordField
-            label="Password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-          <TextField
-            label="Current code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-            required
-          />
-          <Button type="submit" variant="danger" loading={busy} className="self-start">
-            Turn off
-          </Button>
-        </form>
+      {newCodes ? (
+        <RecoveryCodesPanel codes={newCodes} onDone={() => setNewCodes(null)} />
+      ) : me.totpEnabled ? (
+        <div className="flex flex-col gap-4">
+          <form onSubmit={disable} className="flex max-w-md flex-col gap-3">
+            <Badge tone="success" className="self-start">
+              <ShieldCheck size={12} aria-hidden /> On
+            </Badge>
+            <p className="text-sm text-muted">To turn it off, confirm it's you:</p>
+            <PasswordField
+              label="Password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            {useRecovery ? (
+              <TextField
+                label="Recovery code"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={40}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                required
+              />
+            ) : (
+              <TextField
+                label="Current code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                required
+              />
+            )}
+            <button
+              type="button"
+              className="self-start text-sm text-accent underline-offset-2 hover:underline"
+              onClick={() => {
+                setUseRecovery((v) => !v);
+                setCode('');
+              }}
+            >
+              {useRecovery ? 'Use the code from your app' : 'Lost your phone? Use a recovery code'}
+            </button>
+            <Button type="submit" variant="danger" loading={busy} className="self-start">
+              Turn off
+            </Button>
+          </form>
+          <RecoveryCodesStatus />
+        </div>
       ) : setup ? (
         <form onSubmit={enable} className="flex flex-col gap-4 sm:flex-row">
           <img

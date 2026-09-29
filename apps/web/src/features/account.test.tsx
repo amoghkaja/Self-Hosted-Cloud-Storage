@@ -1,8 +1,9 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
+import { LoginPage } from './auth/LoginPage';
 import { ResetPasswordPage } from './auth/ResetPasswordPage';
 
 describe('Password reset page', () => {
@@ -52,5 +53,41 @@ describe('Password reset page', () => {
     });
     renderWithProviders(page, { route: `/reset/${token}` });
     expect(await screen.findByText(/Ask your admin for a new one/)).toBeInTheDocument();
+  });
+});
+
+describe('Sign-in with a recovery code', () => {
+  it('takes a recovery code instead of the app code when the phone is lost', async () => {
+    const me = {
+      id: 'u',
+      email: 'a@x.com',
+      displayName: 'A',
+      role: 'member',
+      quotaBytes: null,
+      usedBytes: 0,
+      totpEnabled: true,
+      rootNodeId: 'r',
+    };
+    const calls = mockFetch({
+      'GET /auth/setup-status': () => ({ json: { needsSetup: false, appName: 'Family Cloud' } }),
+      'GET /auth/me': () => ({ status: 401, json: { code: 'UNAUTHENTICATED', detail: 'x' } }),
+      'POST /auth/login': () => ({ json: { status: 'mfa_required', mfaToken: 'tok' } }),
+      'POST /auth/login/recovery': () => ({ json: { status: 'ok', user: me } }),
+    });
+    renderWithProviders(<LoginPage />, { route: '/login' });
+    await userEvent.type(await screen.findByLabelText('Email'), 'a@x.com');
+    await userEvent.type(screen.getByLabelText('Password'), 'right password');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Lost your phone? Use a recovery code' }),
+    );
+    await userEvent.type(screen.getByLabelText('Recovery code'), 'abcde-fghjk');
+    await userEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/auth/login/recovery')?.body).toEqual({
+        mfaToken: 'tok',
+        code: 'abcde-fghjk',
+      }),
+    );
   });
 });

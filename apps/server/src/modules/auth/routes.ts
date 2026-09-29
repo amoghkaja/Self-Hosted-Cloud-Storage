@@ -8,11 +8,15 @@ import {
   IdParams,
   InviteInfo,
   LoginBody,
+  LoginRecoveryBody,
   LoginResponse,
   LoginTotpBody,
   Me,
+  NewRecoveryCodesBody,
   Ok,
   PasswordResetInfo,
+  RecoveryCodeList,
+  RecoveryCodeStatus,
   SessionInfo,
   SetupBody,
   SetupStatus,
@@ -20,6 +24,7 @@ import {
   TokenParams,
   TotpDisableBody,
   TotpEnableBody,
+  TotpEnableResponse,
   TotpSetupResponse,
   UpdateProfileBody,
 } from '@familycloud/shared/all';
@@ -39,7 +44,15 @@ import { toIso } from '../../lib/time';
 import { clearSessionCookie, requestMeta, requireUser, setSessionCookie } from '../../plugins/auth';
 import { strictLimit } from '../../plugins/security';
 import { loadBranding, publicBranding } from '../admin/branding';
-import { checkTotp, createUserWithRoot, newTotp } from './service';
+import {
+  checkTotp,
+  createUserWithRoot,
+  dropRecoveryCodes,
+  newRecoveryCodes,
+  newTotp,
+  recoveryCodesLeft,
+  useRecoveryCode,
+} from './service';
 
 const LOCK_AFTER = 5;
 const MFA_TOKEN_TTL = 5 * 60;
@@ -262,6 +275,85 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  // The second step with a recovery code instead of the app (phone lost or broken).
+  app.post(
+    '/auth/login/recovery',
+    {
+      config: strictLimit(10),
+      schema: { body: LoginRecoveryBody, response: { 200: LoginResponse } },
+    },
+    async (req, reply) => {
+      const claims = ctx.keys.verify<{ uid: string }>('mfa', req.body.mfaToken);
+      if (!claims) {
+        throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
+      }
+      const [user] = await db.select().from(users).where(eq(users.id, claims.uid));
+      if (
+        !user ||
+        user.disabledAt ||
+        !user.totpEnabled ||
+        !emailAllowed((await ctx.settings.get()).allowedEmailDomains, user.email)
+      ) {
+        throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
+      }
+      // Counts toward the lockout like a wrong code from the app.
+      const attempts = await claimAttempt(user.id);
+      if (!(await useRecoveryCode(db, user.id, req.body.code))) {
+        await auditFailure(user.id, req, 'recovery_code', attempts);
+        throw new AppError(
+          401,
+          ErrorCode.MFA_INVALID,
+          'That recovery code is not valid, or was already used',
+        );
+      }
+      await db
+        .update(users)
+        .set({ failedLogins: 0, lockedUntil: null })
+        .where(eq(users.id, user.id));
+      await startSession(req, reply, user);
+      await audit(db, {
+        actorId: user.id,
+        action: 'auth.login',
+        ip: req.clientIp,
+        meta: { mfa: true, recoveryCode: true, remaining: await recoveryCodesLeft(db, user.id) },
+      });
+      return { status: 'ok' as const, user: toMe(user) };
+    },
+  );
+
+  app.get(
+    '/auth/recovery-codes',
+    { schema: { response: { 200: RecoveryCodeStatus } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      return { remaining: await recoveryCodesLeft(db, user.id) };
+    },
+  );
+
+  // New codes replace the old ones; the password is asked again because they unlock the account.
+  app.post(
+    '/auth/recovery-codes',
+    {
+      config: strictLimit(5),
+      schema: { body: NewRecoveryCodesBody, response: { 200: RecoveryCodeList } },
+    },
+    async (req) => {
+      const { user } = requireUser(req);
+      const [fresh] = await db.select().from(users).where(eq(users.id, user.id));
+      if (!fresh?.totpEnabled) throw conflict('Turn on two-factor sign-in first');
+      if (!(await verifyPassword(fresh.passwordHash, req.body.password))) {
+        throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
+      }
+      const codes = await newRecoveryCodes(db, user.id);
+      await audit(db, {
+        actorId: user.id,
+        action: 'auth.recovery_codes_created',
+        ip: req.clientIp,
+      });
+      return { codes };
+    },
+  );
+
   app.post('/auth/logout', { schema: { response: { 200: Ok } } }, async (req, reply) => {
     if (req.auth) await ctx.sessions.revoke(db, req.auth.sessionId, req.auth.user.id);
     clearSessionCookie(ctx, reply);
@@ -370,7 +462,10 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/auth/totp/enable',
-    { config: strictLimit(10), schema: { body: TotpEnableBody, response: { 200: Me } } },
+    {
+      config: strictLimit(10),
+      schema: { body: TotpEnableBody, response: { 200: TotpEnableResponse } },
+    },
     async (req) => {
       const { user } = requireUser(req);
       const [fresh] = await db.select().from(users).where(eq(users.id, user.id));
@@ -394,8 +489,10 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         .returning();
       if (!row) throw conflict('Two-factor setup changed; start again');
       ctx.sessions.forgetUser(user.id);
+      // For when the phone is lost: shown now, once.
+      const recoveryCodes = await newRecoveryCodes(db, user.id);
       await audit(db, { actorId: user.id, action: 'auth.totp_enabled', ip: req.clientIp });
-      return toMe(row);
+      return { ...toMe(row), recoveryCodes };
     },
   );
 
@@ -407,8 +504,12 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       const [fresh] = await db.select().from(users).where(eq(users.id, user.id));
       if (!fresh?.totpEnabled || !fresh.totpSecretEnc) throw conflict('Two-factor is not on');
       const passwordOk = await verifyPassword(fresh.passwordHash, req.body.password);
-      const step = checkTotp(ctx, fresh.totpSecretEnc, req.body.code, fresh.totpLastStep);
-      if (!passwordOk || step === null) {
+      // The code from the app, or (phone lost) a recovery code, used up only with the right
+      // password so a typo doesn't waste one.
+      const second = req.body.code
+        ? checkTotp(ctx, fresh.totpSecretEnc, req.body.code, fresh.totpLastStep) !== null
+        : passwordOk && (await useRecoveryCode(db, user.id, req.body.recoveryCode!));
+      if (!passwordOk || !second) {
         throw new AppError(400, ErrorCode.MFA_INVALID, 'Password or code is incorrect');
       }
       const [row] = await db
@@ -416,6 +517,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         .set({ totpEnabled: false, totpSecretEnc: null, totpLastStep: null })
         .where(eq(users.id, user.id))
         .returning();
+      await dropRecoveryCodes(db, user.id);
       ctx.sessions.forgetUser(user.id);
       await audit(db, { actorId: user.id, action: 'auth.totp_disabled', ip: req.clientIp });
       return toMe(row!);

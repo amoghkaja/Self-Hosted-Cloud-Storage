@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Fingerprint } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
-import { errorMessage } from '../../api/client';
+import { api, errorMessage } from '../../api/client';
 import { qk, useLogin, useLoginTotp, useMe, useSetupStatus } from '../../api/queries';
 import { Button, PasswordField, TextField } from '../../components/ui';
 import {
@@ -33,6 +33,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [useRecovery, setUseRecovery] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const qc = useQueryClient();
@@ -96,8 +97,12 @@ export function LoginPage() {
     e.preventDefault();
     setError(null);
     try {
-      await totp.mutateAsync({ mfaToken: mfaToken!, code });
-      navigate(next, { replace: true });
+      if (useRecovery) {
+        finish(await api<LoginResponse>('/auth/login/recovery', { json: { mfaToken, code } }));
+      } else {
+        await totp.mutateAsync({ mfaToken: mfaToken!, code });
+        navigate(next, { replace: true });
+      }
     } catch (err) {
       setError(errorMessage(err));
       setCode('');
@@ -108,31 +113,68 @@ export function LoginPage() {
     return (
       <AuthLayout
         title="Two-factor check"
-        subtitle="Enter the 6-digit code from your authenticator app."
+        subtitle={
+          useRecovery
+            ? 'Enter one of your recovery codes. Each works once.'
+            : 'Enter the 6-digit code from your authenticator app.'
+        }
       >
         <form onSubmit={submitCode} className="flex flex-col gap-4" noValidate>
           <FormError message={error} />
-          <TextField
-            label="Authentication code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-            autoFocus
-            required
-          />
+          {useRecovery ? (
+            <TextField
+              key="recovery"
+              label="Recovery code"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={40}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoFocus
+              required
+            />
+          ) : (
+            <TextField
+              key="totp"
+              label="Authentication code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              autoFocus
+              required
+            />
+          )}
           <Button
             type="submit"
             variant="primary"
             size="lg"
             loading={totp.isPending}
-            disabled={code.length !== 6}
+            disabled={useRecovery ? code.trim().length < 10 : code.length !== 6}
           >
             Verify
           </Button>
-          <Button variant="ghost" onClick={() => setMfaToken(null)}>
+          <button
+            type="button"
+            className="text-sm text-accent underline-offset-2 hover:underline"
+            onClick={() => {
+              setUseRecovery((v) => !v);
+              setCode('');
+              setError(null);
+            }}
+          >
+            {useRecovery ? 'Use the code from your app' : 'Lost your phone? Use a recovery code'}
+          </button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setMfaToken(null);
+              setUseRecovery(false);
+            }}
+          >
             Back
           </Button>
         </form>

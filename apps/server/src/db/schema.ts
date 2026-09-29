@@ -400,6 +400,24 @@ export const appPasswords = pgTable(
   ],
 );
 
+/**
+ * Single-use codes for getting past two-factor sign-in without the phone (lost or broken).
+ * Stored hashed: they're high-entropy, and every try counts toward the account lockout.
+ */
+export const recoveryCodes = pgTable(
+  'recovery_codes',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    usedAt: ts('used_at'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('recovery_codes_user_hash_key').on(t.userId, t.codeHash)],
+);
+
 /** WebAuthn passkeys: public keys only, so a database leak reveals nothing that signs in. */
 export const passkeys = pgTable(
   'passkeys',

@@ -41,6 +41,7 @@ import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../
 import { volumeSpace } from '../../lib/space';
 import { DAY_MS, toIso } from '../../lib/time';
 import { requireAdmin } from '../../plugins/auth';
+import { dropRecoveryCodes } from '../auth/service';
 
 /** Advisory lock taken while an admin is demoted or disabled (see the last-admin guard). */
 const ADMIN_GUARD_LOCK = 727_004;
@@ -263,6 +264,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(users.id, req.params.id))
         .returning({ id: users.id });
       if (!row) throw notFound('User');
+      await dropRecoveryCodes(db, row.id);
       ctx.sessions.forgetUser(row.id);
       await audit(db, {
         actorId: admin.id,

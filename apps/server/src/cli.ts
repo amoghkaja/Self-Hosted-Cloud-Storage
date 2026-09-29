@@ -13,7 +13,7 @@ import { MemoryQueue } from './jobs/queue';
 import { randomToken } from './lib/crypto';
 import { hashPassword } from './lib/passwords';
 import { exportFiles } from './modules/admin/export';
-import { createUserWithRoot } from './modules/auth/service';
+import { createUserWithRoot, dropRecoveryCodes } from './modules/auth/service';
 
 const HELP = `Family Cloud admin CLI
 
@@ -132,6 +132,7 @@ async function main() {
           .where(eq(users.email, email))
           .returning({ id: users.id });
         if (!rows[0]) throw new Error(`No user ${email}`);
+        await dropRecoveryCodes(ctx.db, rows[0].id);
         stdout.write(`Two-factor turned off for ${email}.\n`);
         break;
       }
