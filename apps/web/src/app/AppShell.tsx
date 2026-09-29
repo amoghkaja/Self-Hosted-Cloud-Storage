@@ -1,6 +1,7 @@
 import type { Me } from '@familycloud/shared';
 import {
   ArrowLeft,
+  ChevronLeft,
   Clock,
   HardDrive,
   Images,
@@ -14,7 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useLogout, useSetupStatus } from '../api/queries';
 import { Avatar, DropdownMenu } from '../components/ui';
 import { InterruptedUploads } from '../features/uploads/InterruptedUploads';
@@ -149,7 +150,31 @@ function UserMenu({ me }: { me: Me }) {
   );
 }
 
+/**
+ * Pages reached from the account menu, not a tab. On phones they cover the tab bar, like a
+ * pushed settings screen on iOS, and the header offers a way back instead.
+ */
+const DETAIL_PAGES = ['/settings', '/admin'];
+
+/** Back to where you came from, or to Files when the page was opened directly. */
+function BackButton() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <button
+      type="button"
+      onClick={() => (location.key === 'default' ? navigate('/files') : navigate(-1))}
+      className="-ml-2 flex h-11 shrink-0 items-center gap-0.5 rounded-lg pr-3 pl-1 text-base font-medium text-accent md:hidden"
+    >
+      <ChevronLeft size={24} aria-hidden />
+      Back
+    </button>
+  );
+}
+
 export function AppShell({ me }: { me: Me }) {
+  const { pathname } = useLocation();
+  const detailPage = DETAIL_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const header = useRef<HTMLElement>(null);
   // Sticky bars below the header (page tabs) sit at its real height, which varies with the
   // notch and wrapping.
@@ -194,20 +219,23 @@ export function AppShell({ me }: { me: Me }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Installed on an iPhone home screen the page runs under the status bar: pad for it. */}
         {/* Installed on an iPhone home screen the page runs under the status bar: pad for it.
             Glass: the page scrolls beneath and shows through. */}
         <header
           ref={header}
           className="glass sticky top-0 z-30 flex min-h-16 items-center gap-2 border-b border-(--glass-edge) pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] md:gap-3 md:px-6"
         >
-          <Link
-            to="/files"
-            aria-label="Home"
-            className="flex size-11 shrink-0 items-center justify-center md:hidden"
-          >
-            <LogoMark className="size-8" />
-          </Link>
+          {detailPage ? (
+            <BackButton />
+          ) : (
+            <Link
+              to="/files"
+              aria-label="Home"
+              className="flex size-11 shrink-0 items-center justify-center md:hidden"
+            >
+              <LogoMark className="size-8" />
+            </Link>
+          )}
           <SearchBox id="global-search" className="hidden md:block" />
           <div className="ml-auto">
             <UserMenu me={me} />
@@ -243,7 +271,7 @@ export function AppShell({ me }: { me: Me }) {
         </main>
       </div>
       <UploadPanel />
-      <TabBar />
+      {!detailPage && <TabBar />}
     </div>
   );
 }
