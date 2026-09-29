@@ -36,6 +36,7 @@ import type {
 } from '@familycloud/shared';
 import {
   type InfiniteData,
+  keepPreviousData,
   type QueryClient,
   useInfiniteQuery,
   useMutation,
@@ -407,6 +408,8 @@ export function useSearch(q: string) {
     queryFn: ({ signal }) => api<{ items: FileNode[] }>('/search', { query: { q }, signal }),
     enabled: q.trim().length > 0,
     staleTime: 10_000,
+    // Results update as you type: keep the last ones on screen instead of flashing a skeleton.
+    placeholderData: keepPreviousData,
   });
 }
 
