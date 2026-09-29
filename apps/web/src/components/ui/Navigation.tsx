@@ -1,7 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { Tabs as T } from 'radix-ui';
-import { type ReactNode, useEffect, useRef } from 'react';
-import { Link, NavLink } from 'react-router';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Link, NavLink, useLocation } from 'react-router';
 import { cn } from '../../lib/cn';
 
 // ── Breadcrumbs ─────────────────────────────────────────────────────────────
@@ -52,6 +52,63 @@ export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: 
   );
 }
 
+// ── Glass indicator ─────────────────────────────────────────────────────────
+
+/** Where each remembered indicator last was, so a row re-created by the next page still slides. */
+const lastIndex = new Map<string, number>();
+
+/**
+ * The selected-segment highlight of a row of equal-width items (tab bar, segmented control): a
+ * piece of glass that slides to the new item, stretching as it goes and settling with a slight
+ * overshoot, like iOS 26. Sits behind the items in a `relative` container with a 4px (p-1) inset.
+ * `memoryKey` lets a row that each page renders anew slide from where the last page left it.
+ * Reduced Motion drops the movement (index.css).
+ */
+export function GlassIndicator({
+  index,
+  count,
+  memoryKey,
+  className,
+}: {
+  index: number;
+  count: number;
+  memoryKey?: string;
+  className?: string;
+}) {
+  const [shown, setShown] = useState(() => {
+    const last = memoryKey === undefined ? undefined : lastIndex.get(memoryKey);
+    return last !== undefined && last >= 0 ? last : index;
+  });
+  // Stretch only when the selection moves, not when the page first shows it.
+  const start = useRef(shown);
+  useEffect(() => {
+    if (memoryKey !== undefined) lastIndex.set(memoryKey, index);
+    // A frame at the old position first, so the move animates.
+    const raf = requestAnimationFrame(() => setShown(index));
+    return () => cancelAnimationFrame(raf);
+  }, [index, memoryKey]);
+  if (shown < 0) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-y-1 left-1 transition-transform duration-500 ease-[cubic-bezier(0.34,1.35,0.64,1)]"
+      style={{
+        width: `calc((100% - 0.5rem) / ${count})`,
+        transform: `translateX(${shown * 100}%)`,
+      }}
+    >
+      <span
+        key={shown}
+        className={cn(
+          'block h-full rounded-full',
+          shown !== start.current && 'animate-lens',
+          className,
+        )}
+      />
+    </span>
+  );
+}
+
 // ── Section links ───────────────────────────────────────────────────────────
 
 /**
@@ -65,18 +122,26 @@ export function SectionLinks({
   label: string;
   items: { to: string; label: string }[];
 }) {
+  const { pathname } = useLocation();
+  const active = items.findIndex((i) => i.to === pathname);
   return (
     <nav aria-label={label} className="mb-4 md:hidden">
-      <ul className="flex gap-1 rounded-full bg-surface-2 p-1">
+      <ul className="relative flex rounded-full bg-surface-2 p-1">
+        <GlassIndicator
+          index={active}
+          count={items.length}
+          memoryKey={label}
+          className="bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.12),inset_0_1px_0_rgb(255_255_255/0.6)]"
+        />
         {items.map((i) => (
-          <li key={i.to} className="flex-1">
+          <li key={i.to} className="relative flex-1">
             <NavLink
               to={i.to}
               end
               className={({ isActive }) =>
                 cn(
-                  'flex min-h-11 items-center justify-center rounded-full px-2 text-sm font-medium',
-                  isActive ? 'bg-surface text-text shadow-sm' : 'text-muted',
+                  'flex min-h-11 items-center justify-center rounded-full px-2 text-sm font-medium transition-colors active:scale-95',
+                  isActive ? 'text-text' : 'text-muted',
                 )
               }
             >

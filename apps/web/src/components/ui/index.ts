@@ -23,7 +23,7 @@ export {
 } from './Field';
 export { IconButton } from './IconButton';
 export { ContextMenu, DropdownMenu, type MenuAction } from './Menu';
-export { Breadcrumbs, type Crumb, SectionLinks, Tabs } from './Navigation';
+export { Breadcrumbs, type Crumb, GlassIndicator, SectionLinks, Tabs } from './Navigation';
 export { Spinner } from './Spinner';
 export { Toaster, toast } from './Toast';
 export { Tooltip, TooltipProvider } from './Tooltip';
