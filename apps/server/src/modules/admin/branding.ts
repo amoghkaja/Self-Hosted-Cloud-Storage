@@ -26,9 +26,25 @@ interface StoredBranding {
 }
 
 const KEY = 'branding';
+const CACHE_MS = 5_000;
+const cache = new WeakMap<AppContext, { at: number; value: Promise<StoredBranding> }>();
 
-export async function loadBranding(ctx: AppContext): Promise<StoredBranding> {
-  return (await ctx.settings.getRaw<StoredBranding>(KEY)) ?? {};
+/**
+ * Every page load, favicon and manifest request needs this, and the logo makes it up to a few
+ * hundred KB, so it's cached briefly (saving here clears it at once).
+ */
+export function loadBranding(ctx: AppContext): Promise<StoredBranding> {
+  const hit = cache.get(ctx);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+  const value = ctx.settings.getRaw<StoredBranding>(KEY).then((b) => b ?? {});
+  cache.set(ctx, { at: Date.now(), value });
+  value.catch(() => cache.delete(ctx));
+  return value;
+}
+
+async function saveBranding(ctx: AppContext, next: StoredBranding): Promise<void> {
+  await ctx.settings.setRaw(KEY, next);
+  cache.delete(ctx);
 }
 
 export function publicBranding(ctx: AppContext, b: StoredBranding) {
@@ -143,7 +159,7 @@ export const brandingRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user: admin } = requireAdmin(req);
       const next = { ...(await loadBranding(ctx)), ...req.body };
-      await ctx.settings.setRaw(KEY, next);
+      await saveBranding(ctx, next);
       await audit(ctx.db, {
         actorId: admin.id,
         action: 'admin.branding_updated',
@@ -168,7 +184,7 @@ export const brandingRoutes: FastifyPluginAsyncZod = async (app) => {
           version: randomUUID(),
         },
       };
-      await ctx.settings.setRaw(KEY, next);
+      await saveBranding(ctx, next);
       await audit(ctx.db, {
         actorId: admin.id,
         action: 'admin.branding_logo_set',
@@ -181,7 +197,7 @@ export const brandingRoutes: FastifyPluginAsyncZod = async (app) => {
   app.delete('/admin/branding/logo', { schema: { response: { 200: Branding } } }, async (req) => {
     const { user: admin } = requireAdmin(req);
     const next: StoredBranding = { ...(await loadBranding(ctx)), logo: null };
-    await ctx.settings.setRaw(KEY, next);
+    await saveBranding(ctx, next);
     await audit(ctx.db, {
       actorId: admin.id,
       action: 'admin.branding_logo_removed',

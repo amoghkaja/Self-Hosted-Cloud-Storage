@@ -25,3 +25,7 @@ if (!('ResizeObserver' in window)) {
     disconnect() {}
   };
 }
+// jsdom doesn't scroll: the file list scrolls the window as focus moves, and tabs scroll the
+// active one into view.
+window.scrollTo = () => {};
+Element.prototype.scrollIntoView ??= () => {};

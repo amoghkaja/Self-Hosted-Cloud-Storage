@@ -80,11 +80,18 @@ async function main() {
     JOBS.cleanupSessions,
     handle('cleanup-sessions', () => cleanupSessions(ctx)),
   );
+  await boss.work(
+    JOBS.recoverWork,
+    handle('recover-work', () => recoverPendingWork(ctx)),
+  );
 
   await boss.schedule(JOBS.purgeTrash, '17 3 * * *');
   await boss.schedule(JOBS.reconcileUsage, '47 3 * * *');
   await boss.schedule(JOBS.expireUploads, '*/15 * * * *');
   await boss.schedule(JOBS.cleanupSessions, '5 4 * * *');
+  // A job lost on the way (the database blinked while an upload finished) would otherwise wait
+  // for the next worker restart, which on an always-on server can be months.
+  await boss.schedule(JOBS.recoverWork, '23 * * * *');
 
   await recoverPendingWork(ctx);
   ctx.log.info({ concurrency: config.workerConcurrency }, 'worker started');

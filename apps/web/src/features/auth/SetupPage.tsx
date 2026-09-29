@@ -108,10 +108,8 @@ export function SetupPage() {
         },
       });
       qc.setQueryData(qk.me, me);
-      qc.setQueryData(qk.setup, {
-        needsSetup: false,
-        appName: setup.data?.appName ?? 'Family Cloud',
-      });
+      // Refetched rather than patched: the branding and source link come with it too.
+      await qc.invalidateQueries({ queryKey: qk.setup });
       navigate('/files', { replace: true });
     } catch (err) {
       f.setError(errorMessage(err));

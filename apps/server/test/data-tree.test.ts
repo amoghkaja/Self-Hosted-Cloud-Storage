@@ -1,8 +1,16 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { lockWriteAccess } from '../src/modules/files/access';
-import { insertNode, trashSubtree } from '../src/modules/files/tree';
-import { bytes, type Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
+import { insertNode, moveNode, trashSubtree } from '../src/modules/files/tree';
+import {
+  addMember,
+  bytes,
+  type Client,
+  createTestEnv,
+  setupAdmin,
+  type TestEnv,
+  uploadFile,
+} from './helpers';
 
 let env: TestEnv;
 let c: Client;
@@ -115,5 +123,44 @@ describe('listing order', () => {
 
     const desc = await c.get(`/nodes/${dir}/children?dir=desc`);
     expect(desc.body.items.map((i: { name: string }) => i.name)).toEqual(names.toReversed());
+  });
+});
+
+describe('changes through a share', () => {
+  it('re-checks the edit share under lock, so a revoke that lands first stops them', async () => {
+    const cousin = await addMember(env, c, 'cousin-tree@example.com');
+    const shared = await folder(root, 'Shared recipes');
+    const doc = (await uploadFile(c, shared, 'dal.txt', Buffer.from('dal'))).final!.body.node;
+    const grant = await c.post(`/nodes/${shared}/shares`, {
+      userId: cousin.me.id,
+      permission: 'edit',
+    });
+    const node = { id: doc.id, ownerId: userId, parentId: shared };
+
+    // With the share, the change goes through.
+    const renamed = await moveNode(
+      env.ctx.db,
+      node,
+      { name: 'dal (mum).txt' },
+      {
+        actorId: cousin.me.id,
+      },
+    );
+    expect(renamed.name).toBe('dal (mum).txt');
+
+    // The route already checked access, then the owner revokes before the write commits.
+    await c.del(`/shares/${grant.body.id}`);
+    await expect(
+      moveNode(env.ctx.db, node, { name: 'mine now.txt' }, { actorId: cousin.me.id }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(trashSubtree(env.ctx.db, doc.id, { actorId: cousin.me.id })).rejects.toMatchObject(
+      { status: 403 },
+    );
+    const still = await c.get(`/nodes/${doc.id}`);
+    expect(still.body.node.name).toBe('dal (mum).txt');
+
+    // The owner themself isn't affected by the check.
+    await trashSubtree(env.ctx.db, doc.id, { actorId: userId });
+    expect((await c.get(`/nodes/${doc.id}`)).status).toBe(404);
   });
 });

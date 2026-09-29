@@ -224,6 +224,7 @@ export async function ingest(
     await ctx.jobs.send('hash', { blobId }).catch(() => {});
     if (thumbable) await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
     if (video) await ctx.jobs.send('video-stream', { blobId }).catch(() => {});
+    if (office) await ctx.jobs.send('office-preview', { blobId }).catch(() => {});
     return { node: result.node, created: result.created };
   } finally {
     if (!committed) {

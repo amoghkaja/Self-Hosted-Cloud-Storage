@@ -133,7 +133,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
         patch.parentId = target.node.id;
       }
       if (Object.keys(patch).length === 0) return toFileNode(a.node);
-      const row = await moveNode(db, a.node, patch);
+      const row = await moveNode(db, a.node, patch, { actorId: user.id });
       return toFileNode({ ...row, thumb: a.node.thumb });
     },
   );
@@ -143,7 +143,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     const a = await requireAccess(db, user.id, req.params.id, 'view');
     if (a.isRoot) throw forbidden('Your top-level folder cannot be deleted');
     if (!satisfies(a.parentAccess, 'edit')) throw forbidden();
-    await trashSubtree(db, a.node.id);
+    await trashSubtree(db, a.node.id, { actorId: user.id });
     return { ok: true as const };
   });
 

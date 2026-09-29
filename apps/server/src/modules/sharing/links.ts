@@ -18,6 +18,7 @@ import {
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { LRUCache } from 'lru-cache';
 import { z } from 'zod';
 import type { AppContext } from '../../context';
 import { blobs, nodes, type ShareLinkRow, shareLinks, shares, users } from '../../db/schema';
@@ -42,6 +43,12 @@ import { listChildren } from '../files/tree';
 
 const UNLOCK_TTL = 12 * 60 * 60;
 const COOKIE_PATH = '/api/v1/public/links/';
+/**
+ * Password tries per link in a window, from any number of IPs: the per-IP limit alone lets a
+ * botnet guess a short link password quickly once it has the link.
+ */
+const UNLOCK_MAX_TRIES = 20;
+const UNLOCK_WINDOW_MS = 15 * 60_000;
 
 function linkUrl(ctx: AppContext, token: string) {
   return `${ctx.config.publicUrl}/s/${token}`;
@@ -148,6 +155,12 @@ async function nodeWithinLink(ctx: AppContext, rootId: string, nodeId: string) {
 export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
   const { db } = ctx;
+  // Fixed window per link (the TTL isn't extended by later tries).
+  const unlockTries = new LRUCache<string, number>({
+    max: 10_000,
+    ttl: UNLOCK_WINDOW_MS,
+    noUpdateTTL: true,
+  });
 
   // ── owner management ──────────────────────────────────────────────────────
 
@@ -333,6 +346,16 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       const r = await resolveLink(ctx, req, req.params.token);
+      // Counted before the (slow) check, so parallel guesses can't all slip under the limit.
+      const tries = (unlockTries.get(r.link.id) ?? 0) + 1;
+      if (tries > UNLOCK_MAX_TRIES) {
+        throw new AppError(
+          429,
+          ErrorCode.RATE_LIMITED,
+          'Too many wrong passwords for this link. Try again in 15 minutes.',
+        );
+      }
+      unlockTries.set(r.link.id, tries);
       if (r.link.passwordHash && !(await verifyPassword(r.link.passwordHash, req.body.password))) {
         await audit(db, {
           actorId: null,
@@ -343,6 +366,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
         });
         throw new AppError(401, ErrorCode.LINK_LOCKED, 'Incorrect password');
       }
+      unlockTries.delete(r.link.id);
       reply.setCookie(
         unlockCookie(r.link.id),
         ctx.keys.sign('link-unlock', { lid: r.link.id }, UNLOCK_TTL),

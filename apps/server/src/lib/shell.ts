@@ -24,6 +24,7 @@ export function renderShell(
   const head = [
     `<link rel="icon" href="${icon('192', '/favicon.svg')}"${v ? ' type="image/png"' : ' type="image/svg+xml"'} />`,
     `<link rel="apple-touch-icon" href="${icon('180', '/apple-touch-icon.png')}" />`,
+    `<meta name="description" content="${description}" />`,
     `<meta name="apple-mobile-web-app-title" content="${name}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="${name}" />`,

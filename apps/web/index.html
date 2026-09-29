@@ -2,10 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- maximum-scale stops iOS zooming into a field on focus; pinch-zoom still works there. -->
+    <!-- No maximum-scale: it blocks pinch-zoom on Android. Phone inputs are 16px (index.css), so
+         iOS doesn't zoom into a field on focus anyway. -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f6f1e7" media="(prefers-color-scheme: light)" />

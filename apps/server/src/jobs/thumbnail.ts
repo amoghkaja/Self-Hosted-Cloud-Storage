@@ -136,6 +136,8 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
     .where(eq(blobs.id, blobId))
     .limit(1);
   if (!row) return; // deleted before we got to it
+  // Queued twice (after an upload and by the hourly recovery): the first run did the work.
+  if (row.blob.thumbStatus !== 'pending') return;
   const kind = kindOf(row.mime, row.name);
   const setStatus = (thumbStatus: 'ready' | 'failed' | 'unsupported') =>
     ctx.db.update(blobs).set({ thumbStatus }).where(eq(blobs.id, blobId));

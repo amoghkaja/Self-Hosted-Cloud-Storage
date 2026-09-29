@@ -59,7 +59,8 @@ async function probe(file: string): Promise<Probe> {
  */
 export async function makeVideoStream(ctx: AppContext, blobId: string): Promise<void> {
   const [blob] = await ctx.db.select().from(blobs).where(eq(blobs.id, blobId));
-  if (!blob) return;
+  // Gone, or already converted by an earlier run of the same job.
+  if (blob?.streamStatus !== 'pending') return;
   const setStatus = (streamStatus: 'ready' | 'original' | 'failed') =>
     ctx.db.update(blobs).set({ streamStatus }).where(eq(blobs.id, blobId));
 

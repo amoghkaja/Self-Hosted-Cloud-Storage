@@ -65,6 +65,33 @@ describe('office previews', () => {
     expect(env.jobs.take('office-preview')).toHaveLength(0);
   });
 
+  it('also queues a preview for documents saved from the network drive', async () => {
+    const created = await c.post('/auth/app-passwords', { name: 'Laptop' });
+    const auth = `Basic ${Buffer.from(`${created.body.username}:${created.body.password}`).toString('base64')}`;
+    const put = await env.app.inject({
+      method: 'PUT',
+      url: '/dav/My%20Files/minutes.rtf',
+      headers: { authorization: auth, 'content-type': 'application/rtf' },
+      payload: RTF,
+    });
+    expect(put.statusCode).toBe(201);
+    const [row] = await env.ctx.db
+      .select({ blobId: nodes.blobId })
+      .from(nodes)
+      .where(eq(nodes.name, 'minutes.rtf'));
+    expect((await blobRow(row!.blobId!)).previewStatus).toBe('pending');
+    expect(env.jobs.take('office-preview')).toEqual([
+      expect.objectContaining({ data: { blobId: row!.blobId } }),
+    ]);
+  });
+
+  it('a second run of the same job does nothing (the hourly recovery may queue it again)', async () => {
+    const { blobId } = await upload('twice.rtf', RTF, 'application/rtf');
+    await env.ctx.db.update(blobs).set({ previewStatus: 'ready' }).where(eq(blobs.id, blobId));
+    await makeOfficePreview(env.ctx, blobId);
+    expect((await blobRow(blobId)).previewStatus).toBe('ready');
+  });
+
   it('hides previews of files the user cannot see', async () => {
     const { node } = await upload('private.rtf', RTF, 'application/rtf');
     const other = await addMember(env, c, 'cousin@example.com');

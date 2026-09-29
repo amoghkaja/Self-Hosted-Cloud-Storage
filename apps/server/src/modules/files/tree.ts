@@ -12,6 +12,7 @@ import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { toFileNode } from '../../lib/dto';
 import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
 import { derivedPaths } from '../../storage/thumbs';
+import { lockWriteAccess } from './access';
 
 /** Advisory lock guarding usage counters: exclusive for sum checks/reconcile, shared otherwise. */
 export const QUOTA_LOCK = 727_002;
@@ -222,13 +223,16 @@ export async function updateNode(
  * cycle check and detach both folders from the tree. The target is share-locked so a
  * concurrent trash of it waits and then takes the moved node along. `replaceId` (WebDAV MOVE
  * with Overwrite) is trashed in the same transaction, so a failed move leaves it in place.
+ * When someone else's item is changed through a share (`actorId`), their edit access to the
+ * folders involved is re-checked under lock, so a share revoked meanwhile stops the change.
  */
 export async function moveNode(
   exec: Executor,
-  node: { id: string; ownerId: string },
+  node: { id: string; ownerId: string; parentId: string | null },
   patch: { name?: string; parentId?: string },
-  replaceId?: string,
+  opts: { replaceId?: string; actorId?: string } = {},
 ): Promise<NodeRow> {
+  const grantee = opts.actorId && opts.actorId !== node.ownerId ? opts.actorId : null;
   return exec.transaction(async (tx) => {
     if (patch.parentId !== undefined) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`move:${node.ownerId}`}))`);
@@ -241,7 +245,8 @@ export async function moveNode(
         })
         .from(nodes)
         .where(eq(nodes.id, patch.parentId))
-        .for('share');
+        // Locked at the strength lockWriteAccess takes below, so it never needs upgrading.
+        .for(grantee ? 'no key update' : 'share');
       if (!target || target.deletedAt || target.type !== 'folder') throw notFound('Folder');
       if (target.ownerId !== node.ownerId) {
         throw new AppError(
@@ -253,8 +258,10 @@ export async function moveNode(
       if (target.id === node.id || (await isAncestor(tx, node.id, target.id))) {
         throw new AppError(400, ErrorCode.INVALID_MOVE, 'A folder cannot be moved into itself');
       }
+      if (grantee) await lockWriteAccess(tx, grantee, target.id);
     }
-    if (replaceId) await trashSubtree(tx, replaceId);
+    if (grantee && node.parentId) await lockWriteAccess(tx, grantee, node.parentId);
+    if (opts.replaceId) await trashSubtree(tx, opts.replaceId);
     return updateNode(tx, node.id, patch);
   });
 }
@@ -270,7 +277,11 @@ export async function moveNode(
  * with a fresh snapshot) then takes its file along instead of leaving it live in a trashed
  * folder.
  */
-export async function trashSubtree(exec: Executor, nodeId: string): Promise<void> {
+export async function trashSubtree(
+  exec: Executor,
+  nodeId: string,
+  opts: { actorId?: string } = {},
+): Promise<void> {
   const subtree = sql`
     WITH RECURSIVE sub AS (
       SELECT id FROM nodes WHERE id = ${nodeId} AND deleted_at IS NULL
@@ -280,6 +291,16 @@ export async function trashSubtree(exec: Executor, nodeId: string): Promise<void
     SELECT id FROM sub
   `;
   await exec.transaction(async (tx) => {
+    if (opts.actorId) {
+      // Through a share: the edit access to the item's folder must still hold (see moveNode).
+      const [item] = await tx
+        .select({ ownerId: nodes.ownerId, parentId: nodes.parentId })
+        .from(nodes)
+        .where(eq(nodes.id, nodeId));
+      if (item?.parentId && item.ownerId !== opts.actorId) {
+        await lockWriteAccess(tx, opts.actorId, item.parentId);
+      }
+    }
     await tx.execute(sql`
       SELECT id FROM nodes WHERE type = 'folder' AND id IN (${subtree})
       ORDER BY id FOR NO KEY UPDATE

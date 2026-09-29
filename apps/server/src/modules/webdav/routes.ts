@@ -442,7 +442,7 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
         if (target.a.isRoot || !satisfies(target.a.parentAccess, 'edit'))
           throw davError(403, 'Not allowed');
         // Deleting from a network drive goes to the web trash, so mistakes can be undone.
-        await trashSubtree(ctx.db, target.a.node.id);
+        await trashSubtree(ctx.db, target.a.node.id, { actorId: user.id });
         return reply.status(204).send();
       }
 
@@ -462,7 +462,7 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
             throw davError(403, 'Not allowed');
           const problem = nameProblem(name);
           if (problem) throw new AppError(400, ErrorCode.VALIDATION, problem);
-          await moveNode(ctx.db, src.node, { name });
+          await moveNode(ctx.db, src.node, { name }, { actorId: user.id });
           return reply.status(201).send();
         }
         const d = writableTarget(dest);
@@ -489,7 +489,7 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
             ctx.db,
             src.node,
             { name: d.name, parentId: destParent.node.id },
-            d.existing?.node.id,
+            { replaceId: d.existing?.node.id, actorId: user.id },
           );
           return reply.status(d.existing ? 204 : 201).send();
         }

@@ -282,6 +282,14 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
         }
         return updated!;
       });
+      await audit(db, {
+        actorId: auth.user.id,
+        action: 'photos.album_updated',
+        targetType: 'album',
+        targetId: a.id,
+        ip: req.clientIp,
+        meta: { ...b, ...(people ? { peopleIds: people } : {}) },
+      });
       return detail(row, auth);
     },
   );

@@ -10,6 +10,7 @@ export const JOBS = {
   reconcileUsage: 'reconcile-usage',
   expireUploads: 'expire-uploads',
   cleanupSessions: 'cleanup-sessions',
+  recoverWork: 'recover-work',
 } as const;
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
 
@@ -23,6 +24,7 @@ export interface JobPayloads {
   'reconcile-usage': Record<string, never>;
   'expire-uploads': Record<string, never>;
   'cleanup-sessions': Record<string, never>;
+  'recover-work': Record<string, never>;
 }
 
 export interface JobQueue {

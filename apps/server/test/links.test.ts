@@ -151,6 +151,30 @@ describe('public share links', () => {
     expect((await guest.get(`/public/links/${tokenOf(list.body.items[0].url)}`)).status).toBe(200);
   });
 
+  it('locks a link after too many wrong passwords, whatever IPs they come from', async () => {
+    const link = await owner.post(`/nodes/${folder}/links`, { password: 'right one' });
+    const token = tokenOf(link.body.url);
+    const guest = new Client(env.app);
+    for (let i = 0; i < 20; i++) {
+      const res = await guest.req('POST', `/public/links/${token}/unlock`, {
+        json: { password: `guess ${i}` },
+        headers: { 'cf-connecting-ip': `198.51.100.${i + 1}` },
+      });
+      expect(res.status).toBe(401);
+    }
+    const locked = await guest.req('POST', `/public/links/${token}/unlock`, {
+      json: { password: 'right one' },
+      headers: { 'cf-connecting-ip': '203.0.113.99' },
+    });
+    expect(locked.status).toBe(429);
+    // Other links are unaffected.
+    const other = await owner.post(`/nodes/${folder}/links`, { password: 'another' });
+    expect(
+      (await guest.post(`/public/links/${tokenOf(other.body.url)}/unlock`, { password: 'another' }))
+        .status,
+    ).toBe(200);
+  });
+
   it('garbage tokens are rejected without leaking anything', async () => {
     const guest = new Client(env.app);
     expect((await guest.get('/public/links/aaaaaaaaaaaaaaaaaaaaaaaaaaaa')).status).toBe(404);

@@ -135,6 +135,18 @@ export const sharingRoutes: FastifyPluginAsyncZod = async (app) => {
         .update(shares)
         .set({ permission: req.body.permission })
         .where(eq(shares.id, row.share.id));
+      await audit(db, {
+        actorId: user.id,
+        action: 'share.updated',
+        targetType: 'node',
+        targetId: row.share.nodeId,
+        ip: req.clientIp,
+        meta: {
+          grantee: row.share.granteeId,
+          from: row.share.permission,
+          to: req.body.permission,
+        },
+      });
       const updated = (await listShares(row.share.nodeId)).find((s) => s.id === row.share.id);
       return updated!;
     },

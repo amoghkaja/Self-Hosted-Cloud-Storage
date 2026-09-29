@@ -11,6 +11,20 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 export async function registerSecurity(app: FastifyInstance) {
   const { config } = app.ctx;
 
+  // Someone who typed http:// reaches us through Cloudflare (with "Always Use HTTPS" off) or a
+  // proxy with X-Forwarded-Proto: http. Send them to the https address before any password or
+  // cookie crosses the plain connection. Always to PUBLIC_URL, never the (spoofable) Host header.
+  // Direct calls without the header (health checks, the LAN) are left alone.
+  if (config.cookieSecure) {
+    app.addHook('onRequest', async (req, reply) => {
+      const proto = req.headers['x-forwarded-proto'];
+      if (typeof proto !== 'string' || proto.split(',')[0]!.trim().toLowerCase() !== 'http') {
+        return;
+      }
+      return reply.redirect(`${config.publicOrigin}${req.url}`, 308);
+    });
+  }
+
   await app.register(helmet, {
     // Strict CSP for the SPA. File responses set their own sandboxed CSP (see send-blob.ts).
     contentSecurityPolicy: {

@@ -154,6 +154,9 @@ describe('renderShell', () => {
     expect(out).toContain('content="https://cloud.example.com/api/v1/brand/icon/512?v=v1"');
     expect(out).not.toContain('/favicon.svg');
     expect(out).toContain('<noscript>Kaja &#60;Family&#62; Cloud needs JavaScript');
+    expect(out).toContain(
+      '<meta name="description" content="Kaja &#60;Family&#62; Cloud: our family\'s private cloud." />',
+    );
   });
 
   it('keeps share-link previews generic, and falls back to the built-in icons', () => {

@@ -27,7 +27,8 @@ export async function makeOfficePreview(ctx: AppContext, blobId: string): Promis
     .innerJoin(nodes, eq(nodes.blobId, blobs.id))
     .where(eq(blobs.id, blobId))
     .limit(1);
-  if (!row) return;
+  // Gone, or already rendered by an earlier run of the same job.
+  if (row?.blob.previewStatus !== 'pending') return;
   const setStatus = (previewStatus: 'ready' | 'failed') =>
     ctx.db
       .update(blobs)
