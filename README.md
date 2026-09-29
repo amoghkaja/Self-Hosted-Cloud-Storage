@@ -127,4 +127,13 @@ Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md). The thr
 
 ## License
 
-[MIT](LICENSE)
+Copyright (C) 2026 Amogh Kaja.
+
+Family Cloud is free software under the [GNU Affero General Public License v3.0 or later](LICENSE) (AGPL-3.0-or-later). In plain terms:
+
+- **Use it freely,** at home, for your family, or in your organisation, for free.
+- **Change it however you like.** If you only run your changed version for yourself or your family, you don't have to publish anything.
+- **If you let other people use a changed version over the network** (for example as a hosted service), you must offer them its source code under the same license. Set `SOURCE_URL` to your fork so the app's "Source code" link points at it.
+- **Selling it** (hosting, support, setup) is allowed on the same terms: your changes stay open.
+
+Want to build it into a closed-source or commercial product without those terms? A separate commercial license is available; open an issue to get in touch.

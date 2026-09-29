@@ -13,7 +13,8 @@ export function AuthLayout({
   subtitle?: ReactNode;
   children: ReactNode;
 }) {
-  const home = useSetupStatus().data?.homeUrl;
+  const setup = useSetupStatus().data;
+  const home = setup?.homeUrl;
   return (
     <div className="flex min-h-dvh flex-col px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       <main className="flex flex-1 items-center justify-center py-8">
@@ -28,17 +29,25 @@ export function AuthLayout({
           </div>
         </div>
       </main>
-      {home && (
-        <footer className="flex justify-center">
-          <a
-            href={home}
-            className="inline-flex min-h-11 items-center gap-1.5 text-sm text-muted hover:text-text"
-          >
+      <footer className="flex flex-wrap items-center justify-center gap-x-5 text-sm text-muted">
+        {home && (
+          <a href={home} className="inline-flex min-h-11 items-center gap-1.5 hover:text-text">
             <ArrowLeft size={14} aria-hidden />
             {new URL(home).host}
           </a>
-        </footer>
-      )}
+        )}
+        {/* The AGPL's offer of the source code to everyone who uses the server. */}
+        {setup?.sourceUrl && (
+          <a
+            href={setup.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-11 items-center hover:text-text"
+          >
+            Source code
+          </a>
+        )}
+      </footer>
     </div>
   );
 }

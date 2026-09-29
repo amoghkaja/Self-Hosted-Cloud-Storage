@@ -129,6 +129,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     return {
       needsSetup: (row?.n ?? 0) === 0,
       appName: ctx.config.appName,
+      sourceUrl: ctx.config.sourceUrl,
       ...publicBranding(ctx, await loadBranding(ctx)),
     };
   });

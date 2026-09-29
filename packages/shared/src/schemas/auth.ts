@@ -30,6 +30,8 @@ export const SetupStatus = z.object({
   logoVersion: z.string().nullable(),
   /** Optional link back to the family's main website. */
   homeUrl: z.string().nullable(),
+  /** Where this server's source code is published (AGPL-3.0). */
+  sourceUrl: z.string(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
 

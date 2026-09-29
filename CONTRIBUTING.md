@@ -27,3 +27,14 @@ For UI changes, also run the end-to-end smoke test against your dev instance (`p
 ## Releases
 
 Maintainers tag `vX.Y.Z`; the release workflow publishes multi-arch images to GHCR.
+
+## Licensing of contributions
+
+Family Cloud is licensed under the [GNU AGPL v3.0 or later](LICENSE), and the project also offers separate commercial licenses. So that both stay possible, by opening a pull request you agree that:
+
+1. Your contribution is your own work (or you have the right to submit it), and
+2. It is licensed to everyone under AGPL-3.0-or-later, **and** you grant the maintainer (Amogh Kaja) a perpetual, worldwide, royalty-free, irrevocable license to use, modify and relicense it, including under other license terms.
+
+You keep the copyright to your contribution. If you can't agree to point 2, say so in the pull request before it's merged.
+
+Add a `Signed-off-by: Your Name <email>` line to your commits (`git commit -s`) to confirm this.

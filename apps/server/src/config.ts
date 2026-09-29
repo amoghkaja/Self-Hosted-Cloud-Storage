@@ -30,6 +30,11 @@ const Env = z.object({
     .min(32, 'SECRET_KEY must be at least 32 characters (use: openssl rand -hex 32)'),
   APP_NAME: z.string().min(1).max(60).default('Family Cloud'),
   /**
+   * Where this server's source code is published, linked from the app. The AGPL requires
+   * offering the source of a modified version to its users: point this at your fork.
+   */
+  SOURCE_URL: z.url({ protocol: /^https?$/ }).default('https://github.com/amoghkaja/Cloud-Storage'),
+  /**
    * Domain passkeys belong to. Defaults to PUBLIC_URL's host; set the parent domain
    * (e.g. example.com for cloud.example.com) to share passkeys across its subdomains.
    */
@@ -96,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     cacheDir: path.join(dataDir, 'cache'),
     secretKey: e.SECRET_KEY,
     appName: e.APP_NAME,
+    sourceUrl: e.SOURCE_URL,
     passkeyRpId: e.PASSKEY_RP_ID ?? publicUrl.hostname,
     trustedProxies: e.TRUSTED_PROXIES.split(',')
       .map((s) => s.trim())

@@ -72,13 +72,17 @@ Install Tailscale on the server and each device, then run `sudo tailscale serve 
 
 1. Open `https://cloud.example.com/setup`.
 2. Paste the setup token, then choose your name, email and a password (at least 10 characters).
-3. You're the admin. Go to **Settings → Two-factor sign-in** and turn it on: admin accounts control everyone's storage.
+3. You're the admin. Go to **Settings** and add a **passkey** (Face ID / Touch ID) and turn on **two-factor sign-in**: admin accounts control everyone's storage.
 
 ## 5. Invite your family
 
-**Admin → People → Invite.** Optionally enter their email (then only that address can use the link), choose their quota, and copy the link. Send it by text or email. It works once and expires after 7 days.
+**Admin → People → Invite.** Optionally enter their email (then only that address can use the link), choose their allowance, and copy the link. Send it by text or email. It works once and expires after 7 days. Everyone is offered a passkey the first time they sign in.
 
-Quotas can be changed any time. Lowering a quota below what someone uses keeps their files; they just can't upload until they free up space.
+If your family shares an email domain, list it under **Admin → Settings → Only allow these email domains**: then only those addresses can be invited or sign in, on the web, with passkeys and on the network drive.
+
+Allowances can be changed any time, one by one or all together with **Admin → Overview → Allocate space**. Lowering one below what someone uses keeps their files; they just can't upload until they free up space.
+
+Each person's **My Files** is private. **Family Photos** is for trips: an album has a name, dates and who went, everyone on the trip adds photos, and the whole family can see it.
 
 ## 6. Set up backups
 
@@ -86,6 +90,7 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 
 ## 7. Optional extras
 
+- **Your family's look:** **Admin → Settings → Branding** takes a logo (also the home-screen icon), the word beside it and a link to your family website.
 - **Network drive:** each person can connect their iPhone, iPad, Mac or Windows PC under **Settings → Network drive**. See [network-drive.md](network-drive.md).
 - **More disks:** [storage-and-disks.md](storage-and-disks.md).
 - **Protect the admin pages further:** with Cloudflare, add a Cloudflare Access policy for `/admin*` (Zero Trust → Access → Applications) so only listed emails can even load them.
@@ -98,6 +103,10 @@ cd deploy && docker compose pull && docker compose up -d
 ```
 
 If the installer built the image on this machine (it couldn't pull one), rebuild instead: `docker compose up -d --build`. Database changes are applied automatically on start. To stay on a specific release, set `IMAGE=ghcr.io/amoghkaja/cloud-storage:v0.1.0` in `deploy/.env`.
+
+## Running a modified version
+
+Family Cloud is licensed under the [AGPL-3.0](../LICENSE). Changing it for your own family needs nothing extra. If other people use your changed version over the network, publish your changes (a public fork is enough) and set `SOURCE_URL=https://github.com/you/your-fork` in `deploy/.env`, so the app's "Source code" link offers your version.
 
 ## Everyday commands
 

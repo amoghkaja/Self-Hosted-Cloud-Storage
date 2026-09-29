@@ -23,6 +23,7 @@ import {
   usePasskeyMutations,
   usePasskeys,
   useSessions,
+  useSetupStatus,
 } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { StorageSummary } from '../../app/StorageSummary';
@@ -684,6 +685,30 @@ function AppearanceSection() {
   );
 }
 
+function AboutSection() {
+  const sourceUrl = useSetupStatus().data?.sourceUrl;
+  return (
+    <Section title="About">
+      <p className="text-sm text-muted">
+        Family Cloud is free software under the GNU Affero General Public License v3.
+        {sourceUrl && (
+          <>
+            {' '}
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-accent underline-offset-2 hover:underline"
+            >
+              Source code
+            </a>
+          </>
+        )}
+      </p>
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const { me } = useShell();
   const { hash } = useLocation();
@@ -703,6 +728,7 @@ export function SettingsPage() {
       <TwoFactorSection me={me} />
       <PasswordSection />
       <SessionsSection />
+      <AboutSection />
     </div>
   );
 }

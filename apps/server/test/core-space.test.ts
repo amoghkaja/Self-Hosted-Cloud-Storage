@@ -61,6 +61,8 @@ describe('branding', () => {
   it('shows the uploaded logo, wordmark and home link to everyone, and icons from the logo', async () => {
     const before = (await new C(env.app).get('/auth/setup-status')).body;
     expect(before).toMatchObject({ logoVersion: null, homeUrl: null, wordmark: before.appName });
+    // The AGPL source offer is always there for signed-out visitors too.
+    expect(before.sourceUrl).toBe('https://github.com/amoghkaja/Cloud-Storage');
 
     const up = await admin.post('/admin/branding/logo', {
       mimeType: 'image/svg+xml',
