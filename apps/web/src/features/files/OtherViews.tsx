@@ -2,7 +2,7 @@ import { type FileNode, formatBytes } from '@familycloud/shared';
 import { RotateCcw, Search, Trash2, Users } from 'lucide-react';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { contentUrl, errorMessage, thumbUrl } from '../../api/client';
+import { contentUrl, errorMessage, streamUrl, thumbUrl } from '../../api/client';
 import { usePurge, useRestore, useSearch, useSharedWithMe, useTrash } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import {
@@ -83,7 +83,7 @@ function FlatList({
             index={previewIndex}
             onIndexChange={(i) => setPreviewId(files[i]?.id ?? null)}
             onClose={() => setPreviewId(null)}
-            source={{ content: contentUrl, thumb: thumbUrl, canDownload: true }}
+            source={{ content: contentUrl, thumb: thumbUrl, stream: streamUrl, canDownload: true }}
           />
         </Suspense>
       )}

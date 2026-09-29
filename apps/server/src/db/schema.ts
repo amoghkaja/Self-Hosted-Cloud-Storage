@@ -37,6 +37,13 @@ export const thumbStatus = pgEnum('thumb_status', [
   'failed',
   'unsupported',
 ]);
+export const streamStatus = pgEnum('stream_status', [
+  'none',
+  'pending',
+  'ready',
+  'original',
+  'failed',
+]);
 export const uploadStatus = pgEnum('upload_status', [
   'uploading',
   'finalizing',
@@ -140,6 +147,11 @@ export const blobs = pgTable(
     size: bytes('size').notNull(),
     sha256: text('sha256'),
     thumbStatus: thumbStatus('thumb_status').notNull().default('none'),
+    /**
+     * Videos: a 720p H.264 copy for streaming, in the cache ('ready'); 'original' when the file
+     * already streams well everywhere; 'none' for anything that isn't a video.
+     */
+    streamStatus: streamStatus('stream_status').notNull().default('none'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [index('blobs_volume_idx').on(t.volumeId)],

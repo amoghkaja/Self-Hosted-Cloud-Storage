@@ -24,7 +24,7 @@ import {
 import { toFileNode } from '../../lib/dto';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
-import { isThumbnailable } from '../../storage/thumbs';
+import { isThumbnailable, isVideo } from '../../storage/thumbs';
 import { loadAccess, lockWriteAccess, requireFolder } from '../files/access';
 import { insertNode, QUOTA_LOCK } from '../files/tree';
 
@@ -469,6 +469,7 @@ export async function finalizeUpload(
   }
 
   const thumbable = isThumbnailable(claimed.mimeType);
+  const video = isVideo(claimed.mimeType);
   try {
     const node = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
@@ -488,6 +489,7 @@ export async function finalizeUpload(
         volumeId: claimed.volumeId,
         size: claimed.size,
         thumbStatus: thumbable ? 'pending' : 'unsupported',
+        streamStatus: video ? 'pending' : 'none',
       });
       const row = await insertNode(
         tx,
@@ -520,6 +522,7 @@ export async function finalizeUpload(
 
     await ctx.jobs.send('hash', { blobId: claimed.blobId }).catch(() => {});
     if (thumbable) await ctx.jobs.send('thumbnail', { blobId: claimed.blobId }).catch(() => {});
+    if (video) await ctx.jobs.send('video-stream', { blobId: claimed.blobId }).catch(() => {});
     return {
       session: { ...claimed, status: 'completed', nodeId: node.id },
       node: toFileNode({ ...node, thumb: thumbable ? 'pending' : 'unsupported' }),

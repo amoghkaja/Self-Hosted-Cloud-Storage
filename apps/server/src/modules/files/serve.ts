@@ -10,7 +10,7 @@ import type { Executor } from '../../db/client';
 import { blobs } from '../../db/schema';
 import { AppError, badRequest, notFound } from '../../lib/errors';
 import { contentDisposition, isInlineSafe, parseRange, servedContentType } from '../../lib/http';
-import { thumbPath } from '../../storage/thumbs';
+import { streamPath, thumbPath } from '../../storage/thumbs';
 
 /** Locks rendered user content into an opaque, script-less sandbox even if a browser sniffs it. */
 const SANDBOX_CSP =
@@ -45,10 +45,7 @@ export interface BlobRef {
   mimeType: string | null;
 }
 
-/**
- * Streams a stored file with Range (seeking), ETag/304 and download-safe headers.
- * Memory use is constant regardless of file size.
- */
+/** Sends a stored file (see sendFileRange). */
 export async function sendBlob(
   ctx: AppContext,
   req: FastifyRequest,
@@ -57,8 +54,68 @@ export async function sendBlob(
   opts: { inline: boolean },
 ) {
   const file = await ctx.volumes.blobFile({ id: blob.blobId, volumeId: blob.volumeId });
-  const inline = opts.inline && isInlineSafe(blob.mimeType);
-  const etag = `"${blob.blobId}"`;
+  return sendFileRange(req, reply, {
+    file,
+    size: blob.size,
+    etag: `"${blob.blobId}"`,
+    name: blob.name,
+    mimeType: blob.mimeType,
+    inline: opts.inline,
+    logId: blob.blobId,
+  });
+}
+
+/**
+ * Plays a video: the 720p streaming copy when the worker has made one (small enough for family
+ * abroad, and H.264 so it plays in every browser), otherwise the original.
+ */
+export async function sendVideoStream(
+  ctx: AppContext,
+  req: FastifyRequest,
+  reply: FastifyReply,
+  blob: BlobRef,
+) {
+  const [row] = await ctx.db
+    .select({ status: blobs.streamStatus })
+    .from(blobs)
+    .where(eq(blobs.id, blob.blobId));
+  if (row?.status === 'ready') {
+    const file = streamPath(ctx.config.cacheDir, blob.blobId);
+    const st = await stat(file).catch(() => null);
+    if (st) {
+      return sendFileRange(req, reply, {
+        file,
+        size: st.size,
+        etag: `"${blob.blobId}-720"`,
+        name: `${blob.name.replace(/\.[^.]*$/, '')}.mp4`,
+        mimeType: 'video/mp4',
+        inline: true,
+        logId: blob.blobId,
+      });
+    }
+  }
+  return sendBlob(ctx, req, reply, blob, { inline: true });
+}
+
+/**
+ * Streams a file with Range (seeking), ETag/304 and download-safe headers.
+ * Memory use is constant regardless of file size.
+ */
+async function sendFileRange(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  f: {
+    file: string;
+    size: number;
+    etag: string;
+    name: string;
+    mimeType: string | null;
+    inline: boolean;
+    logId: string;
+  },
+) {
+  const inline = f.inline && isInlineSafe(f.mimeType);
+  const { etag } = f;
 
   reply
     .header('ETag', etag)
@@ -67,10 +124,10 @@ export async function sendBlob(
     .header('X-Content-Type-Options', 'nosniff')
     .header(
       'Content-Security-Policy',
-      blob.mimeType === 'application/pdf' && inline ? PDF_CSP : SANDBOX_CSP,
+      f.mimeType === 'application/pdf' && inline ? PDF_CSP : SANDBOX_CSP,
     )
-    .header('Content-Disposition', contentDisposition(inline ? 'inline' : 'attachment', blob.name))
-    .header('Content-Type', servedContentType(blob.mimeType, inline));
+    .header('Content-Disposition', contentDisposition(inline ? 'inline' : 'attachment', f.name))
+    .header('Content-Type', servedContentType(f.mimeType, inline));
 
   if (etagMatches(req.headers['if-none-match'], etag)) return reply.status(304).send();
 
@@ -80,27 +137,27 @@ export async function sendBlob(
   const ifRange = req.headers['if-range'];
   const range =
     ifRange === undefined || String(ifRange).trim() === etag
-      ? parseRange(req.headers.range, blob.size)
+      ? parseRange(req.headers.range, f.size)
       : null;
   if (range === 'unsatisfiable') {
-    reply.header('Content-Range', `bytes */${blob.size}`);
+    reply.header('Content-Range', `bytes */${f.size}`);
     throw new AppError(416, ErrorCode.VALIDATION, 'Requested range not satisfiable');
   }
 
   let fh: Awaited<ReturnType<typeof open>>;
   try {
-    fh = await open(file, 'r');
+    fh = await open(f.file, 'r');
   } catch (err) {
-    req.log.error({ err, blobId: blob.blobId }, 'blob file missing');
+    req.log.error({ err, blobId: f.logId }, 'blob file missing');
     throw new AppError(500, ErrorCode.BLOB_MISSING, 'This file is unavailable (storage error)');
   }
   const start = range?.start ?? 0;
-  const end = range?.end ?? blob.size - 1;
+  const end = range?.end ?? f.size - 1;
   if (range) {
-    reply.status(206).header('Content-Range', `bytes ${start}-${end}/${blob.size}`);
+    reply.status(206).header('Content-Range', `bytes ${start}-${end}/${f.size}`);
   }
-  reply.header('Content-Length', String(blob.size === 0 ? 0 : end - start + 1));
-  if (blob.size === 0 || req.method === 'HEAD') {
+  reply.header('Content-Length', String(f.size === 0 ? 0 : end - start + 1));
+  if (f.size === 0 || req.method === 'HEAD') {
     await fh.close();
     // HEAD gets an empty stream: Fastify replaces Content-Length with the body's length for a
     // string, which would tell WebDAV clients and download managers the file is empty.

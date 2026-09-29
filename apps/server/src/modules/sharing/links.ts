@@ -28,7 +28,7 @@ import { toIso, toIsoOrNull } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { strictLimit } from '../../plugins/security';
 import { type NodeWithBlob, requireAccess } from '../files/access';
-import { sendBlob, sendThumbnail, sendZip } from '../files/serve';
+import { sendBlob, sendThumbnail, sendVideoStream, sendZip } from '../files/serve';
 import { listChildren } from '../files/tree';
 
 const UNLOCK_TTL = 12 * 60 * 60;
@@ -352,6 +352,25 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
         },
         { inline },
       );
+    },
+  );
+
+  // Watching a video is viewing, so it works on view-only links too.
+  app.get(
+    '/public/links/:token/stream/:nodeId',
+    { config: strictLimit(600), schema: { params: PublicNodeParams } },
+    async (req, reply) => {
+      const { node: n } = await publicFile(req, req.params.token, req.params.nodeId);
+      if (n.type !== 'file' || !n.blobId || !n.volumeId || !n.mimeType?.startsWith('video/')) {
+        throw notFound('Video');
+      }
+      return sendVideoStream(ctx, req, reply, {
+        blobId: n.blobId,
+        volumeId: n.volumeId,
+        size: n.size,
+        name: n.name,
+        mimeType: n.mimeType,
+      });
     },
   );
 

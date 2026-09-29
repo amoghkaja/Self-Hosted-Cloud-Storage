@@ -33,7 +33,7 @@ import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
 import type { AuthContext } from '../../lib/sessions';
 import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
-import { sendBlob, sendThumbnail, sendZip, type ZipRoot } from '../files/serve';
+import { sendBlob, sendThumbnail, sendVideoStream, sendZip, type ZipRoot } from '../files/serve';
 import { insertNode } from '../files/tree';
 
 /** Photos and videos only: anything else dropped into a trip folder stays out of the album. */
@@ -448,6 +448,22 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
         },
         { inline: req.query.inline === '1' },
       );
+    },
+  );
+
+  app.get(
+    '/albums/:id/photos/:nodeId/stream',
+    { schema: { params: PhotoParams } },
+    async (req, reply) => {
+      requireUser(req);
+      const p = await albumPhoto(req.params.id, req.params.nodeId);
+      return sendVideoStream(ctx, req, reply, {
+        blobId: p.node.blobId!,
+        volumeId: p.volumeId,
+        size: p.node.size,
+        name: p.node.name,
+        mimeType: p.node.mimeType,
+      });
     },
   );
 

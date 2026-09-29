@@ -43,6 +43,13 @@
       "when": 1790589802016,
       "tag": "0005_albums",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790665454512,
+      "tag": "0006_video_streams",
+      "breakpoints": true
     }
   ]
 }

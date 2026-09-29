@@ -11,7 +11,7 @@ import type { Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { toFileNode } from '../../lib/dto';
 import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
-import { thumbPaths } from '../../storage/thumbs';
+import { derivedPaths } from '../../storage/thumbs';
 
 /** Advisory lock guarding usage counters: exclusive for sum checks/reconcile, shared otherwise. */
 export const QUOTA_LOCK = 727_002;
@@ -411,7 +411,7 @@ export const blobUnused = sql`NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_i
 export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {
   for (const b of list) {
     const file = await ctx.volumes.blobFile(b).catch(() => null);
-    const targets = [...(file ? [file] : []), ...thumbPaths(ctx.config.cacheDir, b.id)];
+    const targets = [...(file ? [file] : []), ...derivedPaths(ctx.config.cacheDir, b.id)];
     await Promise.all(targets.map((t) => unlink(t).catch(() => {})));
   }
 }

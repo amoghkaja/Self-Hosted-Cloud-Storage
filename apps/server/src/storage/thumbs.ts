@@ -5,9 +5,21 @@ export function thumbPath(cacheDir: string, blobId: string, size: ThumbSize): st
   return path.join(cacheDir, 'thumbs', blobId.slice(-2), `${blobId}-${size}.webp`);
 }
 
+/** The 720p streaming copy of a video (derived data, like thumbnails: not counted in quotas). */
+export function streamPath(cacheDir: string, blobId: string): string {
+  return path.join(cacheDir, 'stream', blobId.slice(-2), `${blobId}-720.mp4`);
+}
+
 export function thumbPaths(cacheDir: string, blobId: string): string[] {
   return THUMB_SIZES.map((s) => thumbPath(cacheDir, blobId, s));
 }
+
+/** Everything derived from a blob (thumbnails, streaming copy), to delete along with it. */
+export function derivedPaths(cacheDir: string, blobId: string): string[] {
+  return [...thumbPaths(cacheDir, blobId), streamPath(cacheDir, blobId)];
+}
+
+export const isVideo = (mime: string | null) => !!mime?.startsWith('video/');
 
 /** Whether the worker can try to render a thumbnail for this MIME type. */
 export function isThumbnailable(mime: string | null): boolean {

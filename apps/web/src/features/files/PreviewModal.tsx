@@ -1,7 +1,7 @@
 import { formatBytes } from '@familycloud/shared';
 import { ChevronLeft, ChevronRight, Download, File, X } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui';
 import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
 import { kindOf } from './FileIcon';
@@ -18,6 +18,8 @@ export interface PreviewItem {
 export interface PreviewSource {
   content: (id: string, inline: boolean) => string;
   thumb: (id: string, size: 256 | 1600) => string;
+  /** Videos: a streaming version sized for phones and slow links (falls back to `content`). */
+  stream?: (id: string) => string;
   canDownload: boolean;
 }
 
@@ -107,6 +109,52 @@ function ZoomableImage({
   );
 }
 
+/**
+ * Plays the streaming version (720p, starts fast abroad and plays everywhere) with a switch to
+ * the original quality. The position carries over when switching.
+ */
+function VideoPlayer({ item, source }: { item: PreviewItem; source: PreviewSource }) {
+  const [original, setOriginal] = useState(false);
+  const video = useRef<HTMLVideoElement>(null);
+  const resumeAt = useRef(0);
+  const src = original || !source.stream ? source.content(item.id, true) : source.stream(item.id);
+  const toggle = () => {
+    resumeAt.current = video.current?.currentTime ?? 0;
+    setOriginal((o) => !o);
+  };
+  return (
+    <div className="flex max-h-full max-w-full flex-col items-center gap-2">
+      {/* biome-ignore lint/a11y/useMediaCaption: family videos have no caption tracks */}
+      <video
+        ref={video}
+        key={`${item.id}-${original}`}
+        src={src}
+        poster={item.thumb === 'ready' ? source.thumb(item.id, 1600) : undefined}
+        controls
+        playsInline
+        preload="metadata"
+        onLoadedMetadata={(e) => {
+          if (resumeAt.current) {
+            e.currentTarget.currentTime = resumeAt.current;
+            resumeAt.current = 0;
+            void e.currentTarget.play().catch(() => {});
+          }
+        }}
+        className="max-h-[calc(100dvh-10rem)] max-w-full rounded-lg"
+      />
+      {source.stream && (
+        <button
+          type="button"
+          onClick={toggle}
+          className="min-h-11 rounded-full px-3 text-xs text-white/70 hover:text-white"
+        >
+          {original ? 'Play the faster version' : 'Play in original quality'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Viewer({
   item,
   source,
@@ -153,20 +201,7 @@ function Viewer({
     if (item.thumb === 'pending')
       return <p className="text-white/80">Preview is still being prepared…</p>;
   }
-  if (kind === 'video') {
-    return (
-      // biome-ignore lint/a11y/useMediaCaption: family videos have no caption tracks
-      <video
-        key={item.id}
-        src={source.content(item.id, true)}
-        poster={item.thumb === 'ready' ? source.thumb(item.id, 1600) : undefined}
-        controls
-        playsInline
-        preload="metadata"
-        className="max-h-full max-w-full rounded-lg"
-      />
-    );
-  }
+  if (kind === 'video') return <VideoPlayer item={item} source={source} />;
   if (kind === 'audio') {
     return (
       <div className="w-full max-w-md rounded-2xl bg-surface p-6 text-center">

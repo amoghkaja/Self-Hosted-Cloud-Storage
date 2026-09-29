@@ -85,6 +85,8 @@ export function errorMessage(err: unknown): string {
 
 export const contentUrl = (nodeId: string, inline = false) =>
   apiUrl(`/nodes/${nodeId}/content`, inline ? { inline: 1 } : undefined);
+/** A video's streaming version (720p when ready, else the original). */
+export const streamUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/stream`);
 export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256) =>
   apiUrl(`/nodes/${nodeId}/thumbnail`, { size });
 export const zipUrl = (ids: string[]) => apiUrl('/zip', { ids: ids.join(',') });

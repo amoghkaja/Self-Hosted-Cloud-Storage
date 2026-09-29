@@ -10,7 +10,7 @@ import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, uploadSessions, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
-import { isThumbnailable, thumbPaths } from '../../storage/thumbs';
+import { derivedPaths, isThumbnailable, isVideo } from '../../storage/thumbs';
 import { lockWriteAccess } from '../files/access';
 import { blobUnused, insertNode, QUOTA_LOCK } from '../files/tree';
 import { assertFileSizeAllowed, releaseUpload, reserveSpace } from './service';
@@ -121,6 +121,7 @@ export async function ingest(
     await rename(tmp, final);
 
     const thumbable = isThumbnailable(input.mimeType);
+    const video = isVideo(input.mimeType);
     const result = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
       const [live] = await tx
@@ -142,6 +143,7 @@ export async function ingest(
         volumeId: volume.id,
         size: input.size,
         thumbStatus: thumbable ? 'pending' : 'unsupported',
+        streamStatus: video ? 'pending' : 'none',
       });
       let node: NodeRow;
       let created = true;
@@ -212,13 +214,14 @@ export async function ingest(
       const oldFile = await ctx.volumes.blobFile(result.oldBlob).catch(() => null);
       for (const f of [
         ...(oldFile ? [oldFile] : []),
-        ...thumbPaths(ctx.config.cacheDir, result.oldBlob.id),
+        ...derivedPaths(ctx.config.cacheDir, result.oldBlob.id),
       ]) {
         await unlink(f).catch(() => {});
       }
     }
     await ctx.jobs.send('hash', { blobId }).catch(() => {});
     if (thumbable) await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
+    if (video) await ctx.jobs.send('video-stream', { blobId }).catch(() => {});
     return { node: result.node, created: result.created };
   } finally {
     if (!committed) {

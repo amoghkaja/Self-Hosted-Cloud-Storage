@@ -11,6 +11,7 @@ import {
 } from './jobs/maintenance';
 import { JOBS, type JobPayloads, type PgBossQueue } from './jobs/queue';
 import { configureSharp, generateThumbnail } from './jobs/thumbnail';
+import { makeVideoStream } from './jobs/video';
 
 /**
  * Background worker: thumbnails, checksums, volume drains and scheduled maintenance.
@@ -40,6 +41,12 @@ async function main() {
     JOBS.thumbnail,
     { localConcurrency: config.workerConcurrency },
     handle('thumbnail', (d) => generateThumbnail(ctx, d.blobId)),
+  );
+  await boss.work(
+    JOBS.videoStream,
+    // One at a time: ffmpeg already uses every core for a single video.
+    { localConcurrency: 1 },
+    handle('video-stream', (d) => makeVideoStream(ctx, d.blobId)),
   );
   await boss.work(
     JOBS.hash,

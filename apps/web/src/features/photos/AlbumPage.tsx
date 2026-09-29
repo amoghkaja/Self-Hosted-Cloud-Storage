@@ -97,6 +97,7 @@ export function AlbumPage() {
         apiUrl(`/albums/${albumId}/photos/${id}/content`, inline ? { inline: '1' } : undefined),
       thumb: (id, size) =>
         apiUrl(`/albums/${albumId}/photos/${id}/thumbnail`, { size: String(size) }),
+      stream: (id) => apiUrl(`/albums/${albumId}/photos/${id}/stream`),
       canDownload: true,
     }),
     [albumId],
