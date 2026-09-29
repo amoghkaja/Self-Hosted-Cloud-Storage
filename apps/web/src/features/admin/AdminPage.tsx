@@ -807,7 +807,7 @@ function Storage() {
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
-/** "kajafamily.com, @example.org" → ["kajafamily.com", "example.org"] */
+/** "smithfamily.com, @example.org" → ["smithfamily.com", "example.org"] */
 const parseDomains = (text: string) => [
   ...new Set(
     text
@@ -891,7 +891,7 @@ function SettingsForm({
           label="Only allow these email domains"
           value={domainsText}
           onChange={(e) => setDomainsText(e.target.value)}
-          placeholder="e.g. kajafamily.com"
+          placeholder="e.g. smithfamily.com"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}

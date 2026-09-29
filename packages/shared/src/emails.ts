@@ -12,8 +12,8 @@ export function domainMessage(allowedDomains: readonly string[]): string {
 
 /**
  * Whether an address may sign in / be invited under the "allowed email domains" setting.
- * An empty list means any address. Only exact domains match: "kajafamily.com" does not allow
- * "mail.kajafamily.com" or "kajafamily.com.evil.example".
+ * An empty list means any address. Only exact domains match: "example.com" does not allow
+ * "mail.example.com" or "example.com.evil.example".
  */
 export function emailAllowed(allowedDomains: readonly string[], email: string): boolean {
   if (allowedDomains.length === 0) return true;

@@ -88,10 +88,10 @@ describe('allowed email domains', () => {
 
   it('matches whole domains only', async () => {
     const { emailAllowed } = await import('@familycloud/shared/all');
-    expect(emailAllowed(['kajafamily.com'], 'Amogh@KajaFamily.com')).toBe(true);
-    expect(emailAllowed(['kajafamily.com'], 'x@mail.kajafamily.com')).toBe(false);
-    expect(emailAllowed(['kajafamily.com'], 'x@kajafamily.com.evil.test')).toBe(false);
-    expect(emailAllowed(['kajafamily.com'], 'kajafamily.com@evil.test')).toBe(false);
+    expect(emailAllowed(['smithfamily.com'], 'Alex@SmithFamily.com')).toBe(true);
+    expect(emailAllowed(['smithfamily.com'], 'x@mail.smithfamily.com')).toBe(false);
+    expect(emailAllowed(['smithfamily.com'], 'x@smithfamily.com.evil.test')).toBe(false);
+    expect(emailAllowed(['smithfamily.com'], 'smithfamily.com@evil.test')).toBe(false);
     expect(emailAllowed([], 'anyone@anywhere.test')).toBe(true);
   });
 });

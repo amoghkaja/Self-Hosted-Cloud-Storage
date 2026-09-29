@@ -232,14 +232,14 @@ describe('rate limiting', () => {
 
 describe('web app manifest', () => {
   it('uses the configured family name', async () => {
-    const named = await createTestEnv({ APP_NAME: 'Kaja Family Cloud' });
+    const named = await createTestEnv({ APP_NAME: 'Smith Family Cloud' });
     try {
       const res = await named.app.inject({ method: 'GET', url: '/manifest.webmanifest' });
       expect(res.statusCode).toBe(200);
       expect(res.headers['content-type']).toContain('application/manifest+json');
       expect(res.json()).toMatchObject({
-        name: 'Kaja Family Cloud',
-        short_name: 'Kaja Family',
+        name: 'Smith Family Cloud',
+        short_name: 'Smith Family',
         start_url: '/files',
       });
     } finally {

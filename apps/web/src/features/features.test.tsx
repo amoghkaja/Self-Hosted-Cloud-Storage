@@ -167,7 +167,7 @@ describe('LoginPage', () => {
     };
     const calls = mockFetch({
       'GET /auth/setup-status': () => ({
-        json: { needsSetup: false, appName: 'Kaja Family Cloud' },
+        json: { needsSetup: false, appName: 'Smith Family Cloud' },
       }),
       'GET /auth/me': () => ({
         status: 401,
@@ -183,7 +183,7 @@ describe('LoginPage', () => {
       'POST /auth/login/totp': () => ({ json: { status: 'ok', user: me } }),
     });
     const { container } = renderWithProviders(<LoginPage />, { route: '/login' });
-    expect(await screen.findByText('Kaja Family Cloud')).toBeInTheDocument();
+    expect(await screen.findByText('Smith Family Cloud')).toBeInTheDocument();
     await expectAccessible(container);
 
     await userEvent.type(screen.getByLabelText('Email'), 'a@x.com');

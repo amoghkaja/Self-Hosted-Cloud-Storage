@@ -19,3 +19,6 @@ deploy/cloudflare/*.zone
 
 # Claude Code personal overrides
 .claude/settings.local.json
+
+# Personal, machine-specific notes (runbooks etc.): never committed
+*.local.md

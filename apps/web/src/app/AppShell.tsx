@@ -42,7 +42,7 @@ function Brand({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-/** Where the family's own site lives (e.g. kajafamily.com), if the admin set one. */
+/** Where the family's own site lives (e.g. smithfamily.com), if the admin set one. */
 function HomeLink() {
   const home = useSetupStatus().data?.homeUrl;
   if (!home) return null;

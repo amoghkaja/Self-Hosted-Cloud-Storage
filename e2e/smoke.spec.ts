@@ -40,7 +40,7 @@ test.describe
       await expect(page).toHaveURL(/\/setup$/);
       await shot(page, '01-setup');
       await page.getByLabel('Setup token').fill(process.env.E2E_SETUP_TOKEN ?? '');
-      await page.getByLabel('Your name').fill('Amogh');
+      await page.getByLabel('Your name').fill('Alex');
       await page.getByLabel('Email').fill(ADMIN.email);
       await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
       await page.getByLabel('Confirm password').fill(ADMIN.password);
