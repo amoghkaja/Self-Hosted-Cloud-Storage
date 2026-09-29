@@ -6,6 +6,7 @@ import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui
 import { parseSheets, type Sheet } from '../../lib/sheetHtml';
 import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
 import { kindOf } from './FileIcon';
+import { PdfViewer } from './PdfViewer';
 
 export interface PreviewItem {
   id: string;
@@ -35,6 +36,10 @@ const BROWSER_IMAGES = new Set([
   'image/bmp',
 ]);
 const TEXT_LIMIT = 256 * 1024;
+
+const frameClass = 'h-full w-full max-w-5xl rounded-lg bg-white';
+/** Phones and tablets: their browsers can't show a PDF in a frame usefully (see PdfViewer). */
+const touchScreen = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 function TextPreview({ url }: { url: string }) {
   const [state, setState] = useState<{ text: string; truncated: boolean } | 'error' | null>(null);
@@ -205,13 +210,10 @@ function OfficeViewer({
     if (kindOf(item) === 'spreadsheet') {
       return <SheetViewer key={item.id} url={url} fallback={fallback} />;
     }
-    return (
-      <iframe
-        key={item.id}
-        src={url}
-        title={item.name}
-        className="h-full w-full max-w-5xl rounded-lg bg-white"
-      />
+    return touchScreen() ? (
+      <PdfViewer key={item.id} url={url} title={item.name} fallback={fallback} />
+    ) : (
+      <iframe key={item.id} src={url} title={item.name} className={frameClass} />
     );
   }
   if (state === 'unavailable') return fallback;
@@ -367,19 +369,6 @@ function Viewer({
       </div>
     );
   }
-  if (kind === 'pdf') {
-    return (
-      <iframe
-        key={item.id}
-        src={source.content(item.id, true)}
-        title={item.name}
-        className="h-full w-full max-w-5xl rounded-lg bg-white"
-      />
-    );
-  }
-  if (kind === 'text' || kind === 'code')
-    return <TextPreview url={source.content(item.id, true)} />;
-
   const noPreview = (
     <div className="rounded-2xl bg-surface">
       <EmptyState
@@ -398,6 +387,17 @@ function Viewer({
       />
     </div>
   );
+  if (kind === 'pdf') {
+    const url = source.content(item.id, true);
+    return touchScreen() ? (
+      <PdfViewer key={item.id} url={url} title={item.name} fallback={noPreview} />
+    ) : (
+      <iframe key={item.id} src={url} title={item.name} className={frameClass} />
+    );
+  }
+  if (kind === 'text' || kind === 'code')
+    return <TextPreview url={source.content(item.id, true)} />;
+
   if (source.preview && isOfficeDocument(item.mimeType, item.name)) {
     return <OfficeViewer item={item} url={source.preview(item.id)} fallback={noPreview} />;
   }
@@ -435,7 +435,7 @@ export default function PreviewModal({
   if (!item) return null;
   // On touch screens you swipe instead, so the arrows don't cover the photo.
   const navBtn =
-    'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 disabled:hidden pointer-coarse:hidden';
+    'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center glass-clear rounded-full border border-white/20 text-white hover:bg-black/55 disabled:hidden pointer-coarse:hidden';
   const gestures: Gestures = {
     canPrev: hasPrev,
     canNext: hasNext,
