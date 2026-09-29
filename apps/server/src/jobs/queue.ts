@@ -3,6 +3,7 @@ import { PgBoss } from 'pg-boss';
 export const JOBS = {
   thumbnail: 'thumbnail',
   videoStream: 'video-stream',
+  officePreview: 'office-preview',
   hash: 'hash',
   drainVolume: 'drain-volume',
   purgeTrash: 'purge-trash',
@@ -15,6 +16,7 @@ export type JobName = (typeof JOBS)[keyof typeof JOBS];
 export interface JobPayloads {
   thumbnail: { blobId: string };
   'video-stream': { blobId: string };
+  'office-preview': { blobId: string };
   hash: { blobId: string };
   'drain-volume': { volumeId: string };
   'purge-trash': Record<string, never>;
@@ -37,6 +39,7 @@ export interface JobQueue {
 const POLICY: Partial<Record<JobName, 'short' | 'exclusive'>> = {
   thumbnail: 'short',
   'video-stream': 'short',
+  'office-preview': 'short',
   hash: 'short',
   'drain-volume': 'exclusive',
 };
@@ -67,7 +70,10 @@ export class PgBossQueue implements JobQueue {
       if (!(await boss.getQueue(name))) {
         await boss.createQueue(name, {
           policy: POLICY[name] ?? 'standard',
-          retryLimit: name === JOBS.drainVolume || name === JOBS.videoStream ? 1 : 3,
+          retryLimit:
+            name === JOBS.drainVolume || name === JOBS.videoStream || name === JOBS.officePreview
+              ? 1
+              : 3,
           retryBackoff: true,
           // Drains move whole disks; a long film takes a while to convert.
           expireInSeconds:

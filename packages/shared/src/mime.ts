@@ -47,6 +47,8 @@ const EXT_TO_MIME: Record<string, string> = {
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.odt': 'application/vnd.oasis.opendocument.text',
   '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.odp': 'application/vnd.oasis.opendocument.presentation',
+  '.rtf': 'application/rtf',
   // archives
   '.zip': 'application/zip',
   '.gz': 'application/gzip',
@@ -120,7 +122,14 @@ export function fileKind(mimeType: string | null | undefined, name = ''): FileKi
   if (mime.includes('spreadsheet') || mime.includes('excel') || ext === '.csv')
     return 'spreadsheet';
   if (mime.includes('presentation') || mime.includes('powerpoint')) return 'presentation';
-  if (mime.includes('word') || mime.includes('opendocument.text')) return 'document';
+  if (mime.includes('word') || mime.includes('opendocument.text') || mime === 'application/rtf')
+    return 'document';
   if (/(zip|gzip|tar|7z|rar|compressed)/.test(mime)) return 'archive';
   return 'other';
+}
+
+/** Word, Excel and PowerPoint style files: shown as a PDF made by the server (LibreOffice). */
+export function isOfficeDocument(mimeType: string | null | undefined, name = ''): boolean {
+  const kind = fileKind(mimeType, name);
+  return kind === 'document' || kind === 'spreadsheet' || kind === 'presentation';
 }

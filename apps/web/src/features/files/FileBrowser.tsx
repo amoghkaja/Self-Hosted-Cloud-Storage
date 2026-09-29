@@ -26,7 +26,14 @@ import {
   useState,
 } from 'react';
 import { Link, useParams } from 'react-router';
-import { ApiError, contentUrl, errorMessage, streamUrl, thumbUrl } from '../../api/client';
+import {
+  ApiError,
+  contentUrl,
+  errorMessage,
+  previewUrl,
+  streamUrl,
+  thumbUrl,
+} from '../../api/client';
 import { qk, useChildren, useNode } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { uploadManager } from '../../app/providers';
@@ -411,7 +418,13 @@ function FileBrowser({ folderId }: { folderId: string }) {
             index={previewIndex}
             onIndexChange={(i) => setPreviewId(files[i]?.id ?? null)}
             onClose={() => setPreviewId(null)}
-            source={{ content: contentUrl, thumb: thumbUrl, stream: streamUrl, canDownload: true }}
+            source={{
+              content: contentUrl,
+              thumb: thumbUrl,
+              stream: streamUrl,
+              preview: previewUrl,
+              canDownload: true,
+            }}
           />
         </Suspense>
       )}

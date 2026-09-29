@@ -26,9 +26,13 @@ RUN pnpm --filter @familycloud/web build \
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 # ffmpeg: video poster frames · libheif-examples: iPhone HEIC photos · poppler-utils: PDF pages
+# libreoffice-*-nogui: Word/Excel/PowerPoint previews, with fonts metric-compatible with the
+# Microsoft ones (liberation, carlito, caladea) and Noto for Indian and other scripts
 # tini: correct signal handling and zombie reaping for PID 1
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg libheif-examples poppler-utils tini ca-certificates \
+    libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui \
+    fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core fonts-noto-core \
  && rm -rf /var/lib/apt/lists/*
 
 # --max-semi-space-size caps V8's young generation (it otherwise sizes it to the host's RAM,

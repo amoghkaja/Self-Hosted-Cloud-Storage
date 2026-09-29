@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { cpus, tmpdir } from 'node:os';
 import path from 'node:path';
-import { splitExtension } from '@familycloud/shared/all';
+import { isOfficeDocument, splitExtension } from '@familycloud/shared/all';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import type { AppContext } from '../context';
 import { blobs, nodes } from '../db/schema';
-import { thumbPath } from '../storage/thumbs';
+import { previewPath, thumbPath } from '../storage/thumbs';
 
 // Long-running worker: no libvips operation cache, and bounded threads per image.
 sharp.cache(false);
@@ -39,7 +39,7 @@ function run(cmd: string, args: string[]): Promise<void> {
   });
 }
 
-type Kind = 'image' | 'heic' | 'video' | 'pdf' | null;
+type Kind = 'image' | 'heic' | 'video' | 'pdf' | 'office' | null;
 
 function kindOf(mime: string | null, name: string): Kind {
   const m = (mime ?? '').toLowerCase();
@@ -49,6 +49,7 @@ function kindOf(mime: string | null, name: string): Kind {
   if (m.startsWith('image/')) return 'image';
   if (m.startsWith('video/')) return 'video';
   if (m === 'application/pdf') return 'pdf';
+  if (isOfficeDocument(m, name)) return 'office';
   return null;
 }
 
@@ -143,7 +144,18 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
     return;
   }
 
-  const src = await ctx.volumes.blobFile(row.blob);
+  // Office documents are drawn from their PDF preview; the office job queues us again once
+  // that exists.
+  let src: string;
+  let rasterKind: Kind = kind;
+  if (kind === 'office') {
+    const pdf = previewPath(ctx.config.cacheDir, blobId);
+    if (row.blob.previewStatus !== 'ready' || !(await stat(pdf).catch(() => null))) return;
+    src = pdf;
+    rasterKind = 'pdf';
+  } else {
+    src = await ctx.volumes.blobFile(row.blob);
+  }
   const big = thumbPath(ctx.config.cacheDir, blobId, 1600);
   const small = thumbPath(ctx.config.cacheDir, blobId, 256);
   // Private scratch names: the same blob can be queued twice (upload + recovery on start),
@@ -154,7 +166,7 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
   try {
     work = await mkdtemp(path.join(tmpdir(), `fc-thumb-${blobId}-`));
     await mkdir(path.dirname(big), { recursive: true });
-    const raster = await toRaster(kind, src, work);
+    const raster = await toRaster(rasterKind, src, work);
     await sharp(raster, { limitInputPixels: MAX_PIXELS, failOn: 'none', sequentialRead: true })
       .timeout({ seconds: TOOL_TIMEOUT_MS / 1000 })
       .rotate() // honour EXIF orientation from phones

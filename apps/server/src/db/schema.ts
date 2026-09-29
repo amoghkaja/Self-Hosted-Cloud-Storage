@@ -152,6 +152,8 @@ export const blobs = pgTable(
      * already streams well everywhere; 'none' for anything that isn't a video.
      */
     streamStatus: streamStatus('stream_status').notNull().default('none'),
+    /** Office documents: a PDF rendering for in-browser viewing, in the cache. */
+    previewStatus: streamStatus('preview_status').notNull().default('none'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [index('blobs_volume_idx').on(t.volumeId)],

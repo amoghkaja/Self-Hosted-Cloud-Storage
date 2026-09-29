@@ -25,7 +25,14 @@ import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
 import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { loadAccess, requireAccess, requireFolder, satisfies } from './access';
-import { sendBlob, sendThumbnail, sendVideoStream, sendZip, type ZipRoot } from './serve';
+import {
+  sendBlob,
+  sendOfficePreview,
+  sendThumbnail,
+  sendVideoStream,
+  sendZip,
+  type ZipRoot,
+} from './serve';
 import {
   insertNode,
   isAncestor,
@@ -199,6 +206,19 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     const a = await requireAccess(db, user.id, req.params.id, 'view');
     if (a.node.type !== 'file' || !a.node.blobId || !a.node.volumeId) throw notFound('File');
     return sendVideoStream(ctx, req, reply, {
+      blobId: a.node.blobId,
+      volumeId: a.node.volumeId,
+      size: a.node.size,
+      name: a.node.name,
+      mimeType: a.node.mimeType,
+    });
+  });
+
+  app.get('/nodes/:id/preview', { schema: { params: IdParams } }, async (req, reply) => {
+    const { user } = requireUser(req);
+    const a = await requireAccess(db, user.id, req.params.id, 'view');
+    if (a.node.type !== 'file' || !a.node.blobId || !a.node.volumeId) throw notFound('File');
+    return sendOfficePreview(ctx, req, reply, {
       blobId: a.node.blobId,
       volumeId: a.node.volumeId,
       size: a.node.size,

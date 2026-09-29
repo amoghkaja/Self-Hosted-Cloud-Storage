@@ -3,7 +3,7 @@ import { copyFile, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { ErrorCode } from '@familycloud/shared/all';
+import { ErrorCode, isOfficeDocument } from '@familycloud/shared/all';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
@@ -122,6 +122,7 @@ export async function ingest(
 
     const thumbable = isThumbnailable(input.mimeType);
     const video = isVideo(input.mimeType);
+    const office = isOfficeDocument(input.mimeType, input.name);
     const result = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
       const [live] = await tx
@@ -144,6 +145,7 @@ export async function ingest(
         size: input.size,
         thumbStatus: thumbable ? 'pending' : 'unsupported',
         streamStatus: video ? 'pending' : 'none',
+        previewStatus: office ? 'pending' : 'none',
       });
       let node: NodeRow;
       let created = true;

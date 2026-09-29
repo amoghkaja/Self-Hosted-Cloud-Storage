@@ -67,6 +67,7 @@ export function PublicLinkPage() {
         apiUrl(`${base}/content/${id}`, inline ? { inline: 1 } : undefined),
       thumb: (id: string, size: 256 | 1600) => apiUrl(`${base}/thumbnail/${id}`, { size }),
       stream: (id: string) => apiUrl(`${base}/stream/${id}`),
+      preview: (id: string) => apiUrl(`${base}/preview/${id}`),
       canDownload: !!info.data?.allowDownload,
     }),
     [base, info.data?.allowDownload],

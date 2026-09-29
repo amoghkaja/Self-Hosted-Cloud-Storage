@@ -1,7 +1,7 @@
-import { formatBytes } from '@familycloud/shared';
+import { formatBytes, isOfficeDocument } from '@familycloud/shared';
 import { ChevronLeft, ChevronRight, Download, File, X } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui';
 import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
 import { kindOf } from './FileIcon';
@@ -20,6 +20,8 @@ export interface PreviewSource {
   thumb: (id: string, size: 256 | 1600) => string;
   /** Videos: a streaming version sized for phones and slow links (falls back to `content`). */
   stream?: (id: string) => string;
+  /** Word, Excel and PowerPoint files: a PDF rendering made by the server. */
+  preview?: (id: string) => string;
   canDownload: boolean;
 }
 
@@ -155,6 +157,68 @@ function VideoPlayer({ item, source }: { item: PreviewItem; source: PreviewSourc
   );
 }
 
+type OfficeState = 'loading' | 'ready' | 'pending' | 'unavailable';
+const OFFICE_POLL_MS = 4000;
+
+/**
+ * Shows the server's PDF rendering of an Office document. A new upload can take a moment to
+ * convert, so this keeps checking until it's ready.
+ */
+function OfficeViewer({
+  item,
+  url,
+  fallback,
+}: {
+  item: PreviewItem;
+  url: string;
+  fallback: ReactNode;
+}) {
+  const [state, setState] = useState<OfficeState>('loading');
+  useEffect(() => {
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setState('loading');
+    const check = async () => {
+      try {
+        const res = await fetch(url, { method: 'HEAD', signal: abort.signal });
+        if (res.ok) return setState('ready');
+        const status = res.headers.get('X-Preview-Status');
+        if (res.status === 404 && status === 'pending') {
+          setState('pending');
+          timer = setTimeout(check, OFFICE_POLL_MS);
+        } else {
+          setState('unavailable');
+        }
+      } catch {
+        if (!abort.signal.aborted) setState('unavailable');
+      }
+    };
+    void check();
+    return () => {
+      abort.abort();
+      clearTimeout(timer);
+    };
+  }, [url]);
+
+  if (state === 'ready') {
+    return (
+      <iframe
+        key={item.id}
+        src={url}
+        title={item.name}
+        className="h-full w-full max-w-5xl rounded-lg bg-white"
+      />
+    );
+  }
+  if (state === 'unavailable') return fallback;
+  return (
+    <div className="flex flex-col items-center gap-3 text-white/80">
+      <Spinner size={28} label="Loading preview" />
+      {state === 'pending' && <p>Preparing a preview of {item.name}…</p>}
+    </div>
+  );
+}
+
 function Viewer({
   item,
   source,
@@ -224,7 +288,7 @@ function Viewer({
   if (kind === 'text' || kind === 'code')
     return <TextPreview url={source.content(item.id, true)} />;
 
-  return (
+  const noPreview = (
     <div className="rounded-2xl bg-surface">
       <EmptyState
         icon={<File />}
@@ -242,6 +306,10 @@ function Viewer({
       />
     </div>
   );
+  if (source.preview && isOfficeDocument(item.mimeType, item.name)) {
+    return <OfficeViewer item={item} url={source.preview(item.id)} fallback={noPreview} />;
+  }
+  return noPreview;
 }
 
 export default function PreviewModal({

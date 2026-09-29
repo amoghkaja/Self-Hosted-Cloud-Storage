@@ -10,7 +10,7 @@ import type { Executor } from '../../db/client';
 import { blobs } from '../../db/schema';
 import { AppError, badRequest, notFound } from '../../lib/errors';
 import { contentDisposition, isInlineSafe, parseRange, servedContentType } from '../../lib/http';
-import { streamPath, thumbPath } from '../../storage/thumbs';
+import { previewPath, streamPath, thumbPath } from '../../storage/thumbs';
 
 /** Locks rendered user content into an opaque, script-less sandbox even if a browser sniffs it. */
 const SANDBOX_CSP =
@@ -95,6 +95,39 @@ export async function sendVideoStream(
     }
   }
   return sendBlob(ctx, req, reply, blob, { inline: true });
+}
+
+/**
+ * Sends the PDF rendering of an Office document, for reading it in the browser. 404 until the
+ * worker has made it (the viewer offers a download meanwhile).
+ */
+export async function sendOfficePreview(
+  ctx: AppContext,
+  req: FastifyRequest,
+  reply: FastifyReply,
+  blob: BlobRef,
+) {
+  const [row] = await ctx.db
+    .select({ status: blobs.previewStatus })
+    .from(blobs)
+    .where(eq(blobs.id, blob.blobId));
+  const file = previewPath(ctx.config.cacheDir, blob.blobId);
+  const st = row?.status === 'ready' ? await stat(file).catch(() => null) : null;
+  if (!st) {
+    // The viewer tells "still converting" from "can't be previewed" by this header.
+    throw new AppError(404, ErrorCode.NOT_FOUND, 'The preview is not ready', {
+      'X-Preview-Status': row?.status ?? 'none',
+    });
+  }
+  return sendFileRange(req, reply, {
+    file,
+    size: st.size,
+    etag: `"${blob.blobId}-pdf"`,
+    name: `${blob.name.replace(/\.[^.]*$/, '')}.pdf`,
+    mimeType: 'application/pdf',
+    inline: true,
+    logId: blob.blobId,
+  });
 }
 
 /**

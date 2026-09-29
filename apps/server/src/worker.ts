@@ -9,6 +9,7 @@ import {
   reconcileUsage,
   recoverPendingWork,
 } from './jobs/maintenance';
+import { makeOfficePreview } from './jobs/office';
 import { JOBS, type JobPayloads, type PgBossQueue } from './jobs/queue';
 import { configureSharp, generateThumbnail } from './jobs/thumbnail';
 import { makeVideoStream } from './jobs/video';
@@ -47,6 +48,11 @@ async function main() {
     // One at a time: ffmpeg already uses every core for a single video.
     { localConcurrency: 1 },
     handle('video-stream', (d) => makeVideoStream(ctx, d.blobId)),
+  );
+  await boss.work(
+    JOBS.officePreview,
+    { localConcurrency: 2 },
+    handle('office-preview', (d) => makeOfficePreview(ctx, d.blobId)),
   );
   await boss.work(
     JOBS.hash,

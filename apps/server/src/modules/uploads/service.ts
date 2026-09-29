@@ -6,6 +6,7 @@ import {
   ErrorCode,
   type FileNode,
   guessMimeType,
+  isOfficeDocument,
   type Settings,
   type UploadSession,
 } from '@familycloud/shared/all';
@@ -470,6 +471,7 @@ export async function finalizeUpload(
 
   const thumbable = isThumbnailable(claimed.mimeType);
   const video = isVideo(claimed.mimeType);
+  const office = isOfficeDocument(claimed.mimeType, claimed.name);
   try {
     const node = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
@@ -490,6 +492,7 @@ export async function finalizeUpload(
         size: claimed.size,
         thumbStatus: thumbable ? 'pending' : 'unsupported',
         streamStatus: video ? 'pending' : 'none',
+        previewStatus: office ? 'pending' : 'none',
       });
       const row = await insertNode(
         tx,
@@ -523,6 +526,7 @@ export async function finalizeUpload(
     await ctx.jobs.send('hash', { blobId: claimed.blobId }).catch(() => {});
     if (thumbable) await ctx.jobs.send('thumbnail', { blobId: claimed.blobId }).catch(() => {});
     if (video) await ctx.jobs.send('video-stream', { blobId: claimed.blobId }).catch(() => {});
+    if (office) await ctx.jobs.send('office-preview', { blobId: claimed.blobId }).catch(() => {});
     return {
       session: { ...claimed, status: 'completed', nodeId: node.id },
       node: toFileNode({ ...node, thumb: thumbable ? 'pending' : 'unsupported' }),
