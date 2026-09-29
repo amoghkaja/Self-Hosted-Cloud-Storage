@@ -44,6 +44,8 @@ export interface FileViewProps<T extends ViewItem> {
   onLoadMore?: () => void;
   /** Extra line under the name (e.g. "Shared by Mom"). */
   subtitle?: (item: T) => ReactNode;
+  /** Small marker after the name (e.g. a star). */
+  badge?: (item: T) => ReactNode;
   /**
    * Height of sticky page chrome (app header, selection toolbar) covering the top of the
    * window, so keyboard navigation doesn't scroll the focused row underneath it.
@@ -290,8 +292,9 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
             <FileIcon node={item} thumbSrc={p.thumbSrc?.(item)} />
           </div>
           <div role="gridcell" className="min-w-0">
-            <p className="truncate text-sm font-medium" title={item.name}>
-              {item.name}
+            <p className="flex items-center gap-1.5 text-sm font-medium" title={item.name}>
+              <span className="truncate">{item.name}</span>
+              {p.badge?.(item)}
             </p>
             <p className="truncate text-xs text-muted sm:hidden">
               {item.type === 'file' ? `${formatBytes(item.size)} · ` : ''}
@@ -333,8 +336,9 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
         </div>
         <div className="flex h-[52px] items-center gap-1 bg-surface pr-1 pl-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium" title={item.name}>
-              {item.name}
+            <p className="flex items-center gap-1.5 text-sm font-medium" title={item.name}>
+              <span className="truncate">{item.name}</span>
+              {p.badge?.(item)}
             </p>
             <p className="truncate text-xs text-muted">
               {item.type === 'file' ? formatBytes(item.size) : formatRelative(item.updatedAt)}

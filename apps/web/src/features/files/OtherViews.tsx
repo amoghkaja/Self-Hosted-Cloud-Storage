@@ -1,9 +1,18 @@
 import { type FileNode, formatBytes } from '@familycloud/shared';
-import { RotateCcw, Search, Trash2, Users } from 'lucide-react';
+import { Clock, RotateCcw, Search, Star, Trash2, Users } from 'lucide-react';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { contentUrl, errorMessage, previewUrl, streamUrl, thumbUrl } from '../../api/client';
-import { usePurge, useRestore, useSearch, useSharedWithMe, useTrash } from '../../api/queries';
+import {
+  useDirectory,
+  usePurge,
+  useRecent,
+  useRestore,
+  useSearch,
+  useSharedWithMe,
+  useStarred,
+  useTrash,
+} from '../../api/queries';
 import { useShell } from '../../app/guards';
 import {
   Button,
@@ -69,6 +78,7 @@ function FlatList({
         label={label}
         onOpen={actions.open}
         actionsFor={actions.actionsFor}
+        badge={actions.badge}
         thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id) : undefined)}
         subtitle={subtitle}
         // Same keyboard shortcuts as a folder for the items the menus let you change.
@@ -148,10 +158,88 @@ export function SharedPage() {
   );
 }
 
+/** "Shared by Mum" for things that belong to someone else. */
+function useSharedBy() {
+  const { me } = useShell();
+  const directory = useDirectory();
+  const names = useMemo(
+    () => new Map(directory.data?.items.map((u) => [u.id, u.displayName])),
+    [directory.data],
+  );
+  return (n: FileNode) =>
+    n.ownerId === me.id ? '' : `Shared by ${names.get(n.ownerId) ?? 'someone else'}`;
+}
+
+export function RecentPage() {
+  const recent = useRecent();
+  const { me } = useShell();
+  const sharedBy = useSharedBy();
+  return (
+    <>
+      <PageTitle title="Recent" />
+      <QueryState
+        query={recent}
+        loading={<FileViewSkeleton view="list" />}
+        isEmpty={(d) => d.items.length === 0}
+        empty={
+          <EmptyState
+            icon={<Clock />}
+            title="Nothing here yet"
+            description="Files you add or change, and files in folders shared with you, show up here."
+          />
+        }
+      >
+        {(d) => (
+          <FlatList
+            nodes={d.items}
+            label="Recent files"
+            subtitle={sharedBy}
+            editable={(n) => n.ownerId === me.id}
+          />
+        )}
+      </QueryState>
+    </>
+  );
+}
+
+export function StarredPage() {
+  const starred = useStarred();
+  const { me } = useShell();
+  const sharedBy = useSharedBy();
+  return (
+    <>
+      <PageTitle title="Starred" />
+      <QueryState
+        query={starred}
+        loading={<FileViewSkeleton view="list" />}
+        isEmpty={(d) => d.items.length === 0}
+        empty={
+          <EmptyState
+            icon={<Star />}
+            title="No starred items"
+            description="Star files and folders you use often (from their menu) to find them here."
+          />
+        }
+      >
+        {(d) => (
+          <FlatList
+            nodes={d.items}
+            label="Starred items"
+            subtitle={sharedBy}
+            editable={(n) => n.ownerId === me.id}
+          />
+        )}
+      </QueryState>
+    </>
+  );
+}
+
 export function SearchPage() {
   const [params] = useSearchParams();
   const q = params.get('q') ?? '';
   const results = useSearch(q);
+  const { me } = useShell();
+  const sharedBy = useSharedBy();
   return (
     <>
       <PageTitle title={q ? `Results for “${q}”` : 'Search'} />
@@ -159,7 +247,7 @@ export function SearchPage() {
         <EmptyState
           icon={<Search />}
           title="Search your files"
-          description="Type a name in the search box above."
+          description="Type a name in the search box above. Files shared with you are searched too."
         />
       ) : (
         <QueryState
@@ -175,7 +263,13 @@ export function SearchPage() {
           }
         >
           {(d) => (
-            <FlatList nodes={d.items} label={`Search results for ${q}`} editable={() => true} />
+            <FlatList
+              nodes={d.items}
+              label={`Search results for ${q}`}
+              subtitle={sharedBy}
+              // Things shared with you are found too; changing them is done from their folder.
+              editable={(n) => n.ownerId === me.id}
+            />
           )}
         </QueryState>
       )}

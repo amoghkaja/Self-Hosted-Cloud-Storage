@@ -9,12 +9,14 @@ import {
   History,
   Pencil,
   Share2,
+  Star,
+  StarOff,
   Trash2,
 } from 'lucide-react';
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, contentUrl, errorMessage, zipUrl } from '../../api/client';
-import { type BatchResult, qk, useTrashNodes } from '../../api/queries';
+import { type BatchResult, qk, useStarred, useToggleStar, useTrashNodes } from '../../api/queries';
 import { type MenuAction, toast } from '../../components/ui';
 import { MoveDialog, RenameDialog } from './dialogs';
 
@@ -75,6 +77,9 @@ export function useFileActions(o: FileActionOptions) {
   const qc = useQueryClient();
   const trash = useTrashNodes();
   const [dialog, setDialog] = useState<Dialog>(null);
+  const starred = useStarred();
+  const starredIds = useMemo(() => new Set(starred.data?.items.map((n) => n.id)), [starred.data]);
+  const { mutate: setStar } = useToggleStar();
 
   const open = useCallback(
     (n: FileNode) => (n.type === 'folder' ? navigate(`/files/${n.id}`) : o.onPreview(n)),
@@ -163,6 +168,16 @@ export function useFileActions(o: FileActionOptions) {
           icon: <Download />,
           onSelect: () => downloadNodes([n]),
         },
+        {
+          id: 'star',
+          label: starredIds.has(n.id) ? 'Remove from Starred' : 'Add to Starred',
+          icon: starredIds.has(n.id) ? <StarOff /> : <Star />,
+          onSelect: () =>
+            setStar(
+              { node: n, starred: !starredIds.has(n.id) },
+              { onError: (err) => toast.error(errorMessage(err)) },
+            ),
+        },
       ];
       if (o.canShare(n)) {
         list.push({
@@ -226,7 +241,20 @@ export function useFileActions(o: FileActionOptions) {
       }
       return list;
     },
-    [o, open, trashNodes, makeCopy],
+    [o, open, trashNodes, makeCopy, starredIds, setStar],
+  );
+
+  /** A star beside the names of starred items. */
+  const badge = useCallback(
+    (n: FileNode) =>
+      starredIds.has(n.id) ? (
+        <Star
+          role="img"
+          aria-label="Starred"
+          className="size-3.5 shrink-0 fill-current text-brass"
+        />
+      ) : null,
+    [starredIds],
   );
 
   const dialogs = (
@@ -270,6 +298,7 @@ export function useFileActions(o: FileActionOptions) {
     open,
     trashNodes,
     actionsFor,
+    badge,
     dialogs,
     rename: (n: FileNode) => setDialog({ kind: 'rename', node: n }),
     move: (nodes: FileNode[]) => setDialog({ kind: 'move', nodes }),

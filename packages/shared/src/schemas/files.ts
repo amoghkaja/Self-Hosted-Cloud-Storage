@@ -70,6 +70,10 @@ export const UpdateNodeBody = z
   .object({ name: NodeName.optional(), parentId: Id.optional() })
   .refine((b) => b.name !== undefined || b.parentId !== undefined, 'Nothing to update');
 
+export const RecentQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
 export const SearchQuery = z.object({
   q: z.string().trim().min(1).max(100),
   limit: z.coerce.number().int().min(1).max(100).default(50),

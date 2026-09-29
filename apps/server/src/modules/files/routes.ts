@@ -11,6 +11,7 @@ import {
   NodeDetail,
   NodePage,
   Ok,
+  RecentQuery,
   RestoreResult,
   SearchQuery,
   ThumbQuery,
@@ -18,10 +19,10 @@ import {
   UpdateNodeBody,
   ZipQuery,
 } from '@familycloud/shared/all';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { albumFolders, albums, blobs, nodes, users } from '../../db/schema';
+import { albumFolders, albums, blobs, nodes, stars, users } from '../../db/schema';
 import { audit } from '../../lib/audit';
 import { toFileNode } from '../../lib/dto';
 import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
@@ -47,6 +48,18 @@ import {
   restoreSubtree,
   trashSubtree,
 } from './tree';
+
+/** Ids of everything shared with a person: the shared items and all that's inside them. */
+const sharedWith = (userId: string) => sql`(
+  WITH RECURSIVE shared AS (
+    SELECT n.id, n.type FROM shares s JOIN nodes n ON n.id = s.node_id
+    WHERE s.grantee_id = ${userId} AND n.deleted_at IS NULL
+    UNION
+    SELECT c.id, c.type FROM nodes c JOIN shared p ON c.parent_id = p.id
+    WHERE p.type = 'folder' AND c.deleted_at IS NULL
+  )
+  SELECT id FROM shared
+)`;
 
 export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
@@ -209,6 +222,8 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     return { ok: true as const };
   });
 
+  // Your own files and everything family members share with you (not other people's private
+  // files, and not the trash).
   app.get(
     '/search',
     {
@@ -226,15 +241,98 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
         .leftJoin(blobs, eq(blobs.id, nodes.blobId))
         .where(
           and(
-            eq(nodes.ownerId, user.id),
             isNull(nodes.deletedAt),
             sql`${nodes.parentId} IS NOT NULL`,
             sql`${nodes.name} ILIKE ${`%${q}%`}`,
+            or(eq(nodes.ownerId, user.id), sql`${nodes.id} IN ${sharedWith(user.id)}`),
           ),
         )
         .orderBy(sql`similarity(${nodes.name}, ${req.query.q}) desc`, desc(nodes.updatedAt))
         .limit(req.query.limit);
       return { items: rows.map((r) => toFileNode({ ...r.node, thumb: r.thumb })) };
+    },
+  );
+
+  // Files added or changed lately: your own and those in folders shared with you.
+  app.get(
+    '/recent',
+    {
+      schema: {
+        querystring: RecentQuery,
+        response: { 200: z.object({ items: z.array(FileNode) }) },
+      },
+    },
+    async (req) => {
+      const { user } = requireUser(req);
+      const { limit } = req.query;
+      const newest = (where: SQL) =>
+        db
+          .select({ node: nodes, thumb: blobs.thumbStatus })
+          .from(nodes)
+          .leftJoin(blobs, eq(blobs.id, nodes.blobId))
+          .where(and(eq(nodes.type, 'file'), isNull(nodes.deletedAt), where))
+          .orderBy(desc(nodes.updatedAt), desc(nodes.id))
+          .limit(limit);
+      const [own, shared] = await Promise.all([
+        newest(eq(nodes.ownerId, user.id)),
+        newest(sql`${nodes.id} IN ${sharedWith(user.id)}`),
+      ]);
+      const seen = new Set<string>();
+      const items = [...own, ...shared]
+        .sort((a, b) => b.node.updatedAt.getTime() - a.node.updatedAt.getTime())
+        .filter((r) => !seen.has(r.node.id) && seen.add(r.node.id))
+        .slice(0, limit);
+      return { items: items.map((r) => toFileNode({ ...r.node, thumb: r.thumb })) };
+    },
+  );
+
+  // ── starred ───────────────────────────────────────────────────────────────
+
+  app.get(
+    '/starred',
+    { schema: { response: { 200: z.object({ items: z.array(FileNode) }) } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      const rows = await db
+        .select({ node: nodes, thumb: blobs.thumbStatus })
+        .from(stars)
+        .innerJoin(nodes, eq(nodes.id, stars.nodeId))
+        .leftJoin(blobs, eq(blobs.id, nodes.blobId))
+        .where(and(eq(stars.userId, user.id), isNull(nodes.deletedAt)))
+        .orderBy(desc(stars.createdAt))
+        .limit(500);
+      // A star outlives a share: only list what the person can still open.
+      const visible = [];
+      for (const r of rows) {
+        if (r.node.ownerId === user.id || (await loadAccess(db, user.id, r.node.id))) {
+          visible.push(toFileNode({ ...r.node, thumb: r.thumb }));
+        }
+      }
+      return { items: visible };
+    },
+  );
+
+  app.put(
+    '/nodes/:id/star',
+    { schema: { params: IdParams, response: { 200: Ok } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      await requireAccess(db, user.id, req.params.id, 'view');
+      await db
+        .insert(stars)
+        .values({ userId: user.id, nodeId: req.params.id })
+        .onConflictDoNothing();
+      return { ok: true as const };
+    },
+  );
+
+  app.delete(
+    '/nodes/:id/star',
+    { schema: { params: IdParams, response: { 200: Ok } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      await db.delete(stars).where(and(eq(stars.userId, user.id), eq(stars.nodeId, req.params.id)));
+      return { ok: true as const };
     },
   );
 

@@ -220,7 +220,26 @@ export const nodes = pgTable(
     index('nodes_owner_deleted_idx').on(t.ownerId, t.deletedAt),
     index('nodes_blob_idx').on(t.blobId),
     index('nodes_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),
+    // "Recent": a person's files, newest first.
+    index('nodes_owner_recent_idx')
+      .on(t.ownerId, t.updatedAt.desc())
+      .where(sql`${t.deletedAt} IS NULL AND ${t.type} = 'file'`),
   ],
+);
+
+/** Starred (favourite) items, per person. */
+export const stars = pgTable(
+  'stars',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    nodeId: uuid('node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.nodeId] }), index('stars_node_idx').on(t.nodeId)],
 );
 
 /**

@@ -3,7 +3,13 @@ import { ErrorState } from '../components/ui';
 import { LoginPage } from '../features/auth/LoginPage';
 import { AcceptInvitePage, SetupPage } from '../features/auth/SetupPage';
 import { FilesPage } from '../features/files/FileBrowser';
-import { SearchPage, SharedPage, TrashPage } from '../features/files/OtherViews';
+import {
+  RecentPage,
+  SearchPage,
+  SharedPage,
+  StarredPage,
+  TrashPage,
+} from '../features/files/OtherViews';
 import { AppShell } from './AppShell';
 import { NotFound, RequireAdmin, RequireAuth } from './guards';
 
@@ -57,6 +63,8 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/files" replace /> },
       { path: 'files', element: <FilesPage /> },
       { path: 'files/:folderId', element: <FilesPage /> },
+      { path: 'recent', element: <RecentPage /> },
+      { path: 'starred', element: <StarredPage /> },
       { path: 'shared', element: <SharedPage /> },
       {
         path: 'shared-by-me',

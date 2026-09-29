@@ -62,6 +62,8 @@ export const qk = {
   shared: ['shared-with-me'] as const,
   sharedByMe: ['shared-by-me'] as const,
   searches: ['search'] as const,
+  recent: ['recent'] as const,
+  starred: ['starred'] as const,
   search: (q: string) => ['search', q] as const,
   shares: (id: string) => ['shares', id] as const,
   links: (id: string) => ['links', id] as const,
@@ -250,6 +252,8 @@ function invalidateNodeViews(qc: QueryClient, folders: (string | null | undefine
   void qc.invalidateQueries({ queryKey: qk.nodes });
   void qc.invalidateQueries({ queryKey: qk.searches });
   void qc.invalidateQueries({ queryKey: qk.sharedByMe });
+  void qc.invalidateQueries({ queryKey: qk.recent });
+  void qc.invalidateQueries({ queryKey: qk.starred });
 }
 
 /** Applies `fn` to every cached page of a folder listing (optimistic updates). */
@@ -435,6 +439,45 @@ export function useVersionMutations(node: { id: string; parentId: string | null 
       onSuccess: refresh,
     }),
   };
+}
+
+// ── recent & starred ────────────────────────────────────────────────────────
+
+export function useRecent() {
+  return useQuery({
+    queryKey: qk.recent,
+    queryFn: () => api<{ items: FileNode[] }>('/recent'),
+  });
+}
+
+export function useStarred() {
+  return useQuery({
+    queryKey: qk.starred,
+    queryFn: () => api<{ items: FileNode[] }>('/starred'),
+    staleTime: 60_000,
+  });
+}
+
+/** Stars or unstars an item, showing the change at once. */
+export function useToggleStar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ node, starred }: { node: FileNode; starred: boolean }) =>
+      api(`/nodes/${node.id}/star`, { method: starred ? 'PUT' : 'DELETE' }),
+    onMutate: async ({ node, starred }) => {
+      await qc.cancelQueries({ queryKey: qk.starred });
+      qc.setQueryData<{ items: FileNode[] }>(qk.starred, (d) =>
+        d
+          ? {
+              items: starred
+                ? [node, ...d.items.filter((n) => n.id !== node.id)]
+                : d.items.filter((n) => n.id !== node.id),
+            }
+          : d,
+      );
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.starred }),
+  });
 }
 
 // ── trash ───────────────────────────────────────────────────────────────────

@@ -419,6 +419,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
               label={`Contents of ${name}`}
               onOpen={actions.open}
               actionsFor={actions.actionsFor}
+              badge={actions.badge}
               thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id, 256) : undefined)}
               onDelete={
                 canEdit

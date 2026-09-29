@@ -1,6 +1,7 @@
 import type { Me } from '@familycloud/shared';
 import {
   ArrowLeft,
+  Clock,
   HardDrive,
   Images,
   LogOut,
@@ -10,6 +11,7 @@ import {
   Share2,
   Shield,
   ShieldCheck,
+  Star,
   Trash2,
   Users,
   X,
@@ -31,6 +33,8 @@ import { StorageSummary } from './StorageSummary';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
+  { to: '/recent', label: 'Recent', icon: Clock, end: true },
+  { to: '/starred', label: 'Starred', icon: Star, end: true },
   { to: '/photos', label: 'Family Photos', icon: Images, end: false },
   { to: '/shared', label: 'Shared with me', icon: Users, end: true },
   { to: '/shared-by-me', label: 'Shared by me', icon: Share2, end: true },
