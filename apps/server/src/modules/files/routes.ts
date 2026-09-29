@@ -5,6 +5,8 @@ import {
   ErrorCode,
   FileNode,
   IdParams,
+  NameCheckBody,
+  NameCheckResult,
   NodeDetail,
   NodePage,
   Ok,
@@ -82,6 +84,32 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
       const { user } = requireUser(req);
       await requireFolder(db, user.id, req.params.id, 'view');
       return listChildren(db, req.params.id, req.query);
+    },
+  );
+
+  // Which of these names a folder already has, so uploads can ask "replace or keep both?".
+  app.post(
+    '/nodes/:id/name-check',
+    { schema: { params: IdParams, body: NameCheckBody, response: { 200: NameCheckResult } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      await requireFolder(db, user.id, req.params.id, 'view');
+      const wanted = [...new Set(req.body.names.map((n) => n.toLowerCase()))];
+      const rows = await db
+        .select({ name: nodes.name, type: nodes.type })
+        .from(nodes)
+        .where(
+          and(
+            eq(nodes.parentId, req.params.id),
+            isNull(nodes.deletedAt),
+            inArray(sql`lower(${nodes.name})`, wanted),
+          ),
+        );
+      return {
+        files: rows.filter((r) => r.type === 'file').map((r) => r.name),
+        folders: rows.filter((r) => r.type === 'folder').map((r) => r.name),
+        versionRetentionDays: (await ctx.settings.get()).versionRetentionDays,
+      };
     },
   );
 

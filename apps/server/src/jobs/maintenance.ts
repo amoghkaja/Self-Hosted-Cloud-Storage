@@ -74,7 +74,9 @@ export async function reconcileUsage(
     const drift = (await tx.execute(sql`
       WITH calc AS (
         SELECT u.id, u.used_bytes, u.reserved_bytes,
-          coalesce((SELECT sum(n.size) FROM nodes n WHERE n.owner_id = u.id AND n.type = 'file'), 0)::bigint AS used,
+          (coalesce((SELECT sum(n.size) FROM nodes n WHERE n.owner_id = u.id AND n.type = 'file'), 0)
+           + coalesce((SELECT sum(v.size) FROM file_versions v JOIN nodes n ON n.id = v.node_id
+                       WHERE n.owner_id = u.id), 0))::bigint AS used,
           coalesce((SELECT sum(s.size) FROM upload_sessions s
                     WHERE s.charge_user_id = u.id AND s.status IN ('uploading', 'finalizing')), 0)::bigint AS reserved
         FROM users u
@@ -304,8 +306,12 @@ async function moveBlob(ctx: AppContext, blob: typeof blobs.$inferSelect, fromPa
   await unlink(src).catch(() => {});
 }
 
-/** Re-queues work that may have been lost (e.g. the worker was down when it was enqueued). */
+/**
+ * Re-queues work that may have been lost (e.g. the worker was down when it was enqueued). Only
+ * for bytes a file currently shows: an older version waits until it's restored.
+ */
 export async function recoverPendingWork(ctx: AppContext): Promise<void> {
+  const current = sql`EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})`;
   const pending = await ctx.db
     .select({ id: blobs.id })
     .from(blobs)
@@ -313,6 +319,7 @@ export async function recoverPendingWork(ctx: AppContext): Promise<void> {
       and(
         eq(blobs.thumbStatus, 'pending'),
         lt(blobs.createdAt, new Date(Date.now() - 10 * 60_000)),
+        current,
       ),
     )
     .limit(2000);
@@ -324,6 +331,7 @@ export async function recoverPendingWork(ctx: AppContext): Promise<void> {
       and(
         eq(blobs.streamStatus, 'pending'),
         lt(blobs.createdAt, new Date(Date.now() - 10 * 60_000)),
+        current,
       ),
     )
     .limit(2000);
@@ -335,6 +343,7 @@ export async function recoverPendingWork(ctx: AppContext): Promise<void> {
       and(
         eq(blobs.previewStatus, 'pending'),
         lt(blobs.createdAt, new Date(Date.now() - 10 * 60_000)),
+        current,
       ),
     )
     .limit(2000);

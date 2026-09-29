@@ -1,4 +1,11 @@
-import type { FileNode, SortDir, SortKey } from '@familycloud/shared';
+import {
+  type FileNode,
+  type NameCheckResult,
+  nameProblem,
+  normalizeName,
+  type SortDir,
+  type SortKey,
+} from '@familycloud/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpDown,
@@ -28,6 +35,7 @@ import {
 import { Link, useParams } from 'react-router';
 import {
   ApiError,
+  api,
   contentUrl,
   errorMessage,
   previewUrl,
@@ -47,6 +55,7 @@ import {
   ErrorState,
   filesFromInput,
   IconButton,
+  type PickedFile,
   QueryState,
   Skeleton,
   Tooltip,
@@ -54,6 +63,7 @@ import {
 } from '../../components/ui';
 import { usePref } from '../../lib/storage';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { ReplaceDialog } from '../uploads/ReplaceDialog';
 import { downloadNodes, useFileActions } from './actions';
 import { NewFolderDialog } from './dialogs';
 import { FileView, FileViewSkeleton } from './FileView';
@@ -148,8 +158,44 @@ function FileBrowser({ folderId }: { folderId: string }) {
       ?.querySelector<HTMLElement>('[role="grid"] [tabindex="0"]')
       ?.focus({ preventScroll: true });
   const clearSelection = useCallback(() => setResetKey((k) => k + 1), []);
-  const upload = (picked: { file: File; relativeDir: string }[]) => {
-    if (picked.length) uploadManager.add(folderId, picked);
+  const [conflict, setConflict] = useState<{
+    picked: PickedFile[];
+    names: string[];
+    retentionDays: number;
+  } | null>(null);
+  /** Files picked straight into this folder whose names are taken: ask replace or keep both. */
+  const upload = async (picked: PickedFile[]) => {
+    if (!picked.length) return;
+    const names = [
+      ...new Set(
+        picked
+          .filter((p) => !p.relativeDir)
+          .map((p) => normalizeName(p.file.name))
+          .filter((n) => !nameProblem(n)),
+      ),
+    ].slice(0, 1000);
+    const taken = names.length
+      ? await api<NameCheckResult>(`/nodes/${folderId}/name-check`, { json: { names } }).catch(
+          () => null, // can't ask: upload alongside, as before
+        )
+      : null;
+    if (taken?.files.length) {
+      setConflict({ picked, names: taken.files, retentionDays: taken.versionRetentionDays });
+      return;
+    }
+    uploadManager.add(folderId, picked);
+  };
+  const resolveConflict = (replace: boolean) => {
+    if (!conflict) return;
+    const taken = new Set(conflict.names.map((n) => n.toLowerCase()));
+    uploadManager.add(
+      folderId,
+      conflict.picked.map((p) => ({
+        ...p,
+        replace: replace && !p.relativeDir && taken.has(normalizeName(p.file.name).toLowerCase()),
+      })),
+    );
+    setConflict(null);
   };
 
   if (detail.isError) {
@@ -394,7 +440,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
         multiple
         hidden
         onChange={(e) => {
-          if (e.target.files) upload(filesFromInput(e.target.files));
+          if (e.target.files) void upload(filesFromInput(e.target.files));
           e.target.value = '';
         }}
       />
@@ -405,11 +451,20 @@ function FileBrowser({ folderId }: { folderId: string }) {
         hidden
         {...({ webkitdirectory: '' } as Record<string, string>)}
         onChange={(e) => {
-          if (e.target.files) upload(filesFromInput(e.target.files));
+          if (e.target.files) void upload(filesFromInput(e.target.files));
           e.target.value = '';
         }}
       />
       {newFolder && <NewFolderDialog parentId={folderId} open onOpenChange={setNewFolder} />}
+      {conflict && (
+        <ReplaceDialog
+          names={conflict.names}
+          folderName={name || 'this folder'}
+          retentionDays={conflict.retentionDays}
+          onChoose={resolveConflict}
+          onCancel={() => setConflict(null)}
+        />
+      )}
       {actions.dialogs}
       {previewIndex >= 0 && (
         <Suspense fallback={null}>

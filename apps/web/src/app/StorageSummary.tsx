@@ -24,6 +24,12 @@ export function StorageSummary({ detailed = false }: { detailed?: boolean }) {
       <p className="text-xs text-muted tabular-nums">
         {formatBytes(s.usedBytes)} used · {formatBytes(s.availableBytes)} left
       </p>
+      {detailed && s.versionsBytes > 0 && (
+        <p className="text-xs text-muted tabular-nums">
+          {formatBytes(s.versionsBytes)} of that is older versions of files, kept for a while in
+          case you need them back. They make way on their own when you run out of space.
+        </p>
+      )}
       {detailed && (
         <p className="text-xs text-muted">
           {s.quotaBytes === null

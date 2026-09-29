@@ -48,6 +48,8 @@ export const Settings = z.object({
   globalCapacityBytes: Bytes.max(MAX_BYTES).nullable(),
   maxFileSizeBytes: Bytes.max(MAX_BYTES).nullable(),
   trashRetentionDays: z.number().int().min(1).max(365),
+  /** How long a file's older versions are kept after it's saved over. 0 = don't keep them. */
+  versionRetentionDays: z.number().int().min(0).max(365),
   /** Quota pre-filled for new invites. Null = unlimited. */
   defaultQuotaBytes: Bytes.max(MAX_BYTES).nullable(),
   /**
@@ -75,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   globalCapacityBytes: null,
   maxFileSizeBytes: null,
   trashRetentionDays: 30,
+  versionRetentionDays: 30,
   defaultQuotaBytes: 50 * GiB,
   allowedEmailDomains: [],
 };

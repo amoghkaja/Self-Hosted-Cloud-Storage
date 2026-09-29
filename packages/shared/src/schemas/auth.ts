@@ -15,6 +15,8 @@ export type Me = z.infer<typeof Me>;
 
 export const StorageInfo = z.object({
   usedBytes: Bytes,
+  /** Part of usedBytes taken by older versions of files (they expire on their own). */
+  versionsBytes: Bytes,
   quotaBytes: Bytes.nullable(),
   /** What can still be uploaded now: the tightest of quota, family limit and free disk space. */
   availableBytes: Bytes,

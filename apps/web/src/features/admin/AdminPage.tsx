@@ -904,13 +904,20 @@ function SettingsForm({
     Number.isInteger(retentionDays) && retentionDays >= 1 && retentionDays <= 365
       ? null
       : 'Enter a whole number of days from 1 to 365.';
+  const [versions, setVersions] = useState(String(initial.versionRetentionDays));
+  const versionDays = Number(versions);
+  const versionsError =
+    versions !== '' && Number.isInteger(versionDays) && versionDays >= 0 && versionDays <= 365
+      ? null
+      : 'Enter a whole number of days from 0 to 365.';
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    if (retentionError || selfLockout) return;
+    if (retentionError || versionsError || selfLockout) return;
     try {
       await m.updateSettings.mutateAsync({
         ...s,
         trashRetentionDays: retentionDays,
+        versionRetentionDays: versionDays,
         allowedEmailDomains: domains,
       });
       toast.success('Settings saved');
@@ -948,6 +955,22 @@ function SettingsForm({
         value={retention}
         onChange={(e) => setRetention(e.target.value)}
         error={retention === '' ? null : retentionError}
+        required
+      />
+      <TextField
+        label="Keep older versions of files for (days)"
+        type="number"
+        min={0}
+        max={365}
+        step={1}
+        value={versions}
+        onChange={(e) => setVersions(e.target.value)}
+        error={versions === '' ? null : versionsError}
+        hint={
+          versionDays === 0
+            ? 'Off: saving over a file replaces it for good.'
+            : `When a file is saved over (from the network drive, or "Replace" on upload), what it held is kept this long so it can be restored. Up to 50 per file; they count toward the owner's storage and make way automatically when the owner runs out of space.`
+        }
         required
       />
       <div className="flex flex-col gap-2">

@@ -11,6 +11,7 @@ export const JOBS = {
   expireUploads: 'expire-uploads',
   cleanupSessions: 'cleanup-sessions',
   recoverWork: 'recover-work',
+  purgeVersions: 'purge-versions',
 } as const;
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
 
@@ -25,6 +26,7 @@ export interface JobPayloads {
   'expire-uploads': Record<string, never>;
   'cleanup-sessions': Record<string, never>;
   'recover-work': Record<string, never>;
+  'purge-versions': Record<string, never>;
 }
 
 export interface JobQueue {

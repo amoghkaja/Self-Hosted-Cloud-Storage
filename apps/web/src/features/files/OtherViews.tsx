@@ -39,11 +39,14 @@ function FlatList({
   label,
   subtitle,
   editable,
+  contentEditable,
 }: {
   nodes: FileNode[];
   label: string;
   subtitle?: (n: FileNode) => string;
   editable: (n: FileNode) => boolean;
+  /** Files whose contents the caller may change (see useFileActions). */
+  contentEditable?: (n: FileNode) => boolean;
 }) {
   const { me } = useShell();
   const [view] = usePref<'list' | 'grid'>('view', 'list');
@@ -54,6 +57,7 @@ function FlatList({
   const actions = useFileActions({
     onPreview: (n) => setPreviewId(n.id),
     canEdit: editable,
+    canEditContent: contentEditable,
     canShare: (n) => n.ownerId === me.id,
     moveStartId: me.rootNodeId,
   });
@@ -109,6 +113,10 @@ export function SharedPage() {
       ),
     [shared.data],
   );
+  const editableIds = useMemo(
+    () => new Set(shared.data?.items.filter((i) => i.permission === 'edit').map((i) => i.node.id)),
+    [shared.data],
+  );
   return (
     <>
       <PageTitle title="Shared with me" />
@@ -129,7 +137,10 @@ export function SharedPage() {
             nodes={d.items.map((i) => i.node)}
             label="Shared with me"
             subtitle={(n) => `Shared by ${owners.get(n.id) ?? ''}`}
+            // The shared item itself lives in the owner's folder: it can't be renamed or moved
+            // from here, but a file shared for editing can be saved over (and so has versions).
             editable={() => false}
+            contentEditable={(n) => editableIds.has(n.id)}
           />
         )}
       </QueryState>

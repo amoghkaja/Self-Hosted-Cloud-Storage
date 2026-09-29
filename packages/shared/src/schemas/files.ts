@@ -93,11 +93,19 @@ export const ZipQuery = z.object({
 
 // ── uploads ─────────────────────────────────────────────────────────────────
 
+/**
+ * What to do when the folder already has a file with this name: add this one as "name (1)"
+ * (default), or save over it, keeping the old contents as a version.
+ */
+export const UploadConflict = z.enum(['rename', 'replace']);
+export type UploadConflict = z.infer<typeof UploadConflict>;
+
 export const CreateUploadBody = z.object({
   parentId: Id,
   name: NodeName,
   size: Bytes,
   mimeType: z.string().max(255).optional(),
+  onConflict: UploadConflict.default('rename'),
 });
 
 /**
@@ -138,6 +146,42 @@ export const ChunkResult = z.object({
   node: FileNode.nullable(),
 });
 export type ChunkResult = z.infer<typeof ChunkResult>;
+
+/** Which of these names are already taken in a folder (to ask "replace or keep both?"). */
+export const NameCheckBody = z.object({ names: z.array(NodeName).min(1).max(1000) });
+export const NameCheckResult = z.object({
+  files: z.array(z.string()),
+  folders: z.array(z.string()),
+  /** How long a replaced file's old contents are kept (0: replacing deletes them). */
+  versionRetentionDays: z.number().int(),
+});
+export type NameCheckResult = z.infer<typeof NameCheckResult>;
+
+// ── versions ────────────────────────────────────────────────────────────────
+
+export const FileVersion = z.object({
+  id: Id,
+  size: Bytes,
+  mimeType: z.string().nullable(),
+  /** When this content was saved, and by whom. */
+  modifiedAt: IsoDate,
+  modifiedBy: UserRef.nullable(),
+  /** When it was replaced by newer content (it expires counting from here). */
+  replacedAt: IsoDate,
+});
+export type FileVersion = z.infer<typeof FileVersion>;
+
+export const VersionList = z.object({
+  current: z.object({ size: Bytes, modifiedAt: IsoDate, modifiedBy: UserRef.nullable() }),
+  items: z.array(FileVersion),
+  /** Days versions are kept (0: new versions aren't kept). */
+  retentionDays: z.number().int(),
+  /** Only the owner may delete versions. */
+  canDelete: z.boolean(),
+});
+export type VersionList = z.infer<typeof VersionList>;
+
+export const VersionParams = z.object({ id: Id, versionId: Id });
 
 // ── trash ───────────────────────────────────────────────────────────────────
 

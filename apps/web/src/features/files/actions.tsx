@@ -1,13 +1,18 @@
 import type { FileNode } from '@familycloud/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, FolderInput, FolderOpen, Pencil, Share2, Trash2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { Download, FolderInput, FolderOpen, History, Pencil, Share2, Trash2 } from 'lucide-react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, contentUrl, errorMessage, zipUrl } from '../../api/client';
 import { type BatchResult, qk, useTrashNodes } from '../../api/queries';
 import { type MenuAction, toast } from '../../components/ui';
 import { ShareDialog } from '../sharing/ShareDialog';
 import { MoveDialog, RenameDialog } from './dialogs';
+
+// Opened on demand: kept out of the first page load.
+const VersionsDialog = lazy(() =>
+  import('./VersionsDialog').then((m) => ({ default: m.VersionsDialog })),
+);
 
 /** Starts a browser download without navigating away (the server sends Content-Disposition). */
 export function triggerDownload(href: string) {
@@ -29,6 +34,7 @@ type Dialog =
   | { kind: 'rename'; node: FileNode }
   | { kind: 'move'; nodes: FileNode[] }
   | { kind: 'share'; node: FileNode }
+  | { kind: 'versions'; node: FileNode }
   | null;
 
 export interface FileActionOptions {
@@ -36,6 +42,11 @@ export interface FileActionOptions {
   /** Can the caller rename/move/trash items in this node's folder? */
   canEdit: (node: FileNode) => boolean;
   canShare: (node: FileNode) => boolean;
+  /**
+   * Can the caller change this file's contents (and so see its older versions)? Defaults to
+   * canEdit; differs for a file shared on its own with edit rights.
+   */
+  canEditContent?: (node: FileNode) => boolean;
   /** Where the move picker starts (usually the owner's root). */
   moveStartId: string;
 }
@@ -131,6 +142,14 @@ export function useFileActions(o: FileActionOptions) {
           onSelect: () => setDialog({ kind: 'share', node: n }),
         });
       }
+      if (n.type === 'file' && (o.canEditContent ?? o.canEdit)(n)) {
+        list.push({
+          id: 'versions',
+          label: 'Version history…',
+          icon: <History />,
+          onSelect: () => setDialog({ kind: 'versions', node: n }),
+        });
+      }
       if (edit) {
         list.push(
           {
@@ -182,6 +201,11 @@ export function useFileActions(o: FileActionOptions) {
       {dialog?.kind === 'share' && (
         <ShareDialog node={dialog.node} onClose={() => setDialog(null)} />
       )}
+      <Suspense fallback={null}>
+        {dialog?.kind === 'versions' && (
+          <VersionsDialog node={dialog.node} onClose={() => setDialog(null)} />
+        )}
+      </Suspense>
     </>
   );
 

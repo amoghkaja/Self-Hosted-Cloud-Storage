@@ -23,6 +23,7 @@ import { photoRoutes } from './modules/photos/routes';
 import { linkRoutes } from './modules/sharing/links';
 import { sharingRoutes } from './modules/sharing/routes';
 import { uploadRoutes } from './modules/uploads/routes';
+import { versionRoutes } from './modules/versions/routes';
 import { appPasswordRoutes } from './modules/webdav/app-passwords';
 import { DAV_METHODS, davRoutes } from './modules/webdav/routes';
 import { registerAuth } from './plugins/auth';
@@ -95,6 +96,7 @@ export async function buildApp(
       await api.register(passkeyRoutes);
       await api.register(fileRoutes);
       await api.register(uploadRoutes);
+      await api.register(versionRoutes);
       await api.register(sharingRoutes);
       await api.register(linkRoutes);
       await api.register(adminRoutes);

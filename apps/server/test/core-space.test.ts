@@ -39,7 +39,12 @@ describe('storage figures', () => {
     expect(o.totals.familyCapacityBytes).toBe(10_000);
 
     const mine = (await admin.get('/auth/storage')).body;
-    expect(mine).toEqual({ usedBytes: 4_000, quotaBytes: null, availableBytes: 6_000 });
+    expect(mine).toEqual({
+      usedBytes: 4_000,
+      versionsBytes: 0,
+      quotaBytes: null,
+      availableBytes: 6_000,
+    });
   });
 
   it('takes the tightest of quota, family limit and disks', async () => {

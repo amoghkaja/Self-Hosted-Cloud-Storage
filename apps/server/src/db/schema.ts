@@ -197,6 +197,8 @@ export const nodes = pgTable(
     size: bytes('size').notNull().default(0),
     mimeType: text('mime_type'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Who last saved new contents into this file (null: nobody since `createdBy` made it). */
+    modifiedBy: uuid('modified_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
     deletedAt: ts('deleted_at'),
@@ -221,6 +223,37 @@ export const nodes = pgTable(
   ],
 );
 
+/**
+ * Earlier contents of a file, kept when it is saved over (network drive, "Replace" on upload,
+ * restoring another version). They count toward the file owner's storage and expire after the
+ * admin's retention period; blobs they point at are never deleted while they exist.
+ */
+export const fileVersions = pgTable(
+  'file_versions',
+  {
+    id: id(),
+    nodeId: uuid('node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    blobId: uuid('blob_id')
+      .notNull()
+      .references(() => blobs.id, { onDelete: 'restrict' }),
+    size: bytes('size').notNull(),
+    mimeType: text('mime_type'),
+    /** When this content was saved, and by whom. */
+    modifiedAt: ts('modified_at').notNull(),
+    modifiedBy: uuid('modified_by').references(() => users.id, { onDelete: 'set null' }),
+    /** When newer content replaced it: retention counts from here. */
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('file_versions_node_idx').on(t.nodeId, t.createdAt),
+    index('file_versions_blob_idx').on(t.blobId),
+    index('file_versions_created_idx').on(t.createdAt),
+  ],
+);
+export type FileVersionRow = typeof fileVersions.$inferSelect;
+
 export const uploadSessions = pgTable(
   'upload_sessions',
   {
@@ -244,6 +277,8 @@ export const uploadSessions = pgTable(
       .references(() => storageVolumes.id),
     blobId: uuid('blob_id').notNull(),
     nodeId: uuid('node_id'),
+    /** Save over a file of the same name in the folder (keeping its old version) instead of "name (1)". */
+    replaceExisting: boolean('replace_existing').notNull().default(false),
     status: uploadStatus('status').notNull().default('uploading'),
     expiresAt: ts('expires_at').notNull(),
     createdAt: ts('created_at').notNull().defaultNow(),

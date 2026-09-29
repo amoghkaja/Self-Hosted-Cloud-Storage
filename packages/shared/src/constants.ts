@@ -8,6 +8,9 @@ export const THUMB_SIZES = [256, 1600] as const;
 export type ThumbSize = (typeof THUMB_SIZES)[number];
 
 export const NAME_MAX_LENGTH = 255;
+
+/** Older versions kept per file; the oldest goes when a file is saved again (like Google Drive's 100). */
+export const MAX_VERSIONS_PER_FILE = 50;
 export const PASSWORD_MIN_LENGTH = 10;
 export const PASSWORD_MAX_LENGTH = 256;
 

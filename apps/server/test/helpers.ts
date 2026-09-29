@@ -172,13 +172,18 @@ export async function uploadFile(
   parentId: string,
   name: string,
   data: Buffer,
-  opts: { mimeType?: string; order?: 'forward' | 'reverse' | 'parallel' } = {},
+  opts: {
+    mimeType?: string;
+    order?: 'forward' | 'reverse' | 'parallel';
+    onConflict?: 'rename' | 'replace';
+  } = {},
 ) {
   const created = await client.post<UploadSession>('/uploads', {
     parentId,
     name,
     size: data.length,
     ...(opts.mimeType ? { mimeType: opts.mimeType } : {}),
+    ...(opts.onConflict ? { onConflict: opts.onConflict } : {}),
   });
   if (created.status !== 200) return { created, final: null };
   const s = created.body;

@@ -8,6 +8,7 @@ import {
   guessMimeType,
   isOfficeDocument,
   type Settings,
+  type UploadConflict,
   type UploadSession,
 } from '@familycloud/shared/all';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
@@ -16,6 +17,7 @@ import type { AppContext } from '../../context';
 import type { Tx } from '../../db/client';
 import {
   blobs,
+  type NodeRow,
   nodes,
   type UploadSessionRow,
   uploadChunks,
@@ -27,7 +29,13 @@ import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { isThumbnailable, isVideo } from '../../storage/thumbs';
 import { loadAccess, lockWriteAccess, requireFolder } from '../files/access';
-import { insertNode, QUOTA_LOCK } from '../files/tree';
+import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
+import {
+  lockFileNamed,
+  replaceContent,
+  type StoredBlob,
+  withRoomFromVersions,
+} from '../versions/service';
 
 const SESSION_TTL_MS = DAY_MS;
 const MAX_OPEN_SESSIONS_PER_USER = 100;
@@ -134,7 +142,13 @@ export async function reserveSpace(
 export async function createUpload(
   ctx: AppContext,
   userId: string,
-  input: { parentId: string; name: string; size: number; mimeType?: string | undefined },
+  input: {
+    parentId: string;
+    name: string;
+    size: number;
+    mimeType?: string | undefined;
+    onConflict?: UploadConflict;
+  },
 ): Promise<UploadSessionRow> {
   const parent = await requireFolder(ctx.db, userId, input.parentId, 'edit');
   const chargeUserId = parent.node.ownerId;
@@ -144,39 +158,43 @@ export async function createUpload(
   const totalChunks = Math.max(1, Math.ceil(input.size / chunkSize));
   const mimeType = guessMimeType(input.name, input.mimeType);
 
-  const { session, volume } = await ctx.db.transaction(async (tx) => {
-    await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
-    // Counted under the reservation lock so parallel requests can't exceed the limit.
-    const [open_] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(uploadSessions)
-      .where(and(eq(uploadSessions.userId, userId), eq(uploadSessions.status, 'uploading')));
-    if ((open_?.n ?? 0) >= MAX_OPEN_SESSIONS_PER_USER) {
-      throw new AppError(
-        429,
-        ErrorCode.RATE_LIMITED,
-        'Too many uploads in progress. Wait for some to finish.',
-      );
-    }
-    const volume = await ctx.volumes.pickVolume(tx, input.size);
-    const [row] = await tx
-      .insert(uploadSessions)
-      .values({
-        userId,
-        chargeUserId,
-        parentId: parent.node.id,
-        name: input.name,
-        size: input.size,
-        mimeType,
-        chunkSize,
-        totalChunks,
-        volumeId: volume.id,
-        blobId: uuidv7(),
-        expiresAt: new Date(Date.now() + SESSION_TTL_MS),
-      })
-      .returning();
-    return { session: row!, volume };
-  });
+  const who = { owner: chargeUserId, actor: userId };
+  const { session, volume } = await withRoomFromVersions(ctx, who, input.size, () =>
+    ctx.db.transaction(async (tx) => {
+      await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
+      // Counted under the reservation lock so parallel requests can't exceed the limit.
+      const [open_] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(uploadSessions)
+        .where(and(eq(uploadSessions.userId, userId), eq(uploadSessions.status, 'uploading')));
+      if ((open_?.n ?? 0) >= MAX_OPEN_SESSIONS_PER_USER) {
+        throw new AppError(
+          429,
+          ErrorCode.RATE_LIMITED,
+          'Too many uploads in progress. Wait for some to finish.',
+        );
+      }
+      const volume = await ctx.volumes.pickVolume(tx, input.size);
+      const [row] = await tx
+        .insert(uploadSessions)
+        .values({
+          userId,
+          chargeUserId,
+          parentId: parent.node.id,
+          name: input.name,
+          size: input.size,
+          mimeType,
+          chunkSize,
+          totalChunks,
+          volumeId: volume.id,
+          blobId: uuidv7(),
+          replaceExisting: input.onConflict === 'replace',
+          expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+        })
+        .returning();
+      return { session: row!, volume };
+    }),
+  );
 
   try {
     await ctx.volumes.assertOnline(volume);
@@ -210,6 +228,7 @@ export async function instantUpload(
     size: number;
     mimeType?: string | undefined;
     sha256: string;
+    onConflict?: UploadConflict;
   },
 ): Promise<FileNode | null> {
   const parent = await requireFolder(ctx.db, userId, input.parentId, 'edit');
@@ -252,8 +271,10 @@ export async function instantUpload(
   const mimeType = guessMimeType(input.name, input.mimeType);
   // Quota lock first, then the blob row (the order "empty trash" uses too, so they can't deadlock).
   const gone = new Error('blob gone');
-  const node = await ctx.db
-    .transaction(async (tx) => {
+  const keepVersion = settings.versionRetentionDays > 0;
+  const who = { owner: parent.node.ownerId, actor: userId };
+  const committed = await withRoomFromVersions(ctx, who, input.size, () =>
+    ctx.db.transaction(async (tx) => {
       await reserveSpace(tx, settings, {
         chargeUserId: parent.node.ownerId,
         uploaderId: userId,
@@ -269,35 +290,52 @@ export async function instantUpload(
       // Throwing rolls back the reservation made above.
       if (!still) throw gone;
       const target = await lockWriteAccess(tx, userId, parent.node.id);
-      const row = await insertNode(
-        tx,
-        {
-          ownerId: target.ownerId,
-          parentId: target.id,
-          type: 'file',
-          name: input.name,
-          blobId: found.blobId,
-          size: input.size,
-          mimeType,
-          createdBy: userId,
-        },
-        'rename',
-      );
+      const existing =
+        input.onConflict === 'replace' ? await lockFileNamed(tx, target.id, input.name) : null;
+      let row: NodeRow;
+      let usageDelta = input.size;
+      let orphans: StoredBlob[] = [];
+      if (existing) {
+        const replaced = await replaceContent(
+          tx,
+          existing,
+          { blobId: found.blobId, size: input.size, mimeType },
+          { actorId: userId, keepVersion },
+        );
+        ({ node: row, usageDelta, orphans } = replaced);
+      } else {
+        row = await insertNode(
+          tx,
+          {
+            ownerId: target.ownerId,
+            parentId: target.id,
+            type: 'file',
+            name: input.name,
+            blobId: found.blobId,
+            size: input.size,
+            mimeType,
+            createdBy: userId,
+          },
+          'rename',
+        );
+      }
       await tx
         .update(users)
         .set({
-          usedBytes: sql`${users.usedBytes} + ${input.size}`,
+          usedBytes: sql`greatest(${users.usedBytes} + ${usageDelta}, 0)`,
           reservedBytes: sql`greatest(${users.reservedBytes} - ${input.size}, 0)`,
         })
         .where(eq(users.id, target.ownerId));
       await tx.update(nodes).set({ updatedAt: new Date() }).where(eq(nodes.id, target.id));
-      return row;
-    })
-    .catch((err) => {
-      if (err === gone) return null;
-      throw err;
-    });
-  return node ? toFileNode({ ...node, thumb: found.thumb }) : null;
+      return { row, orphans };
+    }),
+  ).catch((err) => {
+    if (err === gone) return null;
+    throw err;
+  });
+  if (!committed) return null;
+  await deleteBlobFiles(ctx, committed.orphans);
+  return toFileNode({ ...committed.row, thumb: found.thumb });
 }
 
 export async function getOwnedSession(ctx: AppContext, userId: string, id: string) {
@@ -472,8 +510,10 @@ export async function finalizeUpload(
   const thumbable = isThumbnailable(claimed.mimeType);
   const video = isVideo(claimed.mimeType);
   const office = isOfficeDocument(claimed.mimeType, claimed.name);
+  const { versionRetentionDays } = await ctx.settings.get();
+  let committed: { node: NodeRow; orphans: StoredBlob[] };
   try {
-    const node = await ctx.db.transaction(async (tx) => {
+    committed = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
       // Cancelled or expired while finalizing: its reservation is already released, so
       // committing would count the bytes twice and bring back a file the user cancelled.
@@ -494,24 +534,44 @@ export async function finalizeUpload(
         streamStatus: video ? 'pending' : 'none',
         previewStatus: office ? 'pending' : 'none',
       });
-      const row = await insertNode(
-        tx,
-        {
-          ownerId: parent.ownerId,
-          parentId: parent.id,
-          type: 'file',
-          name: claimed.name,
-          blobId: claimed.blobId,
-          size: claimed.size,
-          mimeType: claimed.mimeType,
-          createdBy: claimed.userId,
-        },
-        'rename',
-      );
+      // "Replace": save over the file of that name, keeping its old contents as a version.
+      const existing = claimed.replaceExisting
+        ? await lockFileNamed(tx, parent.id, claimed.name)
+        : null;
+      let row: NodeRow;
+      let usageDelta = claimed.size;
+      let orphans: StoredBlob[] = [];
+      if (existing) {
+        ({
+          node: row,
+          usageDelta,
+          orphans,
+        } = await replaceContent(
+          tx,
+          existing,
+          { blobId: claimed.blobId, size: claimed.size, mimeType: claimed.mimeType },
+          { actorId: claimed.userId, keepVersion: versionRetentionDays > 0 },
+        ));
+      } else {
+        row = await insertNode(
+          tx,
+          {
+            ownerId: parent.ownerId,
+            parentId: parent.id,
+            type: 'file',
+            name: claimed.name,
+            blobId: claimed.blobId,
+            size: claimed.size,
+            mimeType: claimed.mimeType,
+            createdBy: claimed.userId,
+          },
+          'rename',
+        );
+      }
       await tx
         .update(users)
         .set({
-          usedBytes: sql`${users.usedBytes} + ${claimed.size}`,
+          usedBytes: sql`greatest(${users.usedBytes} + ${usageDelta}, 0)`,
           reservedBytes: sql`greatest(${users.reservedBytes} - ${claimed.size}, 0)`,
         })
         .where(eq(users.id, claimed.chargeUserId));
@@ -520,22 +580,24 @@ export async function finalizeUpload(
         .set({ nodeId: row.id })
         .where(eq(uploadSessions.id, claimed.id));
       await tx.update(nodes).set({ updatedAt: new Date() }).where(eq(nodes.id, parent.id));
-      return row;
+      return { node: row, orphans };
     });
-
-    await ctx.jobs.send('hash', { blobId: claimed.blobId }).catch(() => {});
-    if (thumbable) await ctx.jobs.send('thumbnail', { blobId: claimed.blobId }).catch(() => {});
-    if (video) await ctx.jobs.send('video-stream', { blobId: claimed.blobId }).catch(() => {});
-    if (office) await ctx.jobs.send('office-preview', { blobId: claimed.blobId }).catch(() => {});
-    return {
-      session: { ...claimed, status: 'completed', nodeId: node.id },
-      node: toFileNode({ ...node, thumb: thumbable ? 'pending' : 'unsupported' }),
-    };
   } catch (err) {
     await unlink(final).catch(() => {});
     await releaseUpload(ctx, claimed.id, 'aborted');
     throw err;
   }
+  // Committed: from here on nothing may remove the new file's bytes.
+  const { node, orphans } = committed;
+  await deleteBlobFiles(ctx, orphans);
+  await ctx.jobs.send('hash', { blobId: claimed.blobId }).catch(() => {});
+  if (thumbable) await ctx.jobs.send('thumbnail', { blobId: claimed.blobId }).catch(() => {});
+  if (video) await ctx.jobs.send('video-stream', { blobId: claimed.blobId }).catch(() => {});
+  if (office) await ctx.jobs.send('office-preview', { blobId: claimed.blobId }).catch(() => {});
+  return {
+    session: { ...claimed, status: 'completed', nodeId: node.id },
+    node: toFileNode({ ...node, thumb: thumbable ? 'pending' : 'unsupported' }),
+  };
 }
 
 /**

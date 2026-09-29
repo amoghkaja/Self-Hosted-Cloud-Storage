@@ -13,6 +13,7 @@ import { makeOfficePreview } from './jobs/office';
 import { JOBS, type JobPayloads, type PgBossQueue } from './jobs/queue';
 import { configureSharp, generateThumbnail } from './jobs/thumbnail';
 import { makeVideoStream } from './jobs/video';
+import { purgeExpiredVersions } from './modules/versions/service';
 
 /**
  * Background worker: thumbnails, checksums, volume drains and scheduled maintenance.
@@ -84,8 +85,13 @@ async function main() {
     JOBS.recoverWork,
     handle('recover-work', () => recoverPendingWork(ctx)),
   );
+  await boss.work(
+    JOBS.purgeVersions,
+    handle('purge-versions', () => purgeExpiredVersions(ctx)),
+  );
 
   await boss.schedule(JOBS.purgeTrash, '17 3 * * *');
+  await boss.schedule(JOBS.purgeVersions, '27 3 * * *');
   await boss.schedule(JOBS.reconcileUsage, '47 3 * * *');
   await boss.schedule(JOBS.expireUploads, '*/15 * * * *');
   await boss.schedule(JOBS.cleanupSessions, '5 4 * * *');

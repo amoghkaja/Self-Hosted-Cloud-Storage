@@ -30,6 +30,7 @@ import type {
   StorageInfo,
   TrashList,
   UserRole,
+  VersionList,
   Volume,
   VolumeCandidate,
 } from '@familycloud/shared';
@@ -64,6 +65,7 @@ export const qk = {
   search: (q: string) => ['search', q] as const,
   shares: (id: string) => ['shares', id] as const,
   links: (id: string) => ['links', id] as const,
+  versions: (id: string) => ['versions', id] as const,
   directory: ['directory'] as const,
   sessions: ['sessions'] as const,
   appPasswords: ['app-passwords'] as const,
@@ -378,6 +380,40 @@ export function useSearch(q: string) {
     enabled: q.trim().length > 0,
     staleTime: 10_000,
   });
+}
+
+// ── versions ────────────────────────────────────────────────────────────────
+
+export function useVersions(nodeId: string) {
+  return useQuery({
+    queryKey: qk.versions(nodeId),
+    queryFn: () => api<VersionList>(`/nodes/${nodeId}/versions`),
+  });
+}
+
+export function useVersionMutations(node: { id: string; parentId: string | null }) {
+  const qc = useQueryClient();
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: qk.versions(node.id) });
+    void qc.invalidateQueries({ queryKey: qk.me });
+    invalidateNodeViews(qc, [node.parentId]);
+  };
+  return {
+    restore: useMutation({
+      mutationFn: (versionId: string) =>
+        api<{ node: FileNode }>(`/nodes/${node.id}/versions/${versionId}/restore`, { json: {} }),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: (versionId: string) =>
+        api(`/nodes/${node.id}/versions/${versionId}`, { method: 'DELETE' }),
+      onSuccess: refresh,
+    }),
+    removeAll: useMutation({
+      mutationFn: () => api(`/nodes/${node.id}/versions`, { method: 'DELETE' }),
+      onSuccess: refresh,
+    }),
+  };
 }
 
 // ── trash ───────────────────────────────────────────────────────────────────

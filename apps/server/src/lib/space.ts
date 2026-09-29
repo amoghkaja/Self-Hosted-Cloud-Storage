@@ -47,7 +47,7 @@ export async function usableFreeBytes(ctx: AppContext): Promise<number> {
  * the free space on the disks. The web app, sidebar and network drive all show this number.
  */
 export async function storageFor(ctx: AppContext, u: UserRow): Promise<StorageInfo> {
-  const [settings, [family], disks] = await Promise.all([
+  const [settings, [family], disks, [versions]] = await Promise.all([
     ctx.settings.get(),
     ctx.db
       .select({
@@ -55,6 +55,11 @@ export async function storageFor(ctx: AppContext, u: UserRow): Promise<StorageIn
       })
       .from(users),
     usableFreeBytes(ctx),
+    ctx.db.execute(sql`
+      SELECT coalesce(sum(v.size), 0)::bigint AS total
+      FROM file_versions v JOIN nodes n ON n.id = v.node_id
+      WHERE n.owner_id = ${u.id}
+    `) as unknown as Promise<{ total: number }[]>,
   ]);
   let available = disks;
   if (u.quotaBytes !== null) {
@@ -65,6 +70,7 @@ export async function storageFor(ctx: AppContext, u: UserRow): Promise<StorageIn
   }
   return {
     usedBytes: u.usedBytes,
+    versionsBytes: Math.min(u.usedBytes, Number(versions?.total ?? 0)),
     quotaBytes: u.quotaBytes,
     availableBytes: Math.max(0, available),
   };

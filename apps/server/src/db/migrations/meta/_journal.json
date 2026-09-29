@@ -78,6 +78,13 @@
       "when": 1790685921707,
       "tag": "0010_password_resets",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790686424041,
+      "tag": "0011_file_versions",
+      "breakpoints": true
     }
   ]
 }

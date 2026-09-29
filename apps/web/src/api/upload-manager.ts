@@ -19,6 +19,8 @@ export interface UploadItem {
   checking?: boolean;
   /** The server already had this file: it was added without sending the bytes. */
   instant?: boolean;
+  /** Save over the folder's file of the same name (keeping its old version) instead of "name (1)". */
+  replace?: boolean;
 }
 
 /** An upload that was still running when the page closed; its server session can be resumed. */
@@ -86,6 +88,7 @@ export interface UploadTransport {
     name: string;
     size: number;
     mimeType?: string;
+    onConflict?: 'rename' | 'replace';
   }): Promise<UploadSession>;
   getUpload(id: string): Promise<UploadSession>;
   putChunk(
@@ -104,6 +107,7 @@ export interface UploadTransport {
     size: number;
     mimeType?: string;
     sha256: string;
+    onConflict?: 'rename' | 'replace';
   }): Promise<FileNode | null>;
 }
 
@@ -223,8 +227,8 @@ export class UploadManager {
     );
   }
 
-  add(parentId: string, picked: { file: File; relativeDir: string }[]): void {
-    for (const { file, relativeDir } of picked) {
+  add(parentId: string, picked: { file: File; relativeDir: string; replace?: boolean }[]): void {
+    for (const { file, relativeDir, replace } of picked) {
       const id = `u${this.nextId++}`;
       this.files.set(id, file);
       this.items.push({
@@ -235,6 +239,7 @@ export class UploadManager {
         status: 'queued',
         parentId,
         relativeDir,
+        ...(replace ? { replace } : {}),
       });
     }
     this.emit(true);
@@ -467,6 +472,7 @@ export class UploadManager {
                 size: file.size,
                 ...(file.type ? { mimeType: file.type } : {}),
                 sha256,
+                ...(item.replace ? { onConflict: 'replace' as const } : {}),
               }),
             signal,
           ).catch((err) => {
@@ -486,7 +492,7 @@ export class UploadManager {
         }
       }
 
-      const session = await this.openSession(item.id, folderId, file, signal);
+      const session = await this.openSession(item, folderId, file, signal);
 
       const { chunkSize, totalChunks } = session;
       const have = new Set(session.receivedChunks);
@@ -573,11 +579,12 @@ export class UploadManager {
    * the server still has open so only the missing chunks are sent.
    */
   private async openSession(
-    id: string,
+    item: UploadItem,
     parentId: string,
     file: File,
     signal: AbortSignal,
   ): Promise<UploadSession> {
+    const { id } = item;
     const previous = this.sessions.get(id);
     if (previous) {
       const s = await this.transport.getUpload(previous).catch(() => null);
@@ -591,6 +598,7 @@ export class UploadManager {
           name: file.name,
           size: file.size,
           ...(file.type ? { mimeType: file.type } : {}),
+          ...(item.replace ? { onConflict: 'replace' as const } : {}),
         }),
       signal,
     );

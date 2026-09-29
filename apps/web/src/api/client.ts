@@ -91,3 +91,5 @@ export const previewUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/preview`)
 export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256) =>
   apiUrl(`/nodes/${nodeId}/thumbnail`, { size });
 export const zipUrl = (ids: string[]) => apiUrl('/zip', { ids: ids.join(',') });
+export const versionUrl = (nodeId: string, versionId: string) =>
+  apiUrl(`/nodes/${nodeId}/versions/${versionId}/content`);

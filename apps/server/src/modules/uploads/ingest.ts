@@ -10,9 +10,10 @@ import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, uploadSessions, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
-import { derivedPaths, isThumbnailable, isVideo } from '../../storage/thumbs';
+import { isThumbnailable, isVideo } from '../../storage/thumbs';
 import { lockWriteAccess } from '../files/access';
-import { blobUnused, insertNode, QUOTA_LOCK } from '../files/tree';
+import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
+import { replaceContent, type StoredBlob, withRoomFromVersions } from '../versions/service';
 import { assertFileSizeAllowed, releaseUpload, reserveSpace } from './service';
 
 export type IngestSource =
@@ -53,31 +54,34 @@ export async function ingest(
   const chargeUserId = input.parent.ownerId;
   const blobId = uuidv7();
 
-  const { session, volume } = await ctx.db.transaction(async (tx) => {
-    await reserveSpace(tx, settings, {
-      chargeUserId,
-      uploaderId: input.uploaderId,
-      size: input.size,
-    });
-    const volume = await ctx.volumes.pickVolume(tx, input.size);
-    const [session] = await tx
-      .insert(uploadSessions)
-      .values({
-        userId: input.uploaderId,
+  const who = { owner: chargeUserId, actor: input.uploaderId };
+  const { session, volume } = await withRoomFromVersions(ctx, who, input.size, () =>
+    ctx.db.transaction(async (tx) => {
+      await reserveSpace(tx, settings, {
         chargeUserId,
-        parentId: input.parent.id,
-        name: input.name,
+        uploaderId: input.uploaderId,
         size: input.size,
-        mimeType: input.mimeType,
-        chunkSize: ctx.config.chunkSize,
-        totalChunks: Math.max(1, Math.ceil(input.size / ctx.config.chunkSize)),
-        volumeId: volume.id,
-        blobId,
-        expiresAt: new Date(Date.now() + DAY_MS),
-      })
-      .returning({ id: uploadSessions.id });
-    return { session: session!, volume };
-  });
+      });
+      const volume = await ctx.volumes.pickVolume(tx, input.size);
+      const [session] = await tx
+        .insert(uploadSessions)
+        .values({
+          userId: input.uploaderId,
+          chargeUserId,
+          parentId: input.parent.id,
+          name: input.name,
+          size: input.size,
+          mimeType: input.mimeType,
+          chunkSize: ctx.config.chunkSize,
+          totalChunks: Math.max(1, Math.ceil(input.size / ctx.config.chunkSize)),
+          volumeId: volume.id,
+          blobId,
+          expiresAt: new Date(Date.now() + DAY_MS),
+        })
+        .returning({ id: uploadSessions.id });
+      return { session: session!, volume };
+    }),
+  );
 
   const tmp = ctx.volumes.tmpPath(volume.path, session.id);
   const final = ctx.volumes.blobPath(volume.path, blobId);
@@ -149,8 +153,8 @@ export async function ingest(
       });
       let node: NodeRow;
       let created = true;
-      let freed = 0;
-      let oldBlob: { id: string; volumeId: string } | null = null;
+      let usageDelta = input.size;
+      let orphans: StoredBlob[] = [];
       if (input.replaceNodeId) {
         const [existing] = await tx
           .select()
@@ -164,22 +168,18 @@ export async function ingest(
         if (input.expectBlobId != null && existing.blobId !== input.expectBlobId) {
           throw new AppError(412, ErrorCode.CONFLICT, 'The file changed since it was read');
         }
-        [node] = (await tx
-          .update(nodes)
-          .set({ blobId, size: input.size, mimeType: input.mimeType, updatedAt: new Date() })
-          .where(eq(nodes.id, existing.id))
-          .returning()) as [NodeRow];
+        // Saving over a file keeps what was there as a version (a network-drive save that went
+        // wrong can be undone). Its bytes go only when nothing points at them any more.
+        const replaced = await replaceContent(
+          tx,
+          existing,
+          { blobId, size: input.size, mimeType: input.mimeType },
+          { actorId: input.uploaderId, keepVersion: settings.versionRetentionDays > 0 },
+        );
+        node = replaced.node;
+        usageDelta = replaced.usageDelta;
+        orphans = replaced.orphans;
         created = false;
-        // The old version's size comes off the quota even when its bytes stay (another file
-        // still uses them); the bytes themselves go only when nothing points at them.
-        freed = existing.size;
-        if (existing.blobId) {
-          const [old] = await tx
-            .delete(blobs)
-            .where(and(eq(blobs.id, existing.blobId), blobUnused))
-            .returning({ id: blobs.id, volumeId: blobs.volumeId, size: blobs.size });
-          if (old) oldBlob = old;
-        }
       } else {
         node = await insertNode(
           tx,
@@ -200,7 +200,7 @@ export async function ingest(
       await tx
         .update(users)
         .set({
-          usedBytes: sql`greatest(${users.usedBytes} + ${input.size} - ${freed}, 0)`,
+          usedBytes: sql`greatest(${users.usedBytes} + ${usageDelta}, 0)`,
           reservedBytes: sql`greatest(${users.reservedBytes} - ${input.size}, 0)`,
         })
         .where(eq(users.id, chargeUserId));
@@ -208,19 +208,11 @@ export async function ingest(
         .update(uploadSessions)
         .set({ nodeId: node.id })
         .where(eq(uploadSessions.id, session.id));
-      return { node, created, oldBlob };
+      return { node, created, orphans };
     });
     committed = true;
 
-    if (result.oldBlob) {
-      const oldFile = await ctx.volumes.blobFile(result.oldBlob).catch(() => null);
-      for (const f of [
-        ...(oldFile ? [oldFile] : []),
-        ...derivedPaths(ctx.config.cacheDir, result.oldBlob.id),
-      ]) {
-        await unlink(f).catch(() => {});
-      }
-    }
+    await deleteBlobFiles(ctx, result.orphans);
     await ctx.jobs.send('hash', { blobId }).catch(() => {});
     if (thumbable) await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
     if (video) await ctx.jobs.send('video-stream', { blobId }).catch(() => {});

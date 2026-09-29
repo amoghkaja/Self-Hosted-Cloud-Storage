@@ -400,7 +400,10 @@ export async function purgeTrashRoots(
       const fileRows = (await tx.execute(sql`
         ${unit}
         SELECT blob_id AS "blobId", size FROM sub WHERE type = 'file' AND blob_id IS NOT NULL
+        UNION ALL
+        SELECT v.blob_id, v.size FROM file_versions v JOIN sub ON sub.id = v.node_id
       `)) as unknown as { blobId: string; size: number }[];
+      // Deleting the unit's root cascades to everything below it and to their versions.
       await tx.delete(nodes).where(eq(nodes.id, rootId));
       const deleted: { id: string; volumeId: string }[] = [];
       const ids = fileRows.map((f) => f.blobId);
@@ -430,10 +433,11 @@ export async function purgeTrashRoots(
 }
 
 /**
- * Stored bytes can back several files (instant uploads of a file someone already has), so they
- * are only deleted once no file points at them any more.
+ * Stored bytes can back several files (instant uploads of a file someone already has) and older
+ * versions of files, so they are only deleted once nothing points at them any more.
  */
-export const blobUnused = sql`NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})`;
+export const blobUnused = sql`(NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})
+  AND NOT EXISTS (SELECT 1 FROM file_versions WHERE file_versions.blob_id = ${blobs.id}))`;
 
 export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {
   for (const b of list) {

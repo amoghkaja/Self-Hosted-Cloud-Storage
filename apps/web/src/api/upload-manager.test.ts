@@ -68,6 +68,23 @@ async function waitIdle(m: UploadManager) {
 }
 
 describe('UploadManager', () => {
+  it('asks the server to save over the existing file only for files marked "replace"', async () => {
+    const { t } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('n'),
+      status: 'completed',
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('p', [
+      { file: new File(['abcd'], 'report.docx'), relativeDir: '', replace: true },
+      { file: new File(['efgh'], 'photo.jpg'), relativeDir: '' },
+    ]);
+    await waitIdle(m);
+    const bodies = (t.createUpload as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(bodies.find((b) => b.name === 'report.docx')).toMatchObject({ onConflict: 'replace' });
+    expect(bodies.find((b) => b.name === 'photo.jpg')).not.toHaveProperty('onConflict');
+  });
+
   it('uploads every chunk, skips ones the server already has, and reports progress', async () => {
     const { t, put } = fakeTransport({ received: [1] });
     (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({

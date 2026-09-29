@@ -131,9 +131,12 @@ describe('PUT', () => {
     const put = await bobDav('PUT', '/dav/Shared%20with%20me/notes.txt', { body: 'v2 by bob' });
     expect(put.statusCode).toBe(204);
     expect((await aliceDav('GET', '/dav/My%20Files/notes.txt')).body).toBe('v2 by bob');
-    // Same node (sharing kept), charged to the owner.
+    // Same node (sharing kept), charged to the owner; Alice's text is kept as a version.
     expect((await alice.get(`/nodes/${notes.id}`)).status).toBe(200);
-    expect((await alice.get('/auth/me')).body.usedBytes).toBe(before - 2 + 9);
+    expect((await alice.get('/auth/me')).body.usedBytes).toBe(before + 9);
+    const versions = await alice.get(`/nodes/${notes.id}/versions`);
+    expect(versions.body.current.modifiedBy.id).toBe(bobId);
+    expect(versions.body.items.map((v: { size: number }) => v.size)).toEqual([2]);
   });
 
   it('honours If-Match and If-None-Match so clients can avoid lost updates', async () => {

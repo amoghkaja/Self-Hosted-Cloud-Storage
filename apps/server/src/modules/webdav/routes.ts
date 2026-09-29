@@ -11,6 +11,7 @@ import { loadAccess, type NodeAccess, satisfies } from '../files/access';
 import { etagMatches, listTree, sendBlob } from '../files/serve';
 import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
 import { ingest } from '../uploads/ingest';
+import { moveContentOnto } from '../versions/service';
 import {
   type DavEntry,
   davHref,
@@ -483,6 +484,11 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
             throw davError(403, 'Not allowed');
           if (destParent.node.ownerId !== src.node.ownerId) {
             throw davError(403, "Items can only be moved within the same person's files");
+          }
+          // A file renamed over another file: an editor saving through a temporary file.
+          if (src.node.type === 'file' && d.existing?.node.type === 'file') {
+            await moveContentOnto(ctx, user.id, src.node, d.existing.node);
+            return reply.status(204).send();
           }
           // One transaction: if the move fails, the destination is not left in the trash.
           await moveNode(

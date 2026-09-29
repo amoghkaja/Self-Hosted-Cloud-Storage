@@ -125,8 +125,12 @@ describe('files over WebDAV', () => {
     const again = await d()('PUT', '/dav/My%20Files/Trip%20photos/caf%C3%A9.txt', { body: 'v2' });
     expect(again.statusCode).toBe(204);
     expect((await d()('GET', '/dav/My%20Files/Trip%20photos/caf%C3%A9.txt')).body).toBe('v2');
-    // Overwriting replaces usage rather than adding to it.
-    expect((await alice.get('/auth/me')).body.usedBytes).toBe(2);
+    // Overwriting keeps what was there as a version (counted until it expires), so a save
+    // that went wrong can be undone.
+    expect((await alice.get('/auth/me')).body.usedBytes).toBe(2 + 13);
+    const search = await alice.get('/search?q=caf');
+    const versions = await alice.get(`/nodes/${search.body.items[0].id}/versions`);
+    expect(versions.body.items.map((v: { size: number }) => v.size)).toEqual([13]);
   });
 
   it('handles Finder-style chunked PUTs that announce the size separately', async () => {
