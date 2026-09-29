@@ -8,6 +8,7 @@ import { ErrorCode } from '@familycloud/shared/all';
 import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import type { AppContext } from '../context';
 import {
+  auditLog,
   blobs,
   invites,
   nodes,
@@ -22,6 +23,7 @@ import { purgeTrashRoots, QUOTA_LOCK } from '../modules/files/tree';
 import { releaseUpload } from '../modules/uploads/service';
 
 const STALE_TMP_MS = 2 * DAY_MS;
+export const AUDIT_RETENTION_DAYS = 365;
 
 export async function sha256File(file: string): Promise<string> {
   const hash = createHash('sha256');
@@ -151,6 +153,10 @@ export async function cleanupSessions(ctx: AppContext): Promise<void> {
   const monthAgo = new Date(Date.now() - 30 * DAY_MS);
   await ctx.db.delete(invites).where(lt(invites.expiresAt, monthAgo));
   await ctx.db.delete(passwordResets).where(lt(passwordResets.expiresAt, monthAgo));
+  // The security log keeps a year: long enough to look into anything, not forever.
+  await ctx.db
+    .delete(auditLog)
+    .where(lt(auditLog.createdAt, new Date(Date.now() - AUDIT_RETENTION_DAYS * DAY_MS)));
 }
 
 /**

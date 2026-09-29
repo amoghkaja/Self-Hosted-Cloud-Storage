@@ -22,6 +22,7 @@ import { requireAdmin } from '../../plugins/auth';
 interface StoredBranding {
   wordmark?: string | null;
   homeUrl?: string | null;
+  privacyNotice?: string | null;
   logo?: { mimeType: string; data: string; version: string } | null;
 }
 
@@ -52,11 +53,17 @@ export function publicBranding(ctx: AppContext, b: StoredBranding) {
     wordmark: b.wordmark ?? ctx.config.appName,
     logoVersion: b.logo?.version ?? null,
     homeUrl: b.homeUrl ?? null,
+    privacyNotice: b.privacyNotice ?? null,
   };
 }
 
 function toDto(b: StoredBranding): Branding {
-  return { wordmark: b.wordmark ?? null, homeUrl: b.homeUrl ?? null, hasLogo: !!b.logo };
+  return {
+    wordmark: b.wordmark ?? null,
+    homeUrl: b.homeUrl ?? null,
+    privacyNotice: b.privacyNotice ?? null,
+    hasLogo: !!b.logo,
+  };
 }
 
 /** Accepts only files that really are what they claim; SVGs must not carry script. */

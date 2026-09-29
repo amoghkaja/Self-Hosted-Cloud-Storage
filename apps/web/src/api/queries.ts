@@ -116,8 +116,11 @@ export function useBrandingMutations() {
     ]);
   return {
     update: useMutation({
-      mutationFn: (body: { wordmark?: string | null; homeUrl?: string | null }) =>
-        api<Branding>('/admin/branding', { method: 'PATCH', json: body }),
+      mutationFn: (body: {
+        wordmark?: string | null;
+        homeUrl?: string | null;
+        privacyNotice?: string | null;
+      }) => api<Branding>('/admin/branding', { method: 'PATCH', json: body }),
       onSuccess: refresh,
     }),
     uploadLogo: useMutation({

@@ -141,10 +141,13 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.get('/auth/setup-status', { schema: { response: { 200: SetupStatus } } }, async () => {
     const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(users);
+    const settings = await ctx.settings.get();
     return {
       needsSetup: (row?.n ?? 0) === 0,
       appName: ctx.config.appName,
       sourceUrl: ctx.config.sourceUrl,
+      trashRetentionDays: settings.trashRetentionDays,
+      versionRetentionDays: settings.versionRetentionDays,
       ...publicBranding(ctx, await loadBranding(ctx)),
     };
   });

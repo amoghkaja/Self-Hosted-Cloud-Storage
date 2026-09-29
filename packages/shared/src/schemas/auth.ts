@@ -34,6 +34,11 @@ export const SetupStatus = z.object({
   homeUrl: z.string().nullable(),
   /** Where this server's source code is published (AGPL-3.0). */
   sourceUrl: z.string(),
+  /** The admin's own notice for the Privacy page. */
+  privacyNotice: z.string().nullable(),
+  /** How long the trash and older versions are kept (the Privacy page states them). */
+  trashRetentionDays: z.number().int(),
+  versionRetentionDays: z.number().int(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
 

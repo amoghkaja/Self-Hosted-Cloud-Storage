@@ -120,6 +120,42 @@ export function PasswordField(props: Omit<TextFieldProps, 'type' | 'trailing'>) 
   );
 }
 
+export interface TextAreaFieldProps extends ComponentProps<'textarea'>, FieldChrome {
+  containerClassName?: string;
+}
+
+/** Multi-line text, with the same label, hint and error wiring as TextField. */
+export function TextAreaField({
+  label,
+  hint,
+  error,
+  hideLabel,
+  id,
+  className,
+  containerClassName,
+  ...props
+}: TextAreaFieldProps) {
+  const ids = useFieldIds(id);
+  return (
+    <Chrome
+      label={label}
+      hint={hint}
+      error={error}
+      hideLabel={hideLabel}
+      ids={ids}
+      className={containerClassName}
+    >
+      <textarea
+        id={ids.controlId}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(ids, hint, error)}
+        className={cn(control, 'h-auto min-h-24 py-2 leading-relaxed', className)}
+        {...props}
+      />
+    </Chrome>
+  );
+}
+
 export interface SelectFieldProps extends ComponentProps<'select'>, FieldChrome {
   containerClassName?: string;
 }

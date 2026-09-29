@@ -13,7 +13,14 @@ export {
   Skeleton,
   UsageBar,
 } from './Feedback';
-export { Checkbox, PasswordField, SelectField, SwitchField, TextField } from './Field';
+export {
+  Checkbox,
+  PasswordField,
+  SelectField,
+  SwitchField,
+  TextAreaField,
+  TextField,
+} from './Field';
 export { IconButton } from './IconButton';
 export { ContextMenu, DropdownMenu, type MenuAction } from './Menu';
 export { Breadcrumbs, type Crumb, Tabs } from './Navigation';

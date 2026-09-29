@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
-import { useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { ApiError, api, errorMessage } from '../../api/client';
 import {
   qk,
@@ -853,6 +853,11 @@ function AboutSection() {
   return (
     <Section title="About">
       <p className="text-sm text-muted">
+        <Link to="/privacy" className="font-medium text-accent underline-offset-2 hover:underline">
+          Privacy: what's kept about you and who can see your files
+        </Link>
+      </p>
+      <p className="mt-2 text-sm text-muted">
         Family Cloud is free software under the GNU Affero General Public License v3.
         {sourceUrl && (
           <>

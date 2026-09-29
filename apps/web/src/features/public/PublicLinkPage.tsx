@@ -2,7 +2,7 @@ import type { PublicFolder, PublicLinkInfo, PublicNode } from '@familycloud/shar
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, FolderOpen, Lock } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { ApiError, api, apiUrl, errorMessage } from '../../api/client';
 import { Logo } from '../../app/Logo';
 import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../components/ui';
@@ -33,6 +33,11 @@ function Frame({
         )}
       </header>
       <main className="mx-auto max-w-5xl px-3 py-5 md:px-6">{children}</main>
+      <footer className="flex justify-center pb-6 text-sm text-muted">
+        <Link to="/privacy" className="inline-flex min-h-11 items-center hover:text-text">
+          Privacy
+        </Link>
+      </footer>
     </div>
   );
 }

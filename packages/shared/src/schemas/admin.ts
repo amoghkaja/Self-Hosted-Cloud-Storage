@@ -94,6 +94,11 @@ export const Branding = z.object({
     .max(200)
     .regex(/^https?:\/\/[^\s/]+(\/\S*)?$/, 'Must be an http(s) address')
     .nullable(),
+  /**
+   * Shown on the Privacy page: who runs this server and how to reach them, and any terms of
+   * their own (plain text).
+   */
+  privacyNotice: z.string().trim().max(2000).nullable(),
   hasLogo: z.boolean(),
 });
 export type Branding = z.infer<typeof Branding>;

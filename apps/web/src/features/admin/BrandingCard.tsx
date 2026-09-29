@@ -4,7 +4,7 @@ import { type ChangeEvent, type FormEvent, useRef, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import { useBranding, useBrandingMutations } from '../../api/queries';
 import { Logo } from '../../app/Logo';
-import { Button, QueryState, Skeleton, TextField, toast } from '../../components/ui';
+import { Button, QueryState, Skeleton, TextAreaField, TextField, toast } from '../../components/ui';
 
 function toBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20,6 +20,7 @@ function BrandingForm({ initial }: { initial: Branding }) {
   const file = useRef<HTMLInputElement>(null);
   const [wordmark, setWordmark] = useState(initial.wordmark ?? '');
   const [homeUrl, setHomeUrl] = useState(initial.homeUrl ?? '');
+  const [notice, setNotice] = useState(initial.privacyNotice ?? '');
 
   const upload = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -47,6 +48,7 @@ function BrandingForm({ initial }: { initial: Branding }) {
       await m.update.mutateAsync({
         wordmark: wordmark.trim() || null,
         homeUrl: homeUrl.trim() || null,
+        privacyNotice: notice.trim() || null,
       });
       toast.success('Branding saved');
     } catch (err) {
@@ -115,6 +117,15 @@ function BrandingForm({ initial }: { initial: Branding }) {
         onChange={(e) => setHomeUrl(e.target.value)}
         placeholder="https://example.com"
         hint="Shown as a link back on the sign-in page and in the menu."
+      />
+      <TextAreaField
+        label="Your notice on the Privacy page"
+        value={notice}
+        onChange={(e) => setNotice(e.target.value)}
+        maxLength={2000}
+        rows={4}
+        placeholder="e.g. This server is run by the Smith family. Questions: privacy@smithfamily.com"
+        hint="Optional. Who runs this server and how to reach you, and any terms of your own. If you host it for people outside your household, the law where you live may require this."
       />
       <Button type="submit" variant="primary" loading={m.update.isPending} className="self-start">
         Save branding

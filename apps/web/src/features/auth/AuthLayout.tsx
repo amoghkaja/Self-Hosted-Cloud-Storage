@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { useSetupStatus } from '../../api/queries';
 import { Logo } from '../../app/Logo';
 
@@ -36,6 +37,9 @@ export function AuthLayout({
             {new URL(home).host}
           </a>
         )}
+        <Link to="/privacy" className="inline-flex min-h-11 items-center hover:text-text">
+          Privacy
+        </Link>
         {/* The AGPL's offer of the source code to everyone who uses the server. */}
         {setup?.sourceUrl && (
           <a
