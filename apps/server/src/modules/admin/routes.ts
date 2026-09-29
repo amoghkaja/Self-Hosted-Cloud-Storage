@@ -7,6 +7,7 @@ import {
   AuditQuery,
   CreateInviteBody,
   CreateInviteResponse,
+  DeleteUserBody,
   domainMessage,
   ErrorCode,
   emailAllowed,
@@ -42,6 +43,7 @@ import { volumeSpace } from '../../lib/space';
 import { DAY_MS, toIso } from '../../lib/time';
 import { requireAdmin } from '../../plugins/auth';
 import { dropRecoveryCodes } from '../auth/service';
+import { deleteAccount } from './delete-user';
 
 /** Advisory lock taken while an admin is demoted or disabled (see the last-admin guard). */
 const ADMIN_GUARD_LOCK = 727_004;
@@ -293,6 +295,37 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         targetType: 'user',
         targetId: req.params.id,
         ip: req.clientIp,
+      });
+      return { ok: true as const };
+    },
+  );
+
+  /**
+   * Deletes an account for good. Two deliberate steps: it must be disabled first, and the
+   * admin types the person's email address to confirm.
+   */
+  app.post(
+    '/admin/users/:id/delete',
+    { schema: { params: IdParams, body: DeleteUserBody, response: { 200: Ok } } },
+    async (req) => {
+      const { user: admin } = requireAdmin(req);
+      const [target] = await db.select().from(users).where(eq(users.id, req.params.id));
+      if (!target) throw notFound('User');
+      if (target.id === admin.id) throw badRequest("You can't delete your own account");
+      if (!target.disabledAt) throw badRequest('Disable the account first');
+      if (req.body.confirmEmail.toLowerCase() !== target.email) {
+        throw badRequest(`Type ${target.email} to confirm`);
+      }
+      const removed = await deleteAccount(ctx, target.id);
+      ctx.sessions.forgetUser(target.id);
+      ctx.davAuth.forgetUser(target.id);
+      await audit(db, {
+        actorId: admin.id,
+        action: 'admin.user_deleted',
+        targetType: 'user',
+        targetId: target.id,
+        ip: req.clientIp,
+        meta: { email: target.email, displayName: target.displayName, ...removed },
       });
       return { ok: true as const };
     },

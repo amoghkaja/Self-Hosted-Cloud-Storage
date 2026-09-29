@@ -139,6 +139,9 @@ export const UpdateUserBody = z
   })
   .refine((b) => Object.keys(b).length > 0, 'Nothing to update');
 
+/** Deleting an account: the admin types the person's email to confirm. */
+export const DeleteUserBody = z.object({ confirmEmail: z.string().trim().max(254) });
+
 export const AdminInvite = z.object({
   id: Id,
   email: z.string().nullable(),

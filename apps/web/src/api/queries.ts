@@ -693,6 +693,11 @@ export function useAdminMutations() {
     signOut: useMutation({
       mutationFn: (id: string) => api(`/admin/users/${id}/sign-out`, { method: 'POST', json: {} }),
     }),
+    deleteUser: useMutation({
+      mutationFn: ({ id, confirmEmail }: { id: string; confirmEmail: string }) =>
+        api(`/admin/users/${id}/delete`, { json: { confirmEmail } }),
+      onSuccess: refresh,
+    }),
     createPasswordReset: useMutation({
       mutationFn: (id: string) =>
         api<PasswordResetLink>(`/admin/users/${id}/password-reset`, { json: {} }),

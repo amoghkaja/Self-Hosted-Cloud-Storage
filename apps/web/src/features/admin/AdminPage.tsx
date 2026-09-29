@@ -422,6 +422,67 @@ function PasswordResetDialog({ user, onClose }: { user: AdminUser; onClose: () =
   );
 }
 
+/** Deleting an account for good: shows what goes, and asks for the email to be typed. */
+function DeleteUserDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const m = useAdminMutations();
+  const [typed, setTyped] = useState('');
+  const matches = typed.trim().toLowerCase() === user.email;
+  const remove = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!matches) return;
+    try {
+      await m.deleteUser.mutateAsync({ id: user.id, confirmEmail: typed });
+      toast.success(`${user.displayName}'s account was deleted`);
+      onClose();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Delete ${user.displayName}'s account?`}
+      size="md"
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            type="submit"
+            form="delete-user"
+            variant="danger"
+            loading={m.deleteUser.isPending}
+            disabled={!matches}
+          >
+            Delete forever
+          </Button>
+        </>
+      }
+    >
+      <form id="delete-user" onSubmit={remove} className="flex flex-col gap-3 text-sm">
+        <p>This can't be undone. Gone for good:</p>
+        <ul className="list-disc space-y-1 pl-5 text-muted">
+          <li>
+            Everything in their files ({formatBytes(user.usedBytes)}), including their trash and
+            older versions
+          </li>
+          <li>What they shared with others, and their public links</li>
+          <li>Photos they added to family albums</li>
+        </ul>
+        <p>Files they added to other people's folders stay with those people.</p>
+        <TextField
+          label={`Type ${user.email} to confirm`}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+        />
+      </form>
+    </Dialog>
+  );
+}
+
 function People() {
   const { me } = useShell();
   const q = useAdminOverview();
@@ -429,6 +490,7 @@ function People() {
   const m = useAdminMutations();
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [resetting, setResetting] = useState<AdminUser | null>(null);
+  const [removing, setRemoving] = useState<AdminUser | null>(null);
   const [inviting, setInviting] = useState(false);
   const [confirm, setConfirm] = useState<{
     title: string;
@@ -528,6 +590,18 @@ function People() {
                               },
                             ]
                           : []),
+                        // Only once disabled: deleting is a second, deliberate step.
+                        ...(u.disabled
+                          ? [
+                              {
+                                id: 'delete',
+                                label: 'Delete account…',
+                                tone: 'danger' as const,
+                                separatorBefore: true,
+                                onSelect: () => setRemoving(u),
+                              },
+                            ]
+                          : []),
                       ]}
                     />
                   )}
@@ -569,6 +643,7 @@ function People() {
       </Card>
       {editing && <EditUserDialog user={editing} selfId={me.id} onClose={() => setEditing(null)} />}
       {resetting && <PasswordResetDialog user={resetting} onClose={() => setResetting(null)} />}
+      {removing && <DeleteUserDialog user={removing} onClose={() => setRemoving(null)} />}
       {inviting && (
         <InviteDialog
           defaultQuota={q.data?.settings.defaultQuotaBytes ?? 50 * GiB}
