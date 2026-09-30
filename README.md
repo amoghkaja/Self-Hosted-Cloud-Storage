@@ -33,19 +33,33 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 
 ## Run your own
 
-You need a Linux computer that stays on (a spare PC, a mini PC or a Raspberry Pi 5 works) with Docker. Then:
+**You need** a Linux computer that stays on (a spare PC, a mini PC or a Raspberry Pi 5), and a domain name if your family should reach it away from home. You don't need to know Docker: the installer sets it up.
+
+**1. Install** (about 15 minutes):
 
 ```bash
 git clone https://github.com/amoghkaja/Self-Hosted-Cloud-Storage.git familycloud
 cd familycloud
-./scripts/install.sh            # add --install-docker if Docker isn't installed yet
+./scripts/install.sh --install-docker
 ```
 
-The installer asks for your web address, creates the storage folders under `/srv/familycloud`, generates the secrets and starts everything. It then prints a link and a one-time setup token. Open the link, create the admin account, and invite your family from **Admin → People**.
+It installs the newest release and asks a few questions: how your family will reach it (a free **Cloudflare Tunnel** with no router changes, your own domain, Tailscale, or "later"), the address, a name and where to keep the files. It generates all the secrets, starts everything and offers to install updates automatically. If it installed Docker, log out and back in, then run `./scripts/install.sh` again.
 
-Then, in **Admin → Settings**: add your logo and family website under Branding, and (if your family shares an email domain) list it under "Only allow these email domains". Everyone gets a prompt to set up a passkey the first time they sign in.
+**2. Create your account.** The installer prints a link and a one-time setup token. Open the link, paste the token and create the admin account.
 
-To reach it from outside your home, the recommended route is a free **Cloudflare Tunnel**, which needs no router changes. See the [self-hosting guide](docs/self-hosting.md) for all the options, step by step.
+**3. Invite your family** from **Admin → People**. In **Admin → Settings**, add your logo under Branding, and (if your family shares an email domain) list it under "Only allow these email domains".
+
+**4. Set up backups** before the family relies on it: see [backups](docs/backup-restore.md).
+
+The [self-hosting guide](docs/self-hosting.md) walks through each step, including putting it on your own domain.
+
+### Updating
+
+```bash
+./scripts/update.sh
+```
+
+It shows what's new, backs up the database, installs the newest release and checks that everything came back. If you turned on automatic updates, this runs every Sunday morning; releases that need you to do something are left for you to run by hand. What changed in each version is in the [changelog](CHANGELOG.md), and **Admin → Overview** shows the version you run.
 
 ### Guides
 
@@ -57,6 +71,7 @@ To reach it from outside your home, the recommended route is a free **Cloudflare
 | [Network drive](docs/network-drive.md) | iPhone/iPad Files app, Finder and Windows |
 | [Backups and moving](docs/backup-restore.md) | Nightly backups, restoring, moving to new hardware |
 | [Hardware and uptime](docs/hardware-and-uptime.md) | What to run it on, power use, keeping it online |
+| [Versions and releases](docs/releasing.md) | How versions are numbered, update channels, cutting a release |
 
 ## How it's built
 
@@ -95,7 +110,7 @@ apps/web/           React app
                     public links
 packages/shared/    API contract (Zod schemas + types) shared by server and web
 deploy/             docker-compose.yml, Caddyfile, .env.example
-scripts/            install.sh, add-disk.sh, backup.sh
+scripts/            install.sh, update.sh, add-disk.sh, backup.sh, release.sh
 docs/               guides and design documents
 e2e/                Playwright end-to-end tests
 ```

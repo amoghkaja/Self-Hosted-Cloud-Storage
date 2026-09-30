@@ -191,6 +191,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         unlimitedUsers: unlimited,
       },
       warnings,
+      version: ctx.config.version,
     };
   });
 

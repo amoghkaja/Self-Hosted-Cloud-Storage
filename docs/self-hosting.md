@@ -19,20 +19,21 @@ cd familycloud
 
 If the script installed Docker, log out and back in (so your user can use Docker) and run `./scripts/install.sh` again.
 
-The installer asks four questions:
+A fresh clone installs the newest release. The installer asks:
 
 | Question | Example | Notes |
 | --- | --- | --- |
+| How will your family reach it? | `1` (Cloudflare Tunnel) | Tunnel, your own domain, Tailscale, or only this computer for now. See step 3. Choosing "later" is fine. |
 | Address family members will use | `https://cloud.example.com` | Must match what people type in the browser |
 | Name shown in the app | `Smith Family Cloud` | |
 | Where to keep files and the database | `/srv/familycloud` | Put it on the disk with the most space |
-| Cloudflare Tunnel token | *(empty)* | You can add it later, see step 3 |
+| Install new releases automatically? | `yes` | Sundays at 04:30, with a database backup first. See [Updating](#updating). |
 
 It then:
 
 1. creates `/srv/familycloud/{volumes/disk1,db,cache,backups}` owned by your user,
 2. writes `deploy/.env` with freshly generated secrets (readable only by you),
-3. pulls (or builds) the image and starts the database, app and worker (plus `cloudflared` if you gave a tunnel token),
+3. pulls the release's image (or builds it) and starts the database, app and worker, plus `cloudflared` or Caddy if you chose them,
 4. prints a **setup token**.
 
 The app is now running at `http://127.0.0.1:3080` on that machine.
@@ -41,7 +42,7 @@ The app is now running at `http://127.0.0.1:3080` on that machine.
 
 ## 3. Put it on your domain
 
-Pick one:
+Pick one. You can choose when installing, or later by re-running `./scripts/install.sh`: it keeps all your settings and asks again until one is set up.
 
 | Option | Router changes | Works behind carrier NAT | Notes |
 | --- | --- | --- | --- |
@@ -51,22 +52,17 @@ Pick one:
 
 ### Cloudflare Tunnel
 
-Follow [cloudflare-tunnel.md](cloudflare-tunnel.md), put the token in `deploy/.env` as `CLOUDFLARE_TUNNEL_TOKEN`, then re-run the installer. It keeps your settings and turns on the tunnel (it sets `COMPOSE_PROFILES=tunnel` in `deploy/.env`, so later `docker compose` commands include it):
-
-```bash
-./scripts/install.sh
-```
+Follow [cloudflare-tunnel.md](cloudflare-tunnel.md) to create the tunnel, then run `./scripts/install.sh`, choose **1** and paste the token. The installer turns on the tunnel (it sets `COMPOSE_PROFILES=tunnel` in `deploy/.env`, so later `docker compose` commands include it).
 
 ### Port forwarding + Caddy
 
 1. Point a DNS `A` record for `cloud.example.com` at your home IP (use dynamic DNS if it changes).
 2. Forward TCP 80 and 443 (and UDP 443) on your router to this machine.
-3. Set `DOMAIN=cloud.example.com` and `PUBLIC_URL=https://cloud.example.com` in `deploy/.env`.
-4. Re-run `./scripts/install.sh`. It keeps your settings and adds Caddy (`COMPOSE_PROFILES=caddy`). Caddy fetches the certificate automatically.
+3. Run `./scripts/install.sh`, choose **2** and enter `cloud.example.com`. It sets the address and adds Caddy (`COMPOSE_PROFILES=caddy`), which fetches the HTTPS certificate automatically.
 
 ### Tailscale only
 
-Install Tailscale on the server and each device, then run `sudo tailscale serve --bg 3080` on the server. Set `PUBLIC_URL` in `deploy/.env` to the `https://<machine>.<tailnet>.ts.net` address it prints, and restart with `cd deploy && docker compose up -d`.
+Install Tailscale on the server and each device, then run `./scripts/install.sh` and choose **3**: it suggests the server's `https://<machine>.<tailnet>.ts.net` address. Finish with `sudo tailscale serve --bg 3080` on the server, as the installer reminds you.
 
 ## 4. First sign-in
 
@@ -104,11 +100,24 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 ## Updating
 
 ```bash
-cd familycloud && git pull
-cd deploy && docker compose pull && docker compose up -d
+cd familycloud
+./scripts/update.sh
 ```
 
-If the installer built the image on this machine (it couldn't pull one), rebuild instead: `docker compose up -d --build`. Database changes are applied automatically on start. To stay on a specific release, set `IMAGE=ghcr.io/amoghkaja/self-hosted-cloud-storage:v0.1.0` in `deploy/.env`.
+It shows what's new since your version (from [CHANGELOG.md](../CHANGELOG.md)) and asks before it:
+
+1. backs up the database to `/srv/familycloud/backups/pre-update-*.dump` (the last 3 are kept),
+2. moves the code to the newest release and pulls its image (or builds it),
+3. restarts and waits until the app answers again, then prints the old and new version.
+
+The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start. **Admin → Overview** shows the version you run, at the bottom.
+
+- **Just check:** `./scripts/update.sh --check` says whether there's a new version, without changing anything.
+- **Automatic updates:** the installer offers a weekly job (Sundays 04:30). To add it later, run `crontab -e` and add `30 4 * * 0 /path/to/familycloud/scripts/update.sh -y >> /srv/familycloud/backups/update.log 2>&1`.
+- **Releases that need you.** A release that needs you to do something lists it under **Before you update** in the changelog, and raises the first number of the version, e.g. `v1.x` → `v2.0` ([how versions are numbered](releasing.md)). Automatic updates skip these, and the log says why: read the notes, then run `./scripts/update.sh` yourself.
+- **Follow the latest code instead of releases:** set `UPDATE_CHANNEL=main` in `deploy/.env`. Updates then build `main` on your machine.
+- **An update failed?** Your files aren't touched. `update.sh` prints how to go back: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).
+- **Changed files in the checkout?** Updating stops rather than overwrite them. Keep changes in a fork (see below), or run `git stash`.
 
 ## Running a modified version
 
@@ -120,6 +129,7 @@ Run these from the `deploy/` folder.
 
 | Task | Command |
 | --- | --- |
+| Update to the newest release | `../scripts/update.sh` |
 | See status | `docker compose ps` |
 | Follow logs | `docker compose logs -f app worker` |
 | Restart | `docker compose restart app worker` |

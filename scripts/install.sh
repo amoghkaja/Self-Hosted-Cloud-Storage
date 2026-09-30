@@ -6,7 +6,9 @@
 #   ./scripts/install.sh --install-docker  also install Docker Engine (Ubuntu/Debian, uses sudo)
 #
 # Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_TUNNEL_TOKEN=... ./scripts/install.sh -y
+#   (or DOMAIN=cloud.example.com for Caddy; AUTO_UPDATE=yes adds the weekly update job)
 # WAIT_SECS=600 gives a slow machine longer to start the first time (default 180).
+# A fresh clone installs the newest release; set UPDATE_CHANNEL=main to run the main branch.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -20,7 +22,7 @@ for arg in "$@"; do
   case "$arg" in
     -y|--yes) YES=true ;;
     --install-docker) INSTALL_DOCKER=true ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -35,9 +37,29 @@ ask() { # ask VAR "Question" "default"
   read -r -p "  $q${def:+ [$def]}: " ans || true
   printf -v "$var" '%s' "${ans:-$def}"
 }
+ask_secret() { # like ask, without showing what's typed or pasted
+  local var=$1 q=$2 ans
+  if [[ -n "${!var:-}" ]] || $YES; then return; fi
+  read -rs -p "  $q: " ans || true
+  echo
+  printf -v "$var" '%s' "$ans"
+}
 rand() { openssl rand -hex 32; }
 
 bold "Family Cloud installer"
+
+# A first install from a fresh clone of main moves to the newest release, then runs that
+# release's installer, so the scripts, compose file and image all match.
+if [[ ! -f "$ENV_FILE" && "${UPDATE_CHANNEL:-stable}" == stable && -z "${FC_RELEASE_CHECKED:-}" ]] \
+  && [[ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" == main ]] && git diff --quiet HEAD 2>/dev/null; then
+  git fetch --quiet --tags origin 2>/dev/null || true
+  RELEASE=$(latest_release)
+  if [[ -n "$RELEASE" ]]; then
+    info "Installing the newest release, $RELEASE."
+    git -c advice.detachedHead=false checkout --quiet "$RELEASE"
+    FC_RELEASE_CHECKED=1 exec "$ROOT/scripts/install.sh" "$@"
+  fi
+fi
 
 [[ "$(uname -s)" == "Linux" ]] || die "This installer supports Linux hosts."
 command -v openssl >/dev/null || die "openssl is required (sudo apt install openssl)."
@@ -57,7 +79,7 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is requi
 docker info >/dev/null 2>&1 || die "Can't talk to Docker. Is your user in the docker group? (sudo usermod -aG docker \$USER, then log in again)"
 
 # Keep existing values on re-runs (read safely: the file is never executed).
-MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES'
+MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL'
 EXTRA_SETTINGS=""
 if [[ -f "$ENV_FILE" ]]; then
   load_env "$ENV_FILE"
@@ -68,10 +90,51 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 bold "Settings"
+APP_PORT=${APP_PORT:-3080}
+# How family members reach it decides the address and the extra services. Asked until one of
+# the internet options is set up, so re-running the installer later is how you add one.
+if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" && -z "${DOMAIN:-}" ]] && ! $YES; then
+  echo "  How will your family reach it?"
+  echo "    1) Cloudflare Tunnel: from anywhere, no router changes (recommended; your domain on Cloudflare)"
+  echo "    2) My own domain, with ports 80 and 443 forwarded to this computer (automatic HTTPS)"
+  echo "    3) Tailscale: private; each phone and laptop needs the Tailscale app"
+  echo "    4) Only on this computer for now (choose later by running this installer again)"
+  read -r -p "  Choose 1-4 [1]: " ACCESS || true
+  # Offer the address from an earlier run as the default instead of skipping the question.
+  OLD_URL=${PUBLIC_URL:-}
+  unset PUBLIC_URL
+  case "${ACCESS:-1}" in
+    1)
+      info "Create the tunnel first: docs/cloudflare-tunnel.md (about 10 minutes). Its public"
+      info "hostname is the address below, and it gives you the token to paste here."
+      ask PUBLIC_URL "Address family members will use" "${OLD_URL:-https://cloud.example.com}"
+      ask_secret CLOUDFLARE_TUNNEL_TOKEN "Cloudflare Tunnel token, hidden as you paste (Enter to add later)"
+      ;;
+    2)
+      info "Point a DNS A record for the name at your home IP, and forward TCP 80 and 443"
+      info "(and UDP 443) on your router to this computer. HTTPS certificates are automatic."
+      ask DOMAIN "Address, without https:// (e.g. cloud.example.com)" ""
+      DOMAIN=${DOMAIN#https://}
+      DOMAIN=${DOMAIN%/}
+      [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "That doesn't look like a domain name (e.g. cloud.example.com)."
+      PUBLIC_URL="https://$DOMAIN"
+      ;;
+    3)
+      TS_NAME=""
+      if command -v tailscale >/dev/null; then
+        TS_NAME=$(tailscale status --json 2>/dev/null | grep -m1 -o '"DNSName": *"[^"]*' | sed 's/.*"//; s/\.$//' || true)
+      fi
+      ask PUBLIC_URL "Address (your machine's Tailscale name)" "${TS_NAME:+https://$TS_NAME}"
+      [[ -n "$PUBLIC_URL" ]] || die "Install Tailscale first (https://tailscale.com/download/linux), then re-run."
+      SHOW_TAILSCALE=true
+      ;;
+    4) PUBLIC_URL=${OLD_URL:-http://localhost:$APP_PORT} ;;
+    *) die "Choose 1, 2, 3 or 4." ;;
+  esac
+fi
 ask PUBLIC_URL "Address family members will use" "https://cloud.example.com"
 ask APP_NAME "Name shown in the app" "Family Cloud"
 ask STORAGE_ROOT "Where to keep files and the database" "/srv/familycloud"
-ask CLOUDFLARE_TUNNEL_TOKEN "Cloudflare Tunnel token (leave empty to add later)" ""
 PUBLIC_URL=${PUBLIC_URL%/}
 # No path: the app serves from the site root and refuses to start with one.
 [[ "$PUBLIC_URL" =~ ^https?://[^/[:space:]]+$ ]] || die "PUBLIC_URL must look like https://cloud.example.com, without a path (http:// only for LAN testing)."
@@ -82,6 +145,17 @@ STORAGE_ROOT=${STORAGE_ROOT%/}
 
 SECRET_KEY=${SECRET_KEY:-$(rand)}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(rand)}
+CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+UPDATE_CHANNEL=${UPDATE_CHANNEL:-stable}
+[[ "$UPDATE_CHANNEL" == stable || "$UPDATE_CHANNEL" == main ]] || die "UPDATE_CHANNEL must be stable or main."
+# The image matching this checkout: the release's own image on a release, else a local build.
+if [[ -z "${IMAGE:-}" ]]; then
+  if TAG=$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null); then
+    IMAGE="$RELEASE_IMAGE_REPO:$TAG"
+  else
+    IMAGE=$LOCAL_IMAGE
+  fi
+fi
 PUID=${PUID:-$(id -u)}
 PGID=${PGID:-$(id -g)}
 # Optional services follow the settings; docker compose reads COMPOSE_PROFILES from deploy/.env,
@@ -120,8 +194,9 @@ chmod 600 "$TMP_ENV"
   env_line PGID "$PGID"
   env_line CLOUDFLARE_TUNNEL_TOKEN "$CLOUDFLARE_TUNNEL_TOKEN"
   env_line DOMAIN "${DOMAIN:-}"
-  env_line APP_PORT "${APP_PORT:-3080}"
-  env_line IMAGE "${IMAGE:-ghcr.io/amoghkaja/self-hosted-cloud-storage:latest}"
+  env_line APP_PORT "$APP_PORT"
+  env_line IMAGE "$IMAGE"
+  env_line UPDATE_CHANNEL "$UPDATE_CHANNEL"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
   env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
   if [[ -n "$EXTRA_SETTINGS" ]]; then printf '%s\n' "$EXTRA_SETTINGS"; fi
@@ -133,26 +208,27 @@ info "Wrote deploy/.env (secrets generated, permissions 600)."
 
 cd "$ROOT/deploy"
 
-bold "Starting Family Cloud"
-if ! docker compose pull --quiet app 2>/dev/null; then
-  info "No published image available; building locally (takes a few minutes)…"
+bold "Starting Family Cloud $(checkout_version)"
+export APP_VERSION
+APP_VERSION=$(checkout_version)
+if [[ "$IMAGE" == "$LOCAL_IMAGE" ]] || ! docker compose pull --quiet app 2>/dev/null; then
+  info "Building the image on this machine (takes a few minutes, longer on a Raspberry Pi)…"
   docker compose build app
 fi
-docker compose up -d
+docker compose up -d --remove-orphans
+wait_healthy || die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
 
-printf '  Waiting for the app to start'
-READY=false
-WAIT_SECS=${WAIT_SECS:-180}   # first start on slow hardware (e.g. a Pi) may need longer
-for _ in $(seq 1 $((WAIT_SECS / 2))); do
-  if curl -fsS "http://127.0.0.1:${APP_PORT:-3080}/healthz" >/dev/null 2>&1; then READY=true; echo " ready."; break; fi
-  printf '.'; sleep 2
-done
-if ! $READY; then
-  echo
-  printf '\033[31mThe app did not become healthy within %ss.\033[0m Recent logs:\n' "$WAIT_SECS" >&2
-  docker compose ps >&2 || true
-  docker compose logs --tail 40 app worker db >&2 || true
-  die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
+# Weekly automatic updates: update.sh backs up the database first and follows releases only.
+UPDATE_JOB="$ROOT/scripts/update.sh -y >> $STORAGE_ROOT/backups/update.log 2>&1"
+if command -v crontab >/dev/null && ! crontab -l 2>/dev/null | grep -qF "$ROOT/scripts/update.sh"; then
+  if $YES; then AUTO_UPDATE=${AUTO_UPDATE:-no}; fi
+  # Suggested only for releases: the main branch can change daily.
+  [[ "$IMAGE" == "$RELEASE_IMAGE_REPO":* ]] && AUTO_DEFAULT=yes || AUTO_DEFAULT=no
+  ask AUTO_UPDATE "Install new releases automatically, Sundays at 04:30? (yes/no)" "$AUTO_DEFAULT"
+  if [[ "$AUTO_UPDATE" =~ ^[Yy] ]]; then
+    { crontab -l 2>/dev/null || true; echo "30 4 * * 0 $UPDATE_JOB"; } | crontab -
+    info "Automatic updates on (crontab -e to change). Log: $STORAGE_ROOT/backups/update.log"
+  fi
 fi
 
 if ! TOKEN=$(docker compose exec -T app node dist/cli.js setup-token 2>&1 | tail -1); then
@@ -168,5 +244,13 @@ if [[ "$TOKEN" != Setup* && -n "$TOKEN" ]]; then
 else
   info "Open $PUBLIC_URL and sign in."
 fi
-[[ -z "$CLOUDFLARE_TUNNEL_TOKEN" ]] && info "No tunnel token yet: the app is only on http://127.0.0.1:${APP_PORT:-3080}. See docs/cloudflare-tunnel.md."
-info "Next: set up backups (docs/backup-restore.md)."
+LOCAL_URL="http://127.0.0.1:$APP_PORT"
+if [[ -n "${SHOW_TAILSCALE:-}" ]]; then
+  info "Put it on your tailnet (once): sudo tailscale serve --bg $APP_PORT"
+elif [[ "$COMPOSE_PROFILES" != *tunnel* && "$COMPOSE_PROFILES" != *caddy* && "$PUBLIC_URL" != "$LOCAL_URL" ]]; then
+  info "It's only reachable on this computer ($LOCAL_URL) until a tunnel or domain is set up:"
+  info "re-run ./scripts/install.sh and choose how your family reaches it."
+fi
+echo
+info "Next: set up backups before the family relies on it (docs/backup-restore.md)."
+info "Update later with ./scripts/update.sh (what's new: CHANGELOG.md)."

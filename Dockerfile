@@ -44,6 +44,11 @@ ENV NODE_ENV=production \
     WEB_DIST_DIR=/app/web \
     MIGRATIONS_DIR=/app/dist/migrations
 
+# Shown to admins and by scripts/update.sh. After the system packages, so each new version
+# still reuses that cached layer.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
 WORKDIR /app
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json

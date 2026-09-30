@@ -29,6 +29,8 @@ const Env = z.object({
     .string()
     .min(32, 'SECRET_KEY must be at least 32 characters (use: openssl rand -hex 32)'),
   APP_NAME: z.string().min(1).max(60).default('Family Cloud'),
+  /** The release this build came from; the Docker image sets it at build time. */
+  APP_VERSION: z.string().min(1).max(64).default('dev'),
   /**
    * Where this server's source code is published, linked from the app. The AGPL requires
    * offering the source of a modified version to its users: point this at your fork.
@@ -103,6 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     cacheDir: path.join(dataDir, 'cache'),
     secretKey: e.SECRET_KEY,
     appName: e.APP_NAME,
+    version: e.APP_VERSION,
     sourceUrl: e.SOURCE_URL,
     passkeyRpId: e.PASSKEY_RP_ID ?? publicUrl.hostname,
     trustedProxies: e.TRUSTED_PROXIES.split(',')

@@ -18,6 +18,7 @@ Node 24+ is required. If `node -v` is older, put nvm's Node 24 first on PATH:
 - `pnpm dev:db` then `pnpm dev`: local Postgres, then the API on :3000 and Vite on :5173.
 - `pnpm e2e`: Playwright against a running dev or prod build.
 - `pnpm --filter @familycloud/server db:generate`: new migration after editing `db/schema.ts`.
+- `./scripts/update.sh [--check]`: update an install. `./scripts/release.sh X.Y.Z`: cut a release (never push without asking).
 
 ## Conventions
 
@@ -34,6 +35,11 @@ Node 24+ is required. If `node -v` is older, put nvm's Node 24 first on PATH:
 - **Tests:**
   - Server tests use `test/helpers.ts` (`createTestEnv`, `Client`, `setupAdmin`, `addMember`, `uploadFile`).
   - A security fix gets a regression test that fails on the old code.
+- **Changelog and versions** (full rules: `docs/releasing.md`):
+  - A change a family would notice adds a line under `## Unreleased` in `CHANGELOG.md`, in the same commit, written for the person running the server.
+  - Anything an admin must do by hand when updating goes under `### Before you update`.
+  - Versions are `vMAJOR.MINOR.PATCH`; releases are cut only with `scripts/release.sh`.
+  - Migrations are forward-only and must upgrade from any earlier release. Never edit a shipped migration.
 - **Shell scripts:** `set -euo pipefail`. Read `.env` files with `load_env` from `scripts/lib.sh`, never `source`.
 - **Style:** match the surrounding code: Biome formatting, sparse comments that say why, no dead code.
 

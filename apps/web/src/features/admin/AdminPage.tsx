@@ -202,6 +202,7 @@ function Overview() {
                 Manage disks and limits
               </Button>
             </Card>
+            <p className="text-center text-xs text-muted">Family Cloud {d.version}</p>
             {allocating && <AllocateDialog d={d} onClose={() => setAllocating(false)} />}
           </div>
         );

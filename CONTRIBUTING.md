@@ -24,9 +24,9 @@ For UI changes, also run the end-to-end smoke test against your dev instance (`p
 - **Security-sensitive changes** (auth, sharing, file serving, WebDAV) should say in the PR description what threat they touch; see [docs/security.md](docs/security.md).
 - **Formatting and lint:** Biome (`pnpm format`). Keep comments for the *why*.
 
-## Releases
+## Changelog and releases
 
-Maintainers tag `vX.Y.Z`; the release workflow publishes multi-arch images to GHCR.
+If people running Family Cloud would notice your change, add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md), written for them rather than for developers. Maintainers cut releases with `scripts/release.sh`; the release workflow then publishes multi-arch images to GHCR and the GitHub release. Version numbering, naming and the upgrade rules are in [docs/releasing.md](docs/releasing.md).
 
 ## Licensing of contributions
 

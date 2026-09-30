@@ -37,6 +37,8 @@ describe('storage figures', () => {
     expect(v.usable).toEqual({ totalBytes: 10_000, freeBytes: 6_000 });
     expect(o.totals.usableFreeBytes).toBe(6_000);
     expect(o.totals.familyCapacityBytes).toBe(10_000);
+    // Admins can see which release they run (set by the Docker image; "dev" from source).
+    expect(o.version).toBe('dev');
 
     const mine = (await admin.get('/auth/storage')).body;
     expect(mine).toEqual({

@@ -132,6 +132,8 @@ export const AdminOverview = z.object({
     unlimitedUsers: z.number().int(),
   }),
   warnings: z.array(z.string()),
+  /** The Family Cloud release this server runs, e.g. v0.2.0 ("dev" when built from source). */
+  version: z.string(),
 });
 export type AdminOverview = z.infer<typeof AdminOverview>;
 

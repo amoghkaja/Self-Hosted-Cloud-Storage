@@ -21,6 +21,9 @@ x-app: &app
   build:
     context: ..
     dockerfile: Dockerfile
+    args:
+      # scripts/install.sh and update.sh set this from `git describe` when building locally.
+      APP_VERSION: ${APP_VERSION:-dev}
   restart: unless-stopped
   env_file: .env
   environment:
