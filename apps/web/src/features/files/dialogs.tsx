@@ -253,7 +253,7 @@ export function MoveDialog({
                   <button
                     type="button"
                     onClick={() => setFolderId(b.id)}
-                    className="rounded px-1 text-accent hover:underline"
+                    className="rounded-md px-1 text-accent hover:underline"
                   >
                     {b.name}
                   </button>

@@ -292,7 +292,7 @@ describe('asking for photos for a trip album', () => {
     const sent = await send(guest, tokenOf(link.body.url), 'beach.jpg', bytes(64, 9), 'Meera');
     expect(sent.last!.body.done).toBe(true);
     const photos = await owner.get(`/albums/${album.body.id}/photos`);
-    expect(photos.body.items.map((p: { name: string }) => p.name)).toEqual(['Meera – beach.jpg']);
+    expect(photos.body.items.map((p: { name: string }) => p.name)).toEqual(['Meera - beach.jpg']);
   });
 });
 

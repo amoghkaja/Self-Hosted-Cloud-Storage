@@ -264,7 +264,7 @@ export function AlbumPage() {
                   </span>
                 ))}
                 <span>
-                  · {a.photoCount} {a.photoCount === 1 ? 'photo' : 'photos'}
+                  {a.photoCount} {a.photoCount === 1 ? 'photo' : 'photos'}
                 </span>
               </div>
               <p className="mt-3 flex items-center gap-1.5 text-sm text-muted">

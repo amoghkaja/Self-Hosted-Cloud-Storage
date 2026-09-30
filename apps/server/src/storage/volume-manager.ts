@@ -124,7 +124,7 @@ export class VolumeManager {
       const code = (err as NodeJS.ErrnoException).code;
       const error =
         code === 'ENOENT'
-          ? 'Volume marker missing — is the disk mounted?'
+          ? 'Volume marker missing. Is the disk mounted?'
           : `Volume unavailable (${code ?? 'error'})`;
       return { online: false, disk: null, dev: null, error };
     }

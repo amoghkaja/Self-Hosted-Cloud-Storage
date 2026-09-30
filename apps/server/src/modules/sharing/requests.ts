@@ -93,7 +93,7 @@ export const requestRoutes: FastifyPluginAsyncZod = async (app) => {
           .where(eq(albumFolders.folderId, r.root.id));
         if (album) {
           // An album shows what's directly in its folders: name the photo after its sender.
-          const prefixed = `${from} – ${name}`;
+          const prefixed = `${from} - ${name}`;
           if (!nameProblem(prefixed)) name = prefixed;
         } else {
           senderFolder = true;

@@ -101,7 +101,6 @@ export function PhotosPage() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium tracking-[0.22em] text-accent uppercase">Trip albums</p>
           <h1 className="font-display text-4xl leading-tight sm:text-5xl">Family Photos</h1>
           <p className="mt-2 flex items-start gap-1.5 text-sm text-muted">
             <Users size={16} aria-hidden className="mt-0.5 shrink-0 text-accent" />

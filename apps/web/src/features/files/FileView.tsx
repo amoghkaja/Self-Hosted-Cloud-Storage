@@ -95,7 +95,7 @@ function SortHeader({
         <button
           type="button"
           onClick={() => sort.onChange(k, nextDir)}
-          className="inline-flex items-center gap-1 rounded px-1 text-xs font-medium text-muted hover:text-text"
+          className="inline-flex items-center gap-1 rounded-md px-1 text-xs font-medium text-muted hover:text-text"
         >
           {label}
           {active &&
@@ -311,7 +311,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
             role="gridcell"
             className="hidden text-right text-sm text-muted tabular-nums sm:block"
           >
-            {item.type === 'file' ? formatBytes(item.size) : '—'}
+            {item.type === 'file' ? formatBytes(item.size) : ''}
           </div>
           <div role="gridcell">{kebab}</div>
         </div>,

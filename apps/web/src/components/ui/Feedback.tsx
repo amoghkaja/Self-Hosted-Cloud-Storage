@@ -128,7 +128,17 @@ export function Badge({
   );
 }
 
-const AVATAR_COLORS = ['#2458d6', '#17803d', '#a65b00', '#8b3fc4', '#c42b64', '#0f7a8a', '#6b5b2e'];
+// Muted to sit with the palette; each keeps white initials above 4.5:1.
+const AVATAR_COLORS = [
+  '#46688f',
+  '#2f6b4f',
+  '#8a5a1c',
+  '#6a4f86',
+  '#9a3f52',
+  '#2f6f6a',
+  '#6b5b2e',
+  '#a04a26',
+];
 
 export function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   const initials = name

@@ -159,14 +159,14 @@ const FULL = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 });
 
-/** "12 – 18 Aug 2026", "30 Dec 2025 – 2 Jan 2026" or "24 Dec 2025". */
+/** "12 - 18 Aug 2026", "30 Dec 2025 - 2 Jan 2026" or "24 Dec 2025". */
 export function tripDates(startDate: string, endDate: string | null) {
   const s = new Date(`${startDate}T12:00:00`);
   if (!endDate || endDate === startDate) return FULL.format(s);
   const e = new Date(`${endDate}T12:00:00`);
-  if (s.getFullYear() !== e.getFullYear()) return `${FULL.format(s)} – ${FULL.format(e)}`;
+  if (s.getFullYear() !== e.getFullYear()) return `${FULL.format(s)} - ${FULL.format(e)}`;
   if (s.getMonth() === e.getMonth()) {
-    return `${s.getDate()} – ${e.getDate()} ${MONTH.format(e)} ${e.getFullYear()}`;
+    return `${s.getDate()} - ${e.getDate()} ${MONTH.format(e)} ${e.getFullYear()}`;
   }
-  return `${DAY_MONTH.format(s)} – ${FULL.format(e)}`;
+  return `${DAY_MONTH.format(s)} - ${FULL.format(e)}`;
 }

@@ -2,7 +2,12 @@
 
 /*
  * Design tokens. Components only use these semantic names (bg-surface, text-muted, …), so
- * theming or re-branding is a matter of changing the values below.
+ * theming or re-branding is a matter of changing the values below. Never use Tailwind's `dark:`
+ * variant: it follows the OS only, not the theme chosen in Settings.
+ *
+ * Corners nest: rounded-2xl for page-level cards, dialogs and sheets; rounded-xl for panels and
+ * rows inside them; rounded-lg for buttons and fields; rounded-md for small inline controls and
+ * thumbnails; rounded-full for pills, avatars and badges.
  */
 :root {
   --bg: #f6f1e7;
@@ -25,11 +30,16 @@
   --brass: #b08d57;
   --danger: #b3261e;
   --danger-soft: #f9e5e1;
+  --danger-fg: #fffdf8;
   --success: #15793a;
   --success-soft: #e3f1e4;
   --warning: #8a5300;
   --warning-soft: #f8ebd2;
   --focus: #9a7b45;
+  /* File-type icon tints, kept in the palette's earthy range. */
+  --kind-image: #b04a24;
+  --kind-video: #4a6788;
+  --kind-audio: #2f6f6a;
   --overlay: rgb(25 28 26 / 0.45);
   --shadow: 0 1px 2px rgb(25 28 26 / 0.06), 0 8px 24px rgb(25 28 26 / 0.08);
   --glass: rgb(255 253 248 / 0.72);
@@ -60,11 +70,15 @@
     --brass: #c9aa74;
     --danger: #ff8a7a;
     --danger-soft: #3a1d19;
+    --danger-fg: #111814;
     --success: #6fd394;
     --success-soft: #15301f;
     --warning: #f0bd5e;
     --warning-soft: #33280f;
     --focus: #c9aa74;
+    --kind-image: #e0936b;
+    --kind-video: #93b0cf;
+    --kind-audio: #7fbcb4;
     --overlay: rgb(0 0 0 / 0.6);
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
     --glass: rgb(24 34 28 / 0.68);
@@ -95,11 +109,15 @@
   --brass: #c9aa74;
   --danger: #ff8a7a;
   --danger-soft: #3a1d19;
+  --danger-fg: #111814;
   --success: #6fd394;
   --success-soft: #15301f;
   --warning: #f0bd5e;
   --warning-soft: #33280f;
   --focus: #c9aa74;
+  --kind-image: #e0936b;
+  --kind-video: #93b0cf;
+  --kind-audio: #7fbcb4;
   --overlay: rgb(0 0 0 / 0.6);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.4);
   --glass: rgb(24 34 28 / 0.68);
@@ -129,6 +147,10 @@
   --color-brass: var(--brass);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-danger-fg: var(--danger-fg);
+  --color-kind-image: var(--kind-image);
+  --color-kind-video: var(--kind-video);
+  --color-kind-audio: var(--kind-audio);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);

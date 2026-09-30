@@ -5,7 +5,7 @@ const UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
  * formatBytes(1536) === '1.5 KB'
  */
 export function formatBytes(bytes: number, decimals = 1): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (!Number.isFinite(bytes) || bytes < 0) return '';
   if (bytes < 1024) return `${bytes} B`;
   let value = bytes;
   let unit = 0;

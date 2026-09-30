@@ -523,8 +523,9 @@ function People() {
                       {u.disabled && <Badge tone="danger">Disabled</Badge>}
                       {u.totpEnabled && <Badge tone="success">2FA</Badge>}
                     </p>
+                    <p className="truncate text-xs text-muted">{u.email}</p>
                     <p className="truncate text-xs text-muted">
-                      {u.email} · {formatBytes(u.usedBytes)} of {formatQuota(u.quotaBytes)}
+                      {formatBytes(u.usedBytes)} of {formatQuota(u.quotaBytes)}
                       {u.lastSeenAt ? ` · active ${formatRelative(u.lastSeenAt)}` : ''}
                     </p>
                     <div className="mt-1.5 max-w-xs">
@@ -626,7 +627,7 @@ function People() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{i.email ?? 'Anyone with the link'}</p>
                     <p className="text-xs text-muted">
-                      {i.role} · {formatQuota(i.quotaBytes)} · expires {formatDate(i.expiresAt)}
+                      {i.role}, {formatQuota(i.quotaBytes)} · expires {formatDate(i.expiresAt)}
                     </p>
                   </div>
                   <Button

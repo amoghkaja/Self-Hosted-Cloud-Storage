@@ -31,9 +31,9 @@ const ICONS: Record<FileKind, typeof File> = {
 
 const TINTS: Partial<Record<FileKind, string>> = {
   folder: 'text-accent',
-  image: 'text-[#c2410c] dark:text-[#fb923c]',
-  video: 'text-[#8b3fc4] dark:text-[#c084fc]',
-  audio: 'text-[#0f7a8a] dark:text-[#22d3ee]',
+  image: 'text-kind-image',
+  video: 'text-kind-video',
+  audio: 'text-kind-audio',
   pdf: 'text-danger',
   spreadsheet: 'text-success',
   presentation: 'text-warning',

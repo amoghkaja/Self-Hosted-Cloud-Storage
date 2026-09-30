@@ -277,7 +277,7 @@ function SheetViewer({ url, fallback }: { url: string; fallback: ReactNode }) {
         // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region, reachable by keyboard
         tabIndex={0}
         aria-label={sheet?.name ?? 'Sheet'}
-        className="min-h-0 flex-1 overscroll-contain overflow-auto [&_table]:border-collapse [&_td]:whitespace-nowrap [&_td]:border [&_td]:border-[#dfe3e8] [&_td]:px-1.5 [&_td]:py-0.5 [&_a]:text-[#0b57d0] [&_a]:underline"
+        className="min-h-0 flex-1 overscroll-contain overflow-auto [&_table]:border-collapse [&_td]:whitespace-nowrap [&_td]:border [&_td]:border-[#dfe3e8] [&_td]:px-1.5 [&_td]:py-0.5 [&_a]:text-[#7a5a28] [&_a]:underline"
       />
       {sheet && sheet.truncatedRows > 0 && (
         <p className="border-t border-[#dfe3e8] bg-[#fff8e1] px-3 py-1.5 text-xs">
@@ -300,7 +300,7 @@ function SheetViewer({ url, fallback }: { url: string; fallback: ReactNode }) {
               onClick={() => setActive(i)}
               className={`shrink-0 rounded-md px-3 py-1.5 text-sm pointer-coarse:min-h-11 ${
                 i === active
-                  ? 'bg-white font-medium text-[#0b57d0] shadow-sm'
+                  ? 'bg-white font-medium text-[#7a5a28] shadow-sm'
                   : 'text-[#374151] hover:bg-white/60'
               }`}
             >

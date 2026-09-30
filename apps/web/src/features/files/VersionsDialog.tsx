@@ -71,7 +71,7 @@ export function VersionsDialog({ node, onClose }: { node: FileNode; onClose: () 
                       <p className="text-sm font-medium">{when}</p>
                       <p className="text-xs text-muted">
                         {formatBytes(v.size)}
-                        {v.modifiedBy ? ` · saved by ${v.modifiedBy.displayName}` : ''} · replaced{' '}
+                        {v.modifiedBy ? ` · saved by ${v.modifiedBy.displayName},` : ' ·'} replaced{' '}
                         {formatRelative(v.replacedAt)}
                       </p>
                     </div>

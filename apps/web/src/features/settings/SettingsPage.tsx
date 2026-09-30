@@ -265,7 +265,7 @@ function RecoveryCodesStatus() {
       <p className="text-sm">
         <span className="font-medium">Recovery codes: </span>
         {left === undefined ? '…' : left === 1 ? '1 left' : `${left} left`}
-        {left !== undefined && left <= 3 && ' — get new ones before you run out.'}
+        {left !== undefined && left <= 3 && '. Get new ones before you run out.'}
       </p>
       {asking ? (
         <form onSubmit={renew} className="flex flex-col gap-3">
@@ -774,7 +774,7 @@ function PasskeysSection() {
                   <p className="text-xs text-muted">
                     {p.backedUp ? 'Synced across your devices' : 'This device only'} · added{' '}
                     {formatRelative(p.createdAt)}
-                    {p.lastUsedAt && ` · last used ${formatRelative(p.lastUsedAt)}`}
+                    {p.lastUsedAt && `, last used ${formatRelative(p.lastUsedAt)}`}
                   </p>
                 </div>
                 <IconButton
