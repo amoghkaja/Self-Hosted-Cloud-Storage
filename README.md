@@ -95,7 +95,7 @@ apps/web/           React app
                     public links
 packages/shared/    API contract (Zod schemas + types) shared by server and web
 deploy/             docker-compose.yml, Caddyfile, .env.example
-scripts/            install.sh, add-disk.sh, backup.sh
+scripts/            install.sh, add-disk.sh, backup.sh, backup-setup.sh
 docs/               guides and design documents
 e2e/                Playwright end-to-end tests
 ```

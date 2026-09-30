@@ -46,6 +46,21 @@ All of these are optional and free:
 - **Security → WAF → Rate limiting rules**: e.g. requests to `/api/v1/auth/` limited to 20 per minute per IP. The app enforces its own limits too.
 - **Zero Trust → Access → Applications**: protect `cloud.example.com/admin*` with a policy listing the admins' emails, for an extra sign-in in front of the admin pages.
 
+## If the tunnel token leaks
+
+Anyone with the token can run a connector for your tunnel and receive some of your visitors' traffic. If it was pasted somewhere public or shared by mistake:
+
+1. Cloudflare dashboard → **Networking** → **Tunnels** → your tunnel → **Overview** → **Refresh token**. Copy the new token. The old one can no longer open new connections, but connectors already running with it stay connected.
+2. Disconnect every connector, including any stranger's. This needs an API token with the **Cloudflare Tunnel: Edit** permission (My Profile → API Tokens); the account ID and tunnel ID are shown on the tunnel's page:
+
+   ```bash
+   curl "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/connections" \
+     --request DELETE --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+   ```
+
+3. Put the new token in `CLOUDFLARE_TUNNEL_TOKEN` in `deploy/.env`, then `cd deploy && docker compose up -d cloudflared`. The site is unreachable from outside between steps 2 and 3.
+4. Check the tunnel shows **Healthy** and that its only connector is yours.
+
 ## Limits to know
 
 - **100 MB per request** on the free plan. The web app uploads in 32 MB pieces, so web uploads of any size work. Clients that upload a file in one request (the WebDAV network drive) can't upload single files over 100 MB through the tunnel; use the web app for those, or connect on your home network.

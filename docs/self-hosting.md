@@ -90,7 +90,7 @@ Each person's **My Files** is private. **Family Photos** is for trips: an album 
 
 ## 6. Set up backups
 
-Do this before your family relies on it. A single disk will fail eventually. Follow [backup-restore.md](backup-restore.md): at minimum, run `scripts/backup.sh` nightly with an offsite restic repository.
+Do this before your family relies on it. A single disk will fail eventually. Follow [backup-restore.md](backup-restore.md): at minimum, run `scripts/backup.sh` nightly with an offsite restic repository. `./scripts/backup-setup.sh` sets both up.
 
 ## 7. Optional extras
 
