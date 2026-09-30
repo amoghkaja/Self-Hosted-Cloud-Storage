@@ -16,6 +16,16 @@ The script:
 1. dumps the database consistently (`pg_dump`) to `/srv/familycloud/backups/`, keeping the last 14;
 2. if a [restic](https://restic.net) repository is configured, uploads an encrypted, deduplicated snapshot of the file volumes plus those dumps. After the first run only changes are sent. It keeps 7 daily, 5 weekly and 12 monthly snapshots.
 
+### Set it up with `scripts/backup-setup.sh`
+
+```bash
+./scripts/backup-setup.sh
+```
+
+It asks where backups should go, writes `deploy/backup.env` (mode 600) with a freshly generated restic password, and shows that password once so you can save it in your password manager. Provider keys are typed hidden, so they don't end up on screen or in your shell history. Then it offers to run the first backup and to schedule one every night at 02:15 with cron. Running it again keeps an existing `deploy/backup.env`.
+
+Install restic first (`sudo apt install restic`). To set things up by hand instead, read on.
+
 ### Choose where backups go
 
 At least one copy should be **off this machine**, ideally off-site (fire, theft, a power surge that kills every disk at once).

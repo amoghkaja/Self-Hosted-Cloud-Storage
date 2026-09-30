@@ -219,7 +219,7 @@ docker compose up -d --remove-orphans
 wait_healthy || die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
 
 # Weekly automatic updates: update.sh backs up the database first and follows releases only.
-UPDATE_JOB="$ROOT/scripts/update.sh -y >> $STORAGE_ROOT/backups/update.log 2>&1"
+UPDATE_JOB="$(printf '%q' "$ROOT/scripts/update.sh") -y >> $(printf '%q' "$STORAGE_ROOT/backups/update.log") 2>&1"
 if command -v crontab >/dev/null && ! crontab -l 2>/dev/null | grep -qF "$ROOT/scripts/update.sh"; then
   if $YES; then AUTO_UPDATE=${AUTO_UPDATE:-no}; fi
   # Suggested only for releases: the main branch can change daily.
@@ -251,6 +251,16 @@ elif [[ "$COMPOSE_PROFILES" != *tunnel* && "$COMPOSE_PROFILES" != *caddy* && "$P
   info "It's only reachable on this computer ($LOCAL_URL) until a tunnel or domain is set up:"
   info "re-run ./scripts/install.sh and choose how your family reaches it."
 fi
-echo
-info "Next: set up backups before the family relies on it (docs/backup-restore.md)."
 info "Update later with ./scripts/update.sh (what's new: CHANGELOG.md)."
+
+# Backups last: the setup token above is what's needed first, and backup setup is its own guide.
+if ! crontab -l 2>/dev/null | grep -qF "$ROOT/scripts/backup.sh"; then
+  echo
+  bold "Backups"
+  info "One disk will fail eventually. Set up nightly backups before the family relies on it."
+  if ! $YES && [[ -t 0 ]]; then
+    read -r -p "  Set them up now? [Y/n] " ans || true
+    if [[ ! "${ans:-y}" =~ ^[Nn] ]]; then exec "$ROOT/scripts/backup-setup.sh"; fi
+  fi
+  info "Whenever you're ready: ./scripts/backup-setup.sh (docs/backup-restore.md)."
+fi

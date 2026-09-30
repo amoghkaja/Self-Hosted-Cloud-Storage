@@ -63,12 +63,15 @@ set_env() {
     $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" { if (!done) print line; done = 1; next }
     { print }
     END { if (!done) print line }
-  ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; return 1; }
+  ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$file"
 }
 
 # Where official release images are published (tags v0.1.0, v0.1, latest, edge).
+# shellcheck disable=SC2034  # these two are used by the scripts that load this file
 RELEASE_IMAGE_REPO=ghcr.io/amoghkaja/self-hosted-cloud-storage
 # Image name for builds from the main branch; never pulled from a registry.
+# shellcheck disable=SC2034
 LOCAL_IMAGE=familycloud:local
 
 # The newest release tag (vX.Y.Z; pre-releases such as v1.0.0-rc.1 are skipped), or nothing.

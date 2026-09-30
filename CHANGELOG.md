@@ -34,3 +34,6 @@ The first release.
   (Cloudflare Tunnel, your own domain, Tailscale or later), and can turn on weekly automatic
   updates. `./scripts/update.sh` backs up the database, updates, restarts and checks the result.
   Admin → Overview shows the version you run.
+- **Backups:** `./scripts/backup-setup.sh` (offered at the end of installing) sets up nightly
+  encrypted backups to another disk, another computer, Backblaze B2 or S3, and the Cloudflare
+  guide explains what to do if a tunnel token leaks.

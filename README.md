@@ -49,7 +49,7 @@ It installs the newest release and asks a few questions: how your family will re
 
 **3. Invite your family** from **Admin → People**. In **Admin → Settings**, add your logo under Branding, and (if your family shares an email domain) list it under "Only allow these email domains".
 
-**4. Set up backups** before the family relies on it: see [backups](docs/backup-restore.md).
+**4. Set up backups** before the family relies on it. The installer offers to run `./scripts/backup-setup.sh`: it asks where backups go (another disk, another computer, Backblaze B2 or S3) and schedules them nightly. See [backups](docs/backup-restore.md).
 
 The [self-hosting guide](docs/self-hosting.md) walks through each step, including putting it on your own domain.
 
@@ -110,7 +110,7 @@ apps/web/           React app
                     public links
 packages/shared/    API contract (Zod schemas + types) shared by server and web
 deploy/             docker-compose.yml, Caddyfile, .env.example
-scripts/            install.sh, update.sh, add-disk.sh, backup.sh, release.sh
+scripts/            install.sh, update.sh, backup-setup.sh, backup.sh, add-disk.sh, release.sh
 docs/               guides and design documents
 e2e/                Playwright end-to-end tests
 ```
