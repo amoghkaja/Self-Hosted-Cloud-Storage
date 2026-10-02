@@ -7,6 +7,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
+  // In CI, stop the whole run before the workflow step's own limit so the server log still prints.
+  globalTimeout: process.env.CI ? 6 * 60_000 : undefined,
   fullyParallel: false,
   workers: 1,
   reporter: [['list']],

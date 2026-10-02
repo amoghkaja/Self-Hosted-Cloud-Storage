@@ -1,4 +1,5 @@
 import type {
+  About,
   AdminInvite,
   AdminOverview,
   AdminUser,
@@ -55,6 +56,7 @@ export const qk = {
   // Under 'me' so everything that refreshes the account refreshes the space left too.
   storage: ['me', 'storage'] as const,
   setup: ['setup-status'] as const,
+  about: ['about'] as const,
   nodes: ['node'] as const,
   node: (id: string) => ['node', id] as const,
   children: (id: string) => ['children', id] as const,
@@ -161,6 +163,14 @@ export function useSetupStatus() {
   return useQuery({
     queryKey: qk.setup,
     queryFn: () => api<SetupStatus>('/auth/setup-status'),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useAbout() {
+  return useQuery({
+    queryKey: qk.about,
+    queryFn: () => api<About>('/about'),
     staleTime: 5 * 60_000,
   });
 }

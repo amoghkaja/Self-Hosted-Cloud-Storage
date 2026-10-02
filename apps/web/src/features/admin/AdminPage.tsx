@@ -18,7 +18,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { errorMessage } from '../../api/client';
 import {
   useAdminInvites,
@@ -202,7 +202,12 @@ function Overview() {
                 Manage disks and limits
               </Button>
             </Card>
-            <p className="text-center text-xs text-muted">Family Cloud {d.version}</p>
+            <p className="text-center text-xs text-muted">
+              Family Cloud {d.version} ·{' '}
+              <Link to="/whats-new" className="underline underline-offset-2 hover:text-text">
+                What's new
+              </Link>
+            </p>
             {allocating && <AllocateDialog d={d} onClose={() => setAllocating(false)} />}
           </div>
         );

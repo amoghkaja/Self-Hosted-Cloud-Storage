@@ -23,8 +23,10 @@ The first release.
 - **Version history:** saving over a file keeps what it held for 30 days.
 - **Accounts:** invite links, allowed email domains, passkeys (Face ID / Touch ID), two-factor
   codes with recovery codes, password reset links, disabling and deleting accounts.
-- **Network drive** (WebDAV) for the iPhone Files app, Finder and Windows, with a password per
-  device.
+- **Network drive** (WebDAV) for Finder and Windows Explorer, with a password per device and a
+  one-paste setup command on Windows. iPhones and iPads need a helper app to show it in Files.
+- **What's new:** everyone sees the running version under Settings → About, with a What's new
+  page listing what changed in each release.
 - **Storage:** per-person allowances, a family limit, adding and retiring disks without a
   restart, and an admin overview of where the space goes.
 - **Your family's look:** logo, wordmark and home link; light and dark themes; installs to a

@@ -46,6 +46,8 @@ const Env = z.object({
     .string()
     .regex(/^[a-z0-9.-]+$/i)
     .optional(),
+  /** The release notes shown in the app. The Docker image sets it; a checkout uses the repo's. */
+  CHANGELOG_PATH: z.string().optional(),
   /** proxy-addr trust list: which peers may set X-Forwarded-For / CF-Connecting-IP. */
   TRUSTED_PROXIES: z.string().default('loopback,uniquelocal'),
   /** Directory with the built web app. When unset the API runs headless (dev uses Vite). */
@@ -107,6 +109,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     appName: e.APP_NAME,
     version: e.APP_VERSION,
     sourceUrl: e.SOURCE_URL,
+    changelogPath: path.resolve(
+      e.CHANGELOG_PATH ?? path.join(import.meta.dirname, '../../../CHANGELOG.md'),
+    ),
     passkeyRpId: e.PASSKEY_RP_ID ?? publicUrl.hostname,
     trustedProxies: e.TRUSTED_PROXIES.split(',')
       .map((s) => s.trim())

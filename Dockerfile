@@ -42,7 +42,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/data \
     WEB_DIST_DIR=/app/web \
-    MIGRATIONS_DIR=/app/dist/migrations
+    MIGRATIONS_DIR=/app/dist/migrations \
+    CHANGELOG_PATH=/app/CHANGELOG.md
 
 # Shown to admins and by scripts/update.sh. After the system packages, so each new version
 # still reuses that cached layer.
@@ -54,6 +55,7 @@ COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json
 COPY --from=build /src/apps/server/dist ./dist
 COPY --from=build /src/apps/web/dist ./web
+COPY --from=build /src/CHANGELOG.md ./CHANGELOG.md
 
 # Unprivileged by default; compose can map to the host user owning the storage (PUID/PGID).
 USER node

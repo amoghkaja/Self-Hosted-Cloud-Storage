@@ -1,10 +1,12 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
+import { WhatsNewPage } from './about/WhatsNewPage';
 import { LoginPage } from './auth/LoginPage';
 import { ResetPasswordPage } from './auth/ResetPasswordPage';
+import { ConnectGuide } from './settings/SettingsPage';
 
 describe('Password reset page', () => {
   const token = 'tok_0123456789abcdefghijklmnop';
@@ -89,5 +91,64 @@ describe('Sign-in with a recovery code', () => {
         code: 'abcde-fghjk',
       }),
     );
+  });
+});
+
+describe('Network drive setup', () => {
+  const creds = {
+    appPassword: { id: 'p', name: 'Laptop', createdAt: '2026-10-01T00:00:00Z', lastUsedAt: null },
+    password: 'abcde-fghij-klmno-pqrst',
+    davUrl: 'https://cloud.example.com/dav/',
+    username: 'mum@example.com',
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('opens on the Windows steps on a Windows PC, with a ready-to-paste command', () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      maxTouchPoints: 0,
+    });
+    renderWithProviders(<ConnectGuide creds={creds} />);
+    expect(screen.getByRole('tab', { name: 'Windows' })).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByText(
+        'cmdkey /add:cloud.example.com /user:mum@example.com /pass:abcde-fghij-klmno-pqrst && net use * \\\\cloud.example.com@SSL\\dav /persistent:yes',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('opens on the Mac steps elsewhere, and offers no command when the server is not https', async () => {
+    renderWithProviders(
+      <ConnectGuide creds={{ ...creds, davUrl: 'http://192.168.1.5:3080/dav/' }} />,
+    );
+    expect(screen.getByRole('tab', { name: 'Mac' })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(screen.getByRole('tab', { name: 'Windows' }));
+    expect(screen.getByText(/Map network drive/)).toBeInTheDocument();
+    expect(screen.queryByText(/cmdkey/)).not.toBeInTheDocument();
+  });
+});
+
+describe("What's new page", () => {
+  it('shows the running version and what changed, marking the release in use', async () => {
+    mockFetch({
+      'GET /about': () => ({
+        json: {
+          version: 'v0.2.0',
+          releases: [
+            {
+              version: 'v0.2.0',
+              date: '2026-10-02',
+              groups: [{ title: 'New', items: ['**Photos:** swipe down to close a photo'] }],
+            },
+            { version: 'v0.1.0', date: '2026-09-01', groups: [{ title: 'Fixed', items: ['x'] }] },
+          ],
+        },
+      }),
+    });
+    const { container } = renderWithProviders(<WhatsNewPage />);
+    expect(await screen.findByText('This server is running Family Cloud v0.2.0.')).toBeVisible();
+    expect(screen.getByText('Photos:').tagName).toBe('STRONG');
+    expect(screen.getAllByText("This is what you're using")).toHaveLength(1);
+    await expectAccessible(container);
   });
 });

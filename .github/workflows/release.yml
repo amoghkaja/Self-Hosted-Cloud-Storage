@@ -9,9 +9,17 @@ permissions:
   contents: write   # the GitHub release
   packages: write
 
+# One release build per tag or branch at a time. A second one waits instead of cancelling the
+# first, so an image push is never cut off halfway.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   image:
     runs-on: ubuntu-24.04
+    # The arm64 half is emulated and slow, but a build that is still going after this is stuck.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
         with:

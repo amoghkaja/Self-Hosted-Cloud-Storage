@@ -1,6 +1,6 @@
-# Network drive (Files app, Finder, Windows)
+# Network drive (Finder, Windows, Linux)
 
-Family Cloud includes a WebDAV server at `https://cloud.example.com/dav/`, so it can appear as a drive on phones and computers. It shows two folders:
+Family Cloud includes a WebDAV server at `https://cloud.example.com/dav/`, so it appears as a drive in Finder and Windows Explorer with nothing to install. iPhones and iPads need a helper app for that; see below. It shows two folders:
 
 - **My Files**: your own files.
 - **Shared with me**: folders and files family members shared with you, with the same view/edit permissions as on the website.
@@ -16,26 +16,45 @@ Device passwords:
 - only work for the network drive, not for signing in to the website;
 - don't ask for a two-factor code. That's why they're long and random. Remove unused ones.
 
-## iPhone and iPad
-
-The Files app can only connect to SMB servers by itself, not WebDAV, so you need a free helper app that adds itself to Files as a location. Examples: **Owlfiles**, **FE File Explorer**, **FileBrowser**, **Documents by Readdle**.
-
-1. Install the helper app and add a **WebDAV** connection with the server, username and device password from the "Connect a device" dialog.
-2. Open **Files → Browse → ⋯ → Edit** and switch on the helper app.
-
-Family Cloud now appears next to iCloud Drive.
-
 ## Mac
 
-Finder → **Go → Connect to Server…** (⌘K) → enter `https://cloud.example.com/dav/` → **Connect** → **Registered User** → email and device password. To reconnect automatically, add the server to **System Settings → General → Login Items**.
+Finder → **Go → Connect to Server…** (⌘K) → enter `https://cloud.example.com/dav/` → **Connect** → **Registered User** → email and device password, and tick **Remember this password in my keychain**.
+
+Drag the drive into the Finder sidebar to keep it handy. To reconnect automatically, add it under **System Settings → General → Login Items**.
 
 ## Windows
 
-File Explorer → right-click **This PC** → **Map network drive…** → Folder: `https://cloud.example.com/dav/` → tick **Connect using different credentials** → **Finish** → email and device password.
+The "Connect a device" dialog shows a command with your details filled in. Press **Win + R**, type `cmd`, press Enter, paste the command and press Enter. It saves the device password and maps a drive that comes back after a restart:
+
+```
+cmdkey /add:cloud.example.com /user:you@example.com /pass:DEVICE-PASSWORD && net use * \\cloud.example.com@SSL\dav /persistent:yes
+```
+
+Or by hand: File Explorer → right-click **This PC** → **Map network drive…** → Folder: `https://cloud.example.com/dav/` → tick **Connect using different credentials** → **Finish** → email and device password.
+
+### Files over 50 MB on Windows
+
+Windows refuses to open or save network-drive files over 50 MB until its own limit is raised. In a Command Prompt opened with **Run as administrator**:
+
+```
+reg add HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters /v FileSizeLimitInBytes /t REG_DWORD /d 4294967295 /f
+net stop webclient & net start webclient
+```
+
+That raises it to 4 GB, the most Windows allows. Through Cloudflare, uploads are still limited to 100 MB (see below).
 
 ## Linux
 
 In GNOME Files / Nautilus: **Other Locations → Connect to Server** → `davs://cloud.example.com/dav/`. Or mount with `davfs2`.
+
+## iPhone and iPad
+
+The Files app can only connect to SMB servers by itself, not WebDAV, and SMB can't travel through a Cloudflare Tunnel. So there are two options:
+
+- **The website, on your home screen.** Open it in Safari → **Share** → **Add to Home Screen**. It then opens like an app; uploads pick from Files and Photos, and downloads save to Files. Nothing else to install.
+- **A helper app**, if you want Family Cloud as a location inside Files. Examples: **Owlfiles**, **FE File Explorer**, **FileBrowser**, **Documents by Readdle**.
+  1. Install the helper app and add a **WebDAV** connection with the server, username and device password from the "Connect a device" dialog.
+  2. Open **Files → Browse → ⋯ → Edit** and switch on the helper app. Family Cloud now appears next to iCloud Drive.
 
 ## Good to know
 

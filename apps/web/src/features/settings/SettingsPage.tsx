@@ -24,6 +24,7 @@ import { Link, useLocation } from 'react-router';
 import { ApiError, api, errorMessage } from '../../api/client';
 import {
   qk,
+  useAbout,
   useAppPasswordMutations,
   useAppPasswords,
   usePasskeyMutations,
@@ -478,8 +479,27 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
-  const [tab, setTab] = useState('iphone');
+function guessDevice(): 'mac' | 'windows' | 'iphone' {
+  const ua = navigator.userAgent;
+  if (ua.includes('Windows')) return 'windows';
+  // iPadOS calls itself a Mac; only the touch screen gives it away.
+  if (/iPhone|iPad/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1))
+    return 'iphone';
+  return 'mac';
+}
+
+/** One paste into Command Prompt: saves the password, then maps a drive that survives a restart. */
+function windowsCommand(creds: CreateAppPasswordResponse): string | null {
+  const url = new URL(creds.davUrl);
+  // Windows refuses to send a password to a WebDAV server over plain http.
+  if (url.protocol !== 'https:') return null;
+  const share = `\\\\${url.hostname}@SSL${url.port ? `@${url.port}` : ''}${url.pathname.replace(/\/$/, '').replaceAll('/', '\\')}`;
+  return `cmdkey /add:${url.hostname} /user:${creds.username} /pass:${creds.password} && net use * ${share} /persistent:yes`;
+}
+
+export function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
+  const [tab, setTab] = useState<string>(guessDevice);
+  const command = windowsCommand(creds);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
@@ -497,32 +517,6 @@ function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
         onValueChange={setTab}
         items={[
           {
-            value: 'iphone',
-            label: 'iPhone / iPad',
-            content: (
-              <ol className="list-decimal space-y-2 pl-5 text-sm">
-                <li>
-                  The Files app can't connect to WebDAV on its own, so install a free helper app
-                  that adds itself to Files, such as <strong>Owlfiles</strong> or{' '}
-                  <strong>FE File Explorer</strong> from the App Store.
-                </li>
-                <li>
-                  In that app, add a <strong>WebDAV</strong> connection using the server, username
-                  and password above.
-                </li>
-                <li>
-                  Open the <strong>Files</strong> app → <strong>Browse</strong> → tap{' '}
-                  <strong>⋯</strong> → <strong>Edit</strong>, and switch on the helper app. Family
-                  Cloud now appears next to iCloud Drive.
-                </li>
-                <li className="text-muted">
-                  Away from home, single files over 100 MB can't upload this way. Use the website's
-                  Upload button for long videos.
-                </li>
-              </ol>
-            ),
-          },
-          {
             value: 'mac',
             label: 'Mac',
             content: (
@@ -534,7 +528,12 @@ function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
                   Enter the server address above and click <strong>Connect</strong>.
                 </li>
                 <li>
-                  Choose <strong>Registered User</strong> and enter the username and password above.
+                  Choose <strong>Registered User</strong>, enter the username and password above,
+                  and tick <strong>Remember this password in my keychain</strong>.
+                </li>
+                <li className="text-muted">
+                  To keep it handy, drag the drive into the Finder sidebar. To reconnect whenever
+                  you log in, add it under System Settings → General → Login Items.
                 </li>
               </ol>
             ),
@@ -543,18 +542,68 @@ function ConnectGuide({ creds }: { creds: CreateAppPasswordResponse }) {
             value: 'windows',
             label: 'Windows',
             content: (
-              <ol className="list-decimal space-y-2 pl-5 text-sm">
-                <li>
-                  Open File Explorer, right-click <strong>This PC</strong> →{' '}
-                  <strong>Map network drive…</strong>
-                </li>
-                <li>
-                  Paste the server address as the folder, tick{' '}
-                  <strong>Connect using different credentials</strong>, click{' '}
-                  <strong>Finish</strong>.
-                </li>
-                <li>Enter the username and password above.</li>
-              </ol>
+              <div className="flex flex-col gap-3 text-sm">
+                {command && (
+                  <>
+                    <p>
+                      Press <strong>Win + R</strong>, type <strong>cmd</strong>, press Enter, then
+                      paste this and press Enter. The drive appears under This PC and comes back
+                      after a restart.
+                    </p>
+                    <CopyRow label="Command" value={command} />
+                    <p>Or set it up by hand:</p>
+                  </>
+                )}
+                <ol className="list-decimal space-y-2 pl-5">
+                  <li>
+                    Open File Explorer, right-click <strong>This PC</strong> →{' '}
+                    <strong>Map network drive…</strong>
+                  </li>
+                  <li>
+                    Paste the server address as the folder, tick{' '}
+                    <strong>Connect using different credentials</strong>, click{' '}
+                    <strong>Finish</strong>.
+                  </li>
+                  <li>Enter the username and password above.</li>
+                  <li className="text-muted">
+                    Windows won't open files over 50 MB from a network drive until its limit is
+                    raised. Use the website for those, or ask whoever runs the server.
+                  </li>
+                </ol>
+              </div>
+            ),
+          },
+          {
+            value: 'iphone',
+            label: 'iPhone / iPad',
+            content: (
+              <div className="flex flex-col gap-3 text-sm">
+                <p>
+                  The Files app can't connect to this kind of drive on its own. The simplest way is
+                  the website: open it in Safari, tap <strong>Share</strong> →{' '}
+                  <strong>Add to Home Screen</strong>, and it works like an app.
+                </p>
+                <p>To see Family Cloud inside the Files app, you need a free helper app:</p>
+                <ol className="list-decimal space-y-2 pl-5">
+                  <li>
+                    Install one that adds itself to Files, such as <strong>Owlfiles</strong> or{' '}
+                    <strong>FE File Explorer</strong> from the App Store.
+                  </li>
+                  <li>
+                    In that app, add a <strong>WebDAV</strong> connection using the server, username
+                    and password above.
+                  </li>
+                  <li>
+                    Open the <strong>Files</strong> app → <strong>Browse</strong> → tap{' '}
+                    <strong>⋯</strong> → <strong>Edit</strong>, and switch on the helper app. Family
+                    Cloud now appears next to iCloud Drive.
+                  </li>
+                  <li className="text-muted">
+                    Away from home, single files over 100 MB can't upload this way. Use the
+                    website's Upload button for long videos.
+                  </li>
+                </ol>
+              </div>
             ),
           },
         ]}
@@ -589,7 +638,7 @@ function DevicesSection() {
     <Section
       id="devices"
       title="Network drive"
-      description="Open your files in the iPhone/iPad Files app, Finder or Windows Explorer. Each device gets its own password you can remove if it's lost."
+      description="Open your files in Finder or Windows Explorer like any other drive. Each device gets its own password you can remove if it's lost."
     >
       <QueryState
         query={list}
@@ -850,8 +899,18 @@ function AppearanceSection() {
 
 function AboutSection() {
   const sourceUrl = useSetupStatus().data?.sourceUrl;
+  const version = useAbout().data?.version;
   return (
     <Section title="About">
+      <p className="mb-2 text-sm text-muted">
+        {version ? `Family Cloud ${version}. ` : ''}
+        <Link
+          to="/whats-new"
+          className="font-medium text-accent underline-offset-2 hover:underline"
+        >
+          What's new
+        </Link>
+      </p>
       <p className="text-sm text-muted">
         <Link to="/privacy" className="font-medium text-accent underline-offset-2 hover:underline">
           Privacy: what's kept about you and who can see your files

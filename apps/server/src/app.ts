@@ -14,6 +14,7 @@ import type { AppContext } from './context';
 import { storageVolumes } from './db/schema';
 import { createClientIpResolver } from './lib/client-ip';
 import { renderShell } from './lib/shell';
+import { aboutRoutes } from './modules/about/routes';
 import { brandingRoutes, loadBranding } from './modules/admin/branding';
 import { adminRoutes } from './modules/admin/routes';
 import { passkeyRoutes } from './modules/auth/passkeys';
@@ -105,6 +106,7 @@ export async function buildApp(
       await api.register(photoRoutes);
       await api.register(brandingRoutes);
       await api.register(appPasswordRoutes);
+      await api.register(aboutRoutes);
     },
     { prefix: API_PREFIX },
   );

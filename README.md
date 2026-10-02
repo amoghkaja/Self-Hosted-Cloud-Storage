@@ -18,7 +18,7 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 - **Ask anyone for files.** A file request link lets people without an account send files into a folder, or photos straight into a trip album. They see an upload page, never your files.
 - **Version history.** Save over a file from any device, or choose "Replace" when uploading one that's already there, and what it held is kept for 30 days to download or put back.
 - **Find things fast.** Recent files, Starred, and search that includes what's shared with you. Copying files and folders is instant.
-- **A real network drive.** Open your files in the iPhone/iPad Files app, macOS Finder or Windows Explorer (WebDAV), with a separate revocable password per device.
+- **A real network drive.** Open your files in macOS Finder or Windows Explorer with nothing to install (WebDAV), and in the iPhone/iPad Files app through a helper app, with a separate revocable password per device.
 - **Storage you can see and share out.** The admin screen shows where the space on your disks goes and how the family's space is split between people, and lets you hand out, even out and move allowances. Everyone sees how much space they have left.
 - **Grow storage by adding disks.** Plug in a new drive and add it from the admin screen, without restarting. Retire an old drive and every file is moved off it and checked first.
 - **Trash with undo**, a 30-day safety net before anything is gone for good.
@@ -68,7 +68,7 @@ It shows what's new, backs up the database, installs the newest release and chec
 | [Self-hosting](docs/self-hosting.md) | Hardware, installing, your domain, first sign-in, updating, troubleshooting |
 | [Cloudflare Tunnel](docs/cloudflare-tunnel.md) | Putting it on your own domain without opening ports |
 | [Disks and storage](docs/storage-and-disks.md) | Allowances, family limit, adding, limiting and retiring disks |
-| [Network drive](docs/network-drive.md) | iPhone/iPad Files app, Finder and Windows |
+| [Network drive](docs/network-drive.md) | Finder, Windows and Linux; iPhone/iPad with a helper app |
 | [Backups and moving](docs/backup-restore.md) | Nightly backups, restoring, moving to new hardware |
 | [Hardware and uptime](docs/hardware-and-uptime.md) | What to run it on, power use, keeping it online |
 | [Versions and releases](docs/releasing.md) | How versions are numbered, update channels, cutting a release |
@@ -76,7 +76,7 @@ It shows what's new, backs up the database, installs the newest release and chec
 ## How it's built
 
 ```
-Browser / phone / Files app
+Browser / phone / Finder / Explorer
         │ HTTPS
   Cloudflare Tunnel (or Caddy)
         │

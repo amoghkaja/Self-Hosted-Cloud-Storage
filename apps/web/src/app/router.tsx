@@ -96,6 +96,11 @@ export const router = createBrowserRouter([
           import('../features/settings/SettingsPage').then((m) => ({ Component: m.SettingsPage })),
       },
       {
+        path: 'whats-new',
+        lazy: () =>
+          import('../features/about/WhatsNewPage').then((m) => ({ Component: m.WhatsNewPage })),
+      },
+      {
         path: 'admin',
         lazy: () =>
           import('../features/admin/AdminPage').then((m) => ({
