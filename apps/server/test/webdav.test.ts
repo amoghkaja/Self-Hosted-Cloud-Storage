@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { sql } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addMember, bytes, type Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
@@ -314,7 +315,14 @@ describe('share revoked during a WebDAV upload', () => {
       payload: body,
     });
     body.write('hello');
-    await new Promise((r) => setTimeout(r, 50)); // upload is in flight
+    // Wait until the upload is really in flight (its session exists), however slow the machine.
+    for (let i = 0; i < 100; i++) {
+      const [row] = (await env.ctx.db.execute(
+        sql`SELECT count(*)::int AS n FROM upload_sessions WHERE name = 'late.txt'`,
+      )) as unknown as { n: number }[];
+      if (row!.n > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect((await alice.del(`/shares/${share.body.id}`)).status).toBe(200);
     body.end('world');
     const res = await put;
