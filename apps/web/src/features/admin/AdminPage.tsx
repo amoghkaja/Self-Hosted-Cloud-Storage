@@ -25,6 +25,7 @@ import {
   useAdminMutations,
   useAdminOverview,
   useAudit,
+  useScannerStatus,
   useVolumeCandidates,
 } from '../../api/queries';
 import { useShell } from '../../app/guards';
@@ -42,6 +43,7 @@ import {
   QueryState,
   SelectField,
   Skeleton,
+  SwitchField,
   Tabs,
   TextField,
   toast,
@@ -963,6 +965,66 @@ const parseDomains = (text: string) => [
   ),
 ];
 
+/** The on/off switch for checking uploads, with what the scanner is doing right now. */
+function VirusScanSetting({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  const status = useScannerStatus().data;
+  if (!status) return <Skeleton className="h-16" />;
+  if (!status.installed) {
+    return (
+      <div className="rounded-xl border border-border p-4 text-sm">
+        <p className="font-medium">Virus scanning</p>
+        <p className="mt-1 text-muted">
+          Not installed. It checks every upload with ClamAV and blocks infected files, and needs
+          about 1.5 GB of memory. To add it, run{' '}
+          <code className="font-mono">./scripts/virus-scan.sh on</code> on the server.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <SwitchField
+        label="Check uploads for viruses"
+        description="Infected files stay in place, marked, and can't be opened or downloaded."
+        checked={on}
+        onCheckedChange={onChange}
+      />
+      {status.enabled && !status.reachable && (
+        <p
+          role="status"
+          className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+        >
+          <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
+          <span>
+            The scanner isn't answering, so new uploads wait unchecked. It takes a few minutes to
+            start; if this stays, look at{' '}
+            <code className="font-mono">docker compose logs clamav</code>.
+          </span>
+        </p>
+      )}
+      <p className="text-xs text-muted">
+        {status.reachable ? `${status.version}. ` : ''}
+        {status.waiting > 0
+          ? `${status.waiting.toLocaleString()} ${status.waiting === 1 ? 'file' : 'files'} not checked yet${status.enabled ? ' (about 2,000 are checked per hour)' : ''}.`
+          : 'Every file has been checked.'}{' '}
+        Files over 100 MB are not checked.
+      </p>
+      {status.infected.length > 0 && (
+        <div className="rounded-xl border border-danger/30 bg-danger-soft px-3 py-2 text-sm">
+          <p className="font-medium text-danger">Blocked files</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {status.infected.map((f) => (
+              <li key={`${f.owner}/${f.name}`}>
+                {f.name} ({f.owner}): {f.signature}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsForm({
   initial,
   usable,
@@ -1089,6 +1151,7 @@ function SettingsForm({
           </p>
         )}
       </div>
+      <VirusScanSetting on={s.virusScan} onChange={(v) => setS({ ...s, virusScan: v })} />
       <Button
         type="submit"
         variant="primary"

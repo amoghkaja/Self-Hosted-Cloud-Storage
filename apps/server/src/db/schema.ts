@@ -37,6 +37,8 @@ export const thumbStatus = pgEnum('thumb_status', [
   'failed',
   'unsupported',
 ]);
+/** Virus scan of a blob. 'pending' also covers "never scanned" while scanning is off. */
+export const scanStatus = pgEnum('scan_status', ['pending', 'clean', 'infected', 'skipped']);
 export const streamStatus = pgEnum('stream_status', [
   'none',
   'pending',
@@ -179,9 +181,17 @@ export const blobs = pgTable(
     streamStatus: streamStatus('stream_status').notNull().default('none'),
     /** Office documents: a PDF rendering for in-browser viewing, in the cache. */
     previewStatus: streamStatus('preview_status').notNull().default('none'),
+    /** 'infected' blobs are never served. 'skipped': too big for the scanner. */
+    scanStatus: scanStatus('scan_status').notNull().default('pending'),
+    /** What the scanner called it, e.g. "Win.Trojan.Agent-123". */
+    scanSignature: text('scan_signature'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
-  (t) => [index('blobs_volume_idx').on(t.volumeId)],
+  (t) => [
+    index('blobs_volume_idx').on(t.volumeId),
+    // The hourly sweep and the admin page look only at what still waits or was caught.
+    index('blobs_scan_idx').on(t.scanStatus).where(sql`${t.scanStatus} IN ('pending', 'infected')`),
+  ],
 );
 
 export const nodes = pgTable(

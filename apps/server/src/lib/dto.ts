@@ -39,7 +39,7 @@ export function toAdminUser(u: UserRow, lastSeenAt: Date | string | null): Admin
 export type NodeWithThumb = Pick<
   NodeRow,
   'id' | 'type' | 'name' | 'size' | 'mimeType' | 'parentId' | 'ownerId' | 'createdAt' | 'updatedAt'
-> & { thumb?: ThumbStatus | null };
+> & { thumb?: ThumbStatus | null; scan?: string | null };
 
 export function toFileNode(n: NodeWithThumb): FileNode {
   return {
@@ -51,6 +51,7 @@ export function toFileNode(n: NodeWithThumb): FileNode {
     parentId: n.parentId,
     ownerId: n.ownerId,
     thumb: n.type === 'folder' ? 'none' : (n.thumb ?? 'none'),
+    ...(n.scan === 'infected' ? { infected: true } : {}),
     createdAt: toIso(n.createdAt),
     updatedAt: toIso(n.updatedAt),
   };

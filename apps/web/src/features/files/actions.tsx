@@ -10,6 +10,7 @@ import {
   Inbox,
   Pencil,
   Share2,
+  ShieldAlert,
   Star,
   StarOff,
   Trash2,
@@ -44,6 +45,8 @@ export function downloadNodes(nodes: Pick<FileNode, 'id' | 'type'>[]) {
   if (nodes.length === 1 && nodes[0]!.type === 'file') triggerDownload(contentUrl(nodes[0]!.id));
   else triggerDownload(zipUrl(nodes.map((n) => n.id)));
 }
+
+const INFECTED = 'A virus was found in this file, so it is blocked. Delete it.';
 
 type Dialog =
   | { kind: 'rename'; node: FileNode }
@@ -83,7 +86,11 @@ export function useFileActions(o: FileActionOptions) {
   const { mutate: setStar } = useToggleStar();
 
   const open = useCallback(
-    (n: FileNode) => (n.type === 'folder' ? navigate(`/files/${n.id}`) : o.onPreview(n)),
+    (n: FileNode) => {
+      if (n.infected) toast.error(INFECTED);
+      else if (n.type === 'folder') navigate(`/files/${n.id}`);
+      else o.onPreview(n);
+    },
     [navigate, o],
   );
 
@@ -167,7 +174,7 @@ export function useFileActions(o: FileActionOptions) {
           id: 'download',
           label: n.type === 'folder' ? 'Download as zip' : 'Download',
           icon: <Download />,
-          onSelect: () => downloadNodes([n]),
+          onSelect: () => (n.infected ? toast.error(INFECTED) : downloadNodes([n])),
         },
         {
           id: 'star',
@@ -256,7 +263,12 @@ export function useFileActions(o: FileActionOptions) {
   /** A star beside the names of starred items. */
   const badge = useCallback(
     (n: FileNode) =>
-      starredIds.has(n.id) ? (
+      n.infected ? (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-danger-soft px-1.5 py-0.5 text-xs font-medium text-danger">
+          <ShieldAlert className="size-3.5" aria-hidden />
+          Virus found
+        </span>
+      ) : starredIds.has(n.id) ? (
         <Star
           role="img"
           aria-label="Starred"

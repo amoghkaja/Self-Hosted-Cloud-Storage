@@ -5,6 +5,7 @@ export const JOBS = {
   videoStream: 'video-stream',
   officePreview: 'office-preview',
   hash: 'hash',
+  scan: 'scan',
   drainVolume: 'drain-volume',
   purgeTrash: 'purge-trash',
   reconcileUsage: 'reconcile-usage',
@@ -20,6 +21,7 @@ export interface JobPayloads {
   'video-stream': { blobId: string };
   'office-preview': { blobId: string };
   hash: { blobId: string };
+  scan: { blobId: string };
   'drain-volume': { volumeId: string };
   'purge-trash': Record<string, never>;
   'reconcile-usage': Record<string, never>;
@@ -45,6 +47,7 @@ const POLICY: Partial<Record<JobName, 'short' | 'exclusive'>> = {
   'video-stream': 'short',
   'office-preview': 'short',
   hash: 'short',
+  scan: 'short',
   'drain-volume': 'exclusive',
 };
 

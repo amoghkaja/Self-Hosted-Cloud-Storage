@@ -20,6 +20,8 @@ export const FileNode = z.object({
   parentId: Id.nullable(),
   ownerId: Id,
   thumb: ThumbStatus,
+  /** A virus was found in it: it can't be opened or downloaded, only deleted. */
+  infected: z.boolean().optional(),
   createdAt: IsoDate,
   updatedAt: IsoDate,
 });

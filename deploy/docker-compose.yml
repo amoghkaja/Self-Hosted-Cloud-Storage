@@ -31,6 +31,8 @@ x-app: &app
     DATA_DIR: /data
     # Read-only root filesystem: tools that cache in $HOME (fontconfig, via pdftoppm) use /tmp.
     HOME: /tmp
+    # Virus scanner (profile: clamav). Empty: uploads aren't scanned.
+    CLAMAV_HOST: ${CLAMAV_HOST:-}
     # Only the proxies on our own Docker network may set the client IP headers.
     TRUSTED_PROXIES: loopback,uniquelocal
   user: "${PUID:-1000}:${PGID:-1000}"
@@ -120,11 +122,26 @@ services:
     depends_on: [app]
     networks: [edge]
 
+  # Checks uploads for viruses (scripts/virus-scan.sh on). The worker streams each file to it,
+  # so it needs no access to the storage disks. Uses about 1.5 GB of memory.
+  clamav:
+    image: clamav/clamav:stable
+    profiles: [clamav]
+    restart: unless-stopped
+    volumes:
+      # The virus list (about 300 MB), kept between restarts and refreshed by the container.
+      - ${STORAGE_ROOT:-/srv/familycloud}/clamav:/var/lib/clamav
+    security_opt:
+      - no-new-privileges:true
+    # internal: reached by the app and worker. updates: fetches the virus list.
+    networks: [internal, updates]
+
 networks:
   # No route to the internet: the database and worker never need one.
   internal:
     internal: true
   edge: {}
+  updates: {}
 
 volumes:
   caddy_data: {}

@@ -109,11 +109,16 @@ const unlockCookie = (linkId: string) => `fc_link_${linkId.replace(/-/g, '').sli
 
 async function loadNode(ctx: AppContext, nodeId: string): Promise<NodeWithBlob | null> {
   const [row] = await ctx.db
-    .select({ node: nodes, thumb: blobs.thumbStatus, volumeId: blobs.volumeId })
+    .select({
+      node: nodes,
+      thumb: blobs.thumbStatus,
+      scan: blobs.scanStatus,
+      volumeId: blobs.volumeId,
+    })
     .from(nodes)
     .leftJoin(blobs, eq(blobs.id, nodes.blobId))
     .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)));
-  return row ? { ...row.node, thumb: row.thumb, volumeId: row.volumeId } : null;
+  return row ? { ...row.node, thumb: row.thumb, scan: row.scan, volumeId: row.volumeId } : null;
 }
 
 /** Resolves a public token. Unknown, revoked and trashed targets all look identical (404). */
@@ -406,14 +411,14 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       if (items.size === 0) return { items: [] };
       const nodeRows = await db
-        .select({ node: nodes, thumb: blobs.thumbStatus })
+        .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
         .from(nodes)
         .leftJoin(blobs, eq(blobs.id, nodes.blobId))
         .where(inArray(nodes.id, [...items.keys()]));
       return {
         items: nodeRows
           .map((r) => ({
-            node: toFileNode({ ...r.node, thumb: r.thumb }),
+            node: toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan }),
             ...items.get(r.node.id)!,
           }))
           .sort((a, b) => b.latest - a.latest)

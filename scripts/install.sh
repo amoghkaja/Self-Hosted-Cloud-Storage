@@ -79,7 +79,7 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is requi
 docker info >/dev/null 2>&1 || die "Can't talk to Docker. Is your user in the docker group? (sudo usermod -aG docker \$USER, then log in again)"
 
 # Keep existing values on re-runs (read safely: the file is never executed).
-MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL'
+MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|CLAMAV_HOST'
 EXTRA_SETTINGS=""
 if [[ -f "$ENV_FILE" ]]; then
   load_env "$ENV_FILE"
@@ -143,6 +143,14 @@ STORAGE_ROOT=${STORAGE_ROOT%/}
 [[ "$STORAGE_ROOT" =~ ^(/[A-Za-z0-9._-]+){2,}$ && "$STORAGE_ROOT/" != */./* && "$STORAGE_ROOT/" != */../* ]] \
   || die "The storage location must be a dedicated folder at least two levels deep, e.g. /srv/familycloud (letters, digits, . _ - only)."
 
+# Asked on a first install only; scripts/virus-scan.sh changes it later. Off by default: the
+# scanner needs more memory than a small machine such as a Raspberry Pi can spare.
+if [[ ! -f "$ENV_FILE" ]]; then
+  ask VIRUS_SCAN "Check uploads for viruses? Needs about 1.5 GB of memory (yes/no)" "no"
+  [[ "${VIRUS_SCAN,,}" == y* ]] && CLAMAV_HOST=clamav
+fi
+CLAMAV_HOST=${CLAMAV_HOST:-}
+
 SECRET_KEY=${SECRET_KEY:-$(rand)}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(rand)}
 CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
@@ -163,11 +171,13 @@ PGID=${PGID:-$(id -g)}
 PROFILES=()
 [[ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]] && PROFILES+=(tunnel)
 [[ -n "${DOMAIN:-}" ]] && PROFILES+=(caddy)
+# Only the bundled scanner is a service here; another host name is someone's own clamd.
+[[ "$CLAMAV_HOST" == clamav ]] && PROFILES+=(clamav)
 COMPOSE_PROFILES=$(IFS=,; echo "${PROFILES[*]}")
 export COMPOSE_PROFILES
 
 bold "Preparing $STORAGE_ROOT"
-for d in volumes/disk1 cache db backups; do
+for d in volumes/disk1 cache db backups clamav; do
   if [[ ! -d "$STORAGE_ROOT/$d" ]]; then
     sudo mkdir -p "$STORAGE_ROOT/$d"
   fi
@@ -198,6 +208,7 @@ chmod 600 "$TMP_ENV"
   env_line IMAGE "$IMAGE"
   env_line UPDATE_CHANNEL "$UPDATE_CHANNEL"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
+  env_line CLAMAV_HOST "$CLAMAV_HOST"
   env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
   if [[ -n "$EXTRA_SETTINGS" ]]; then printf '%s\n' "$EXTRA_SETTINGS"; fi
 } > "$TMP_ENV" || die "Could not write deploy/.env (see the message above)."

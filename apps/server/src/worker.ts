@@ -11,6 +11,7 @@ import {
 } from './jobs/maintenance';
 import { makeOfficePreview } from './jobs/office';
 import { JOBS, type JobPayloads, type PgBossQueue } from './jobs/queue';
+import { queuePendingScans, scanBlob } from './jobs/scan';
 import { configureSharp, generateThumbnail } from './jobs/thumbnail';
 import { makeVideoStream } from './jobs/video';
 import { purgeExpiredVersions } from './modules/versions/service';
@@ -61,6 +62,11 @@ async function main() {
     handle('hash', (d) => hashBlob(ctx, d.blobId)),
   );
   await boss.work(
+    JOBS.scan,
+    { localConcurrency: 2 },
+    handle('scan', (d) => scanBlob(ctx, d.blobId)),
+  );
+  await boss.work(
     JOBS.drainVolume,
     { localConcurrency: 1 },
     handle('drain-volume', (d) => drainVolume(ctx, d.volumeId)),
@@ -83,7 +89,11 @@ async function main() {
   );
   await boss.work(
     JOBS.recoverWork,
-    handle('recover-work', () => recoverPendingWork(ctx)),
+    handle('recover-work', async () => {
+      await recoverPendingWork(ctx);
+      await queuePendingScans(ctx);
+      await queuePendingScans(ctx);
+    }),
   );
   await boss.work(
     JOBS.purgeVersions,

@@ -28,6 +28,7 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 | --- | --- | --- |
 | GET | `/auth/setup-status` | `{needsSetup, appName, wordmark, logoVersion, homeUrl, sourceUrl, privacyNotice, trashRetentionDays, versionRetentionDays}`: public |
 | GET | `/about` | `{version, releases:[{version, date, groups:[{title, items}]}]}`: the running version and the changelog; "Before you update" groups go to admins only |
+| GET | `/admin/scanner` | `{installed, enabled, reachable, version, waiting, infected:[{name, owner, signature}]}`: virus scanning status (admin) |
 | GET / POST | `/auth/passkeys` | List your passkeys / add one (after `POST /auth/passkeys/register/options`) |
 | PATCH / DELETE | `/auth/passkeys/:id` | Rename / remove a passkey |
 | POST | `/auth/passkeys/login/options`, `/auth/passkeys/login` | Sign in with a passkey (no email needed; counts as two-factor) |

@@ -173,7 +173,12 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
   /** A photo of this album (any contributor's), or 404. */
   async function albumPhoto(albumId: string, nodeId: string) {
     const [row] = await db
-      .select({ node: nodes, thumb: blobs.thumbStatus, volumeId: blobs.volumeId })
+      .select({
+        node: nodes,
+        thumb: blobs.thumbStatus,
+        scan: blobs.scanStatus,
+        volumeId: blobs.volumeId,
+      })
       .from(nodes)
       .innerJoin(blobs, eq(blobs.id, nodes.blobId))
       .where(and(eq(nodes.id, nodeId), inAlbum(albumId)));
@@ -407,6 +412,7 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
         .select({
           node: nodes,
           thumb: blobs.thumbStatus,
+          scan: blobs.scanStatus,
           owner: { id: users.id, displayName: users.displayName },
         })
         .from(nodes)

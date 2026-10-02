@@ -181,6 +181,7 @@ export const sharingRoutes: FastifyPluginAsyncZod = async (app) => {
           share: shares,
           node: nodes,
           thumb: blobs.thumbStatus,
+          scan: blobs.scanStatus,
           owner: { id: users.id, displayName: users.displayName },
         })
         .from(shares)
@@ -193,7 +194,7 @@ export const sharingRoutes: FastifyPluginAsyncZod = async (app) => {
         items: rows.map((r) => ({
           shareId: r.share.id,
           permission: r.share.permission,
-          node: toFileNode({ ...r.node, thumb: r.thumb }),
+          node: toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan }),
           owner: r.owner,
           sharedAt: toIso(r.share.createdAt),
         })),

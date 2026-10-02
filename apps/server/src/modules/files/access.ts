@@ -4,7 +4,11 @@ import type { Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes, shares } from '../../db/schema';
 import { conflict, forbidden, notFound } from '../../lib/errors';
 
-export type NodeWithBlob = NodeRow & { thumb: ThumbStatus | null; volumeId: string | null };
+export type NodeWithBlob = NodeRow & {
+  thumb: ThumbStatus | null;
+  scan: string | null;
+  volumeId: string | null;
+};
 
 export interface NodeAccess {
   node: NodeWithBlob;
@@ -60,7 +64,12 @@ export async function loadAccess(
   opts: { includeDeleted?: boolean } = {},
 ): Promise<NodeAccess | null> {
   const [row] = await exec
-    .select({ node: nodes, thumb: blobs.thumbStatus, volumeId: blobs.volumeId })
+    .select({
+      node: nodes,
+      thumb: blobs.thumbStatus,
+      scan: blobs.scanStatus,
+      volumeId: blobs.volumeId,
+    })
     .from(nodes)
     .leftJoin(blobs, eq(blobs.id, nodes.blobId))
     .where(eq(nodes.id, nodeId));
@@ -87,7 +96,7 @@ export async function loadAccess(
   const parent = parentChain.length ? accessFromChain(parentChain, userId) : null;
 
   return {
-    node: { ...row.node, thumb: row.thumb, volumeId: row.volumeId },
+    node: { ...row.node, thumb: row.thumb, scan: row.scan, volumeId: row.volumeId },
     access: self.access,
     parentAccess: parent?.access ?? null,
     breadcrumbs: chain.slice(self.from).map((c) => ({ id: c.id, name: c.name })),

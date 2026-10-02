@@ -236,7 +236,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
       const { user } = requireUser(req);
       const q = req.query.q.replace(/[\\%_]/g, (c) => `\\${c}`);
       const rows = await db
-        .select({ node: nodes, thumb: blobs.thumbStatus })
+        .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
         .from(nodes)
         .leftJoin(blobs, eq(blobs.id, nodes.blobId))
         .where(
@@ -249,7 +249,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
         )
         .orderBy(sql`similarity(${nodes.name}, ${req.query.q}) desc`, desc(nodes.updatedAt))
         .limit(req.query.limit);
-      return { items: rows.map((r) => toFileNode({ ...r.node, thumb: r.thumb })) };
+      return { items: rows.map((r) => toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan })) };
     },
   );
 
@@ -267,7 +267,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
       const { limit } = req.query;
       const newest = (where: SQL) =>
         db
-          .select({ node: nodes, thumb: blobs.thumbStatus })
+          .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
           .from(nodes)
           .leftJoin(blobs, eq(blobs.id, nodes.blobId))
           .where(and(eq(nodes.type, 'file'), isNull(nodes.deletedAt), where))
@@ -282,7 +282,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
         .sort((a, b) => b.node.updatedAt.getTime() - a.node.updatedAt.getTime())
         .filter((r) => !seen.has(r.node.id) && seen.add(r.node.id))
         .slice(0, limit);
-      return { items: items.map((r) => toFileNode({ ...r.node, thumb: r.thumb })) };
+      return { items: items.map((r) => toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan })) };
     },
   );
 
@@ -294,7 +294,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       const rows = await db
-        .select({ node: nodes, thumb: blobs.thumbStatus })
+        .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
         .from(stars)
         .innerJoin(nodes, eq(nodes.id, stars.nodeId))
         .leftJoin(blobs, eq(blobs.id, nodes.blobId))
@@ -305,7 +305,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
       const visible = [];
       for (const r of rows) {
         if (r.node.ownerId === user.id || (await loadAccess(db, user.id, r.node.id))) {
-          visible.push(toFileNode({ ...r.node, thumb: r.thumb }));
+          visible.push(toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan }));
         }
       }
       return { items: visible };
@@ -529,14 +529,14 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       const rows = await db
-        .select({ node: nodes, thumb: blobs.thumbStatus })
+        .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
         .from(nodes)
         .leftJoin(blobs, eq(blobs.id, nodes.blobId))
         .where(and(inArray(nodes.id, req.body.ids), isNull(nodes.deletedAt)));
       const visible = [];
       for (const r of rows) {
         if (r.node.ownerId === user.id || (await loadAccess(db, user.id, r.node.id))) {
-          visible.push(toFileNode({ ...r.node, thumb: r.thumb }));
+          visible.push(toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan }));
         }
       }
       return { items: visible };

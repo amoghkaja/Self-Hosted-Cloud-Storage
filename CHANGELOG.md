@@ -8,6 +8,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### New
+
+- **Virus scanning** (optional): every upload can be checked with ClamAV on your own server.
+  Infected files are marked and can't be opened or downloaded. Turn it on with
+  `./scripts/virus-scan.sh on` (needs about 1.5 GB of memory), and pause it under Admin →
+  Settings. See `docs/virus-scanning.md`.
+
 ### Improved
 
 - **File requests** have their own **Request files** button in Files: it makes a new folder and

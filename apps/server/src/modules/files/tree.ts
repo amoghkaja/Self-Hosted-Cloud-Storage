@@ -82,7 +82,12 @@ export async function listChildren(
   }
 
   const rows = await exec
-    .select({ node: nodes, thumb: blobs.thumbStatus, nameKey: sql<string>`lower(${nodes.name})` })
+    .select({
+      node: nodes,
+      thumb: blobs.thumbStatus,
+      scan: blobs.scanStatus,
+      nameKey: sql<string>`lower(${nodes.name})`,
+    })
     .from(nodes)
     .leftJoin(blobs, eq(blobs.id, nodes.blobId))
     .where(and(...conditions))
@@ -100,7 +105,10 @@ export async function listChildren(
       q.sort === 'name' ? last.nameKey : q.sort === 'updated' ? n.updatedAt.toISOString() : n.size;
     nextCursor = encodeCursor([n.type, k, n.id]);
   }
-  return { items: page.map((r) => toFileNode({ ...r.node, thumb: r.thumb })), nextCursor };
+  return {
+    items: page.map((r) => toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan })),
+    nextCursor,
+  };
 }
 
 // ── naming ──────────────────────────────────────────────────────────────────

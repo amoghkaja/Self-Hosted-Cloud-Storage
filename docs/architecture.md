@@ -107,7 +107,7 @@ Older versions need **edit** access to see, download or restore (they may hold t
 | `sessions` | SHA-256 of session tokens; sliding (30 d) and absolute (90 d) expiry |
 | `invites` | Hashed single-use invite tokens with role and quota |
 | `nodes` | Folder tree: owner, parent, name, blob, trash state (`deleted_at`, `trash_root_id`) |
-| `blobs` | Where bytes live: volume, size, SHA-256, thumbnail status |
+| `blobs` | Where bytes live: volume, size, SHA-256, thumbnail status, virus scan status |
 | `storage_volumes` | Disks: path, status (active/readonly/draining/retired), limit, reserve |
 | `upload_sessions`, `upload_chunks` | Resumable upload state (plus "replace" and, for file requests, the link) |
 | `shares` | Family shares (view/edit) |

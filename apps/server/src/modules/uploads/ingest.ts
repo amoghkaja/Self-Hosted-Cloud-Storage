@@ -203,6 +203,7 @@ export async function ingest(
 
     await deleteBlobFiles(ctx, result.orphans);
     await ctx.jobs.send('hash', { blobId }).catch(() => {});
+    if (ctx.config.clamav) await ctx.jobs.send('scan', { blobId }).catch(() => {});
     if (thumbable) await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
     if (video) await ctx.jobs.send('video-stream', { blobId }).catch(() => {});
     if (office) await ctx.jobs.send('office-preview', { blobId }).catch(() => {});

@@ -70,6 +70,8 @@ export const Settings = z.object({
         ),
     )
     .max(10),
+  /** Check uploads for viruses. Only does anything when a scanner is installed (CLAMAV_HOST). */
+  virusScan: z.boolean(),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   versionRetentionDays: 30,
   defaultQuotaBytes: 50 * GiB,
   allowedEmailDomains: [],
+  virusScan: true,
 };
 
 export const UpdateSettingsBody = Settings.partial();
@@ -221,3 +224,24 @@ export const AuditPage = z.object({
   nextCursor: z.number().int().nullable(),
 });
 export type AuditPage = z.infer<typeof AuditPage>;
+
+export const ScannerStatus = z.object({
+  /** A scanner is set up for this server (CLAMAV_HOST). */
+  installed: z.boolean(),
+  /** The Admin → Settings switch. */
+  enabled: z.boolean(),
+  /** It answered just now. Null when not installed. */
+  reachable: z.boolean().nullable(),
+  /** The scanner and its virus list, e.g. "ClamAV 1.4.2/27700/Thu Oct 1 2026". */
+  version: z.string().nullable(),
+  /** Files not checked yet (everything, while scanning is off). */
+  waiting: z.number().int(),
+  infected: z.array(
+    z.object({
+      name: z.string(),
+      owner: z.string(),
+      signature: z.string().nullable(),
+    }),
+  ),
+});
+export type ScannerStatus = z.infer<typeof ScannerStatus>;

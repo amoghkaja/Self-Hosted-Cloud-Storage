@@ -18,6 +18,7 @@ import type {
   NodePage,
   Passkey,
   PasswordResetLink,
+  ScannerStatus,
   SessionInfo,
   Settings,
   SetupStatus,
@@ -85,6 +86,7 @@ export const qk = {
   adminCandidates: ['admin', 'candidates'] as const,
   adminAudit: ['admin', 'audit'] as const,
   adminBranding: ['admin', 'branding'] as const,
+  adminScanner: ['admin', 'scanner'] as const,
 };
 
 // ── session ─────────────────────────────────────────────────────────────────
@@ -649,6 +651,14 @@ export function useAppPasswordMutations() {
 }
 
 // ── admin ───────────────────────────────────────────────────────────────────
+
+export function useScannerStatus() {
+  return useQuery({
+    queryKey: qk.adminScanner,
+    queryFn: () => api<ScannerStatus>('/admin/scanner'),
+    refetchInterval: 60_000,
+  });
+}
 
 export function useAdminOverview() {
   return useQuery({

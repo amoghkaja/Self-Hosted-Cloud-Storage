@@ -45,6 +45,26 @@ export interface BlobRef {
   mimeType: string | null;
 }
 
+/** Every way out for a file's own bytes passes here: a blob with a virus in it is never sent. */
+async function isInfected(ctx: AppContext, blobId: string): Promise<string | false> {
+  const [row] = await ctx.db
+    .select({ status: blobs.scanStatus, signature: blobs.scanSignature })
+    .from(blobs)
+    .where(eq(blobs.id, blobId));
+  return row?.status === 'infected' ? (row.signature ?? 'unknown') : false;
+}
+
+export async function refuseInfected(ctx: AppContext, blobId: string): Promise<void> {
+  const signature = await isInfected(ctx, blobId);
+  if (signature) {
+    throw new AppError(
+      403,
+      ErrorCode.FILE_INFECTED,
+      `This file is blocked: a virus was found in it (${signature}). Delete it.`,
+    );
+  }
+}
+
 /** Sends a stored file (see sendFileRange). */
 export async function sendBlob(
   ctx: AppContext,
@@ -53,6 +73,7 @@ export async function sendBlob(
   blob: BlobRef,
   opts: { inline: boolean },
 ) {
+  await refuseInfected(ctx, blob.blobId);
   const file = await ctx.volumes.blobFile({ id: blob.blobId, volumeId: blob.volumeId });
   return sendFileRange(req, reply, {
     file,
@@ -265,6 +286,7 @@ export async function listTree(exec: Executor, folderId: string, limit = MAX_ZIP
     SELECT t.id, t.type, t.path, t.size, t.updated_at AS "updatedAt", t.mime_type AS "mimeType",
            b.id AS "blobId", b.volume_id AS "volumeId"
     FROM t LEFT JOIN blobs b ON b.id = t.blob_id
+    WHERE b.scan_status IS DISTINCT FROM 'infected'
     ORDER BY t.path
     LIMIT ${limit}
   `)) as unknown as TreeEntry[];
@@ -301,6 +323,8 @@ export async function sendZip(
     for (let i = 2; usedNames.has(name.toLowerCase()); i++) name = `${base} (${i})`;
     usedNames.add(name.toLowerCase());
     if (root.type === 'file') {
+      // Left out, like infected files inside a folder (listTree).
+      if (root.blobId && (await isInfected(ctx, root.blobId))) continue;
       entries.push({
         id: root.id,
         type: 'file',

@@ -21,6 +21,7 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 - **A real network drive.** Open your files in macOS Finder or Windows Explorer with nothing to install (WebDAV), and in the iPhone/iPad Files app through a helper app, with a separate revocable password per device.
 - **Storage you can see and share out.** The admin screen shows where the space on your disks goes and how the family's space is split between people, and lets you hand out, even out and move allowances. Everyone sees how much space they have left.
 - **Grow storage by adding disks.** Plug in a new drive and add it from the admin screen, without restarting. Retire an old drive and every file is moved off it and checked first.
+- **Optional virus scanning.** Every upload can be checked with ClamAV on your own server; infected files are blocked. Off by default, since it needs about 1.5 GB of memory.
 - **Trash with undo**, a 30-day safety net before anything is gone for good.
 - **Your family's look.** Upload your own logo (also used as the home-screen icon), choose the word beside it and link back to your family website. Light and dark themes, and it installs to a phone's home screen like an app.
 - **Secure and private by default.** Two-factor and passkey sign-in, rate limiting, no open router ports (with Cloudflare Tunnel), uploaded files that can never run code in your browser, no tracking or analytics, and it asks search engines not to list it. A built-in Privacy page tells everyone what's kept and who can see what. See the [security report](docs/security.md).
@@ -68,6 +69,7 @@ It shows what's new, backs up the database, installs the newest release and chec
 | [Self-hosting](docs/self-hosting.md) | Hardware, installing, your domain, first sign-in, updating, troubleshooting |
 | [Cloudflare Tunnel](docs/cloudflare-tunnel.md) | Putting it on your own domain without opening ports |
 | [Disks and storage](docs/storage-and-disks.md) | Allowances, family limit, adding, limiting and retiring disks |
+| [Virus scanning](docs/virus-scanning.md) | Optional ClamAV check of every upload; turning it on and off |
 | [Network drive](docs/network-drive.md) | Finder, Windows and Linux; iPhone/iPad with a helper app |
 | [Backups and moving](docs/backup-restore.md) | Nightly backups, restoring, moving to new hardware |
 | [Hardware and uptime](docs/hardware-and-uptime.md) | What to run it on, power use, keeping it online |

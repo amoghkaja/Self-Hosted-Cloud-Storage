@@ -48,6 +48,9 @@ const Env = z.object({
     .optional(),
   /** The release notes shown in the app. The Docker image sets it; a checkout uses the repo's. */
   CHANGELOG_PATH: z.string().optional(),
+  /** A clamd to check uploads with (the bundled container is `clamav`). Unset: no scanning. */
+  CLAMAV_HOST: z.string().trim().max(255).optional(),
+  CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
   /** proxy-addr trust list: which peers may set X-Forwarded-For / CF-Connecting-IP. */
   TRUSTED_PROXIES: z.string().default('loopback,uniquelocal'),
   /** Directory with the built web app. When unset the API runs headless (dev uses Vite). */
@@ -112,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     changelogPath: path.resolve(
       e.CHANGELOG_PATH ?? path.join(import.meta.dirname, '../../../CHANGELOG.md'),
     ),
+    clamav: e.CLAMAV_HOST ? { host: e.CLAMAV_HOST, port: e.CLAMAV_PORT } : null,
     passkeyRpId: e.PASSKEY_RP_ID ?? publicUrl.hostname,
     trustedProxies: e.TRUSTED_PROXIES.split(',')
       .map((s) => s.trim())

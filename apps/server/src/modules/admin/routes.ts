@@ -15,6 +15,7 @@ import {
   IdParams,
   Ok,
   PasswordResetLink,
+  ScannerStatus,
   Settings,
   UpdateSettingsBody,
   UpdateUserBody,
@@ -28,7 +29,9 @@ import { z } from 'zod';
 import type { AppContext } from '../../context';
 import {
   auditLog,
+  blobs,
   invites,
+  nodes,
   passwordResets,
   sessions,
   storageVolumes,
@@ -36,6 +39,7 @@ import {
   type VolumeRow,
 } from '../../db/schema';
 import { audit } from '../../lib/audit';
+import { clamdVersion } from '../../lib/clamav';
 import { randomToken, sha256 } from '../../lib/crypto';
 import { toAdminUser } from '../../lib/dto';
 import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
@@ -707,6 +711,33 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       return next;
     },
   );
+
+  // Whether uploads are being checked for viruses, and what was caught.
+  app.get('/admin/scanner', { schema: { response: { 200: ScannerStatus } } }, async (req) => {
+    requireAdmin(req);
+    const clamd = ctx.config.clamav;
+    const version = clamd ? await clamdVersion(clamd).catch(() => null) : null;
+    const [waiting] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(blobs)
+      .where(eq(blobs.scanStatus, 'pending'));
+    const infected = await db
+      .select({ name: nodes.name, owner: users.displayName, signature: blobs.scanSignature })
+      .from(blobs)
+      .innerJoin(nodes, eq(nodes.blobId, blobs.id))
+      .innerJoin(users, eq(users.id, nodes.ownerId))
+      .where(eq(blobs.scanStatus, 'infected'))
+      .orderBy(asc(nodes.name))
+      .limit(100);
+    return {
+      installed: clamd !== null,
+      enabled: (await ctx.settings.get()).virusScan,
+      reachable: clamd ? version !== null : null,
+      version,
+      waiting: waiting?.n ?? 0,
+      infected,
+    };
+  });
 
   app.get(
     '/admin/audit',

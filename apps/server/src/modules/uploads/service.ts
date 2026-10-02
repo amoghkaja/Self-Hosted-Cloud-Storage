@@ -64,11 +64,11 @@ export async function toUploadDto(
   let resolvedNode = node;
   if (!resolvedNode && s.status === 'completed' && s.nodeId) {
     const [row] = await ctx.db
-      .select({ node: nodes, thumb: blobs.thumbStatus })
+      .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
       .from(nodes)
       .leftJoin(blobs, eq(blobs.id, nodes.blobId))
       .where(eq(nodes.id, s.nodeId));
-    if (row) resolvedNode = toFileNode({ ...row.node, thumb: row.thumb });
+    if (row) resolvedNode = toFileNode({ ...row.node, thumb: row.thumb, scan: row.scan });
   }
   return {
     id: s.id,
@@ -280,6 +280,7 @@ export async function instantUpload(
       blobId: blobs.id,
       volumeId: blobs.volumeId,
       thumb: blobs.thumbStatus,
+      scan: blobs.scanStatus,
       nodeId: nodes.id,
       ownerId: nodes.ownerId,
       inAlbum: sql<boolean>`EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
@@ -649,6 +650,7 @@ export async function finalizeUpload(
   const { node, orphans } = committed;
   await deleteBlobFiles(ctx, orphans);
   await ctx.jobs.send('hash', { blobId: claimed.blobId }).catch(() => {});
+  if (ctx.config.clamav) await ctx.jobs.send('scan', { blobId: claimed.blobId }).catch(() => {});
   if (thumbable) await ctx.jobs.send('thumbnail', { blobId: claimed.blobId }).catch(() => {});
   if (video) await ctx.jobs.send('video-stream', { blobId: claimed.blobId }).catch(() => {});
   if (office) await ctx.jobs.send('office-preview', { blobId: claimed.blobId }).catch(() => {});
