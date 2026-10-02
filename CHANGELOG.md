@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.2.0 (2026-10-02)
+
 ### New
 
 - **Virus scanning** (optional): every upload can be checked with ClamAV on your own server.
