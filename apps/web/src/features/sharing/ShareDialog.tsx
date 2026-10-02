@@ -408,12 +408,14 @@ function LinkTab({
 
 export function ShareDialog({
   node,
+  initialTab = 'family',
   onClose,
 }: {
   node: { id: string; name: string; type?: 'file' | 'folder' };
+  initialTab?: 'family' | 'link' | 'request';
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState('family');
+  const [tab, setTab] = useState<string>(initialTab);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()} title={`Share “${node.name}”`} size="md">
       <Tabs

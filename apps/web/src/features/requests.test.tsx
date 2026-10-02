@@ -102,4 +102,21 @@ describe('share dialog', () => {
       within(folderDialog).getByRole('button', { name: 'Create request link' }),
     ).toBeInTheDocument();
   });
+
+  it('opens straight on the request form from "Request files…"', async () => {
+    mockFetch({ 'GET /nodes/d1/links': links });
+    renderWithProviders(
+      <ShareDialog
+        node={{ id: 'd1', name: 'Wedding', type: 'folder' }}
+        initialTab="request"
+        onClose={() => {}}
+      />,
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('tab', { name: 'Request files' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(within(dialog).getByRole('button', { name: 'Create request link' })).toBeInTheDocument();
+  });
 });

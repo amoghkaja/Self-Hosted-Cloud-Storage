@@ -14,6 +14,7 @@ import {
   FolderInput,
   FolderPlus,
   FolderUp,
+  Inbox,
   LayoutGrid,
   List,
   Lock,
@@ -120,6 +121,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
   const listRef = useRef<HTMLDivElement>(null);
 
   const access = detail.data?.access;
+  const here = detail.data?.node;
   const canEdit = access === 'owner' || access === 'edit';
   const actions = useFileActions({
     onPreview: (n) => setPreviewId(n.id),
@@ -291,6 +293,18 @@ function FileBrowser({ folderId }: { folderId: string }) {
                     icon: <FolderUp />,
                     onSelect: () => folderInput.current?.click(),
                   },
+                  // My Files itself can't be shared, so a request needs a folder inside it.
+                  ...(here && access === 'owner' && !detail.data?.isRoot
+                    ? [
+                        {
+                          id: 'request',
+                          label: 'Ask someone for files…',
+                          icon: <Inbox />,
+                          separatorBefore: true,
+                          onSelect: () => actions.requestFiles(here),
+                        },
+                      ]
+                    : []),
                 ]}
               />
             </>

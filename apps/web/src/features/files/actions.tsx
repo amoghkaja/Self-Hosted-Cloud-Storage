@@ -7,6 +7,7 @@ import {
   FolderInput,
   FolderOpen,
   History,
+  Inbox,
   Pencil,
   Share2,
   Star,
@@ -48,7 +49,7 @@ type Dialog =
   | { kind: 'rename'; node: FileNode }
   | { kind: 'move'; nodes: FileNode[] }
   | { kind: 'copy'; nodes: FileNode[] }
-  | { kind: 'share'; node: FileNode }
+  | { kind: 'share'; node: FileNode; request?: boolean }
   | { kind: 'versions'; node: FileNode }
   | null;
 
@@ -186,6 +187,14 @@ export function useFileActions(o: FileActionOptions) {
           icon: <Share2 />,
           onSelect: () => setDialog({ kind: 'share', node: n }),
         });
+        if (n.type === 'folder') {
+          list.push({
+            id: 'request',
+            label: 'Request files…',
+            icon: <Inbox />,
+            onSelect: () => setDialog({ kind: 'share', node: n, request: true }),
+          });
+        }
       }
       if (n.type === 'file' && (o.canEditContent ?? o.canEdit)(n)) {
         list.push({
@@ -285,7 +294,11 @@ export function useFileActions(o: FileActionOptions) {
       )}
       <Suspense fallback={null}>
         {dialog?.kind === 'share' && (
-          <ShareDialog node={dialog.node} onClose={() => setDialog(null)} />
+          <ShareDialog
+            node={dialog.node}
+            initialTab={dialog.request ? 'request' : 'family'}
+            onClose={() => setDialog(null)}
+          />
         )}
         {dialog?.kind === 'versions' && (
           <VersionsDialog node={dialog.node} onClose={() => setDialog(null)} />
@@ -303,5 +316,6 @@ export function useFileActions(o: FileActionOptions) {
     rename: (n: FileNode) => setDialog({ kind: 'rename', node: n }),
     move: (nodes: FileNode[]) => setDialog({ kind: 'move', nodes }),
     copy: (nodes: FileNode[]) => setDialog({ kind: 'copy', nodes }),
+    requestFiles: (n: FileNode) => setDialog({ kind: 'share', node: n, request: true }),
   };
 }

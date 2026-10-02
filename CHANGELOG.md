@@ -8,6 +8,11 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **File requests** are easier to find: every folder's menu has **Request files…**, and the
+  Upload button inside a folder has **Ask someone for files…**.
+
 ## v0.1.0 (2026-10-02)
 
 The first release.
