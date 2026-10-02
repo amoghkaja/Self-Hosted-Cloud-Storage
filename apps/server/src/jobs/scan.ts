@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, or } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import type { AppContext } from '../context';
 import { blobs, nodes } from '../db/schema';
 import { audit } from '../lib/audit';
@@ -73,7 +73,8 @@ export async function queuePendingScans(ctx: AppContext): Promise<void> {
         and(
           eq(blobs.scanStatus, 'clean'),
           gt(blobs.createdAt, new Date(now - RESCAN_DAYS * DAY_MS)),
-          lt(blobs.scannedAt, new Date(now - DAY_MS)),
+          // No time recorded: marked clean by v0.2.0, before scans were dated.
+          or(isNull(blobs.scannedAt), lt(blobs.scannedAt, new Date(now - DAY_MS))),
         ),
       ),
     )

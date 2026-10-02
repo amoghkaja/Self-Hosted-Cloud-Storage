@@ -8,6 +8,10 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Fixed
+
+- **Virus scanning:** files checked by v0.2.0 are now included in the daily re-check.
+
 ## v0.3.0 (2026-10-02)
 
 ### Improved
