@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.3.0 (2026-10-02)
+
 ### Improved
 
 - **Virus scanning:** files sent through a file request can't be opened until they have been
