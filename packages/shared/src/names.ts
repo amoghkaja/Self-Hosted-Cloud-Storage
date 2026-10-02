@@ -33,3 +33,26 @@ export function withCopySuffix(name: string, n: number, label?: string): string 
   const room = NAME_MAX_LENGTH - suffix.length - ext.length;
   return `${base.slice(0, Math.max(1, room))}${suffix}${ext}`;
 }
+
+const PROGRAMS = new Set(
+  'apk app appx bat cmd com cpl deb dll dmg exe gadget hta jar js jse lnk msc msi msp pif pkg ps1 reg rpm scr sh vb vbe vbs wsf wsh'.split(
+    ' ',
+  ),
+);
+
+/**
+ * Programs and scripts, which run when opened. A file request refuses them: its sender is a
+ * stranger, and the person receiving would be one double-click from running their file.
+ */
+export function isProgramFile(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return (
+    dot >= 0 &&
+    PROGRAMS.has(
+      name
+        .slice(dot + 1)
+        .trim()
+        .toLowerCase(),
+    )
+  );
+}

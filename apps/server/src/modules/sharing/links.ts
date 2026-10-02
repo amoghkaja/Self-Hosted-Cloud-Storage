@@ -10,6 +10,8 @@ import {
   PublicLinkInfo,
   type PublicNode,
   PublicNodeParams,
+  REQUEST_DEFAULT_DAYS,
+  REQUEST_MAX_DAYS,
   type Share,
   SharedByMeItem,
   ShareLink,
@@ -261,6 +263,19 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       if (request && a.node.type !== 'folder') {
         throw new AppError(400, ErrorCode.VALIDATION, 'Files can only be requested into a folder');
       }
+      // A request left open forever is an open door: it always has an end date.
+      const DAY = 86_400_000;
+      let expiresAt = req.body.expiresAt ? new Date(req.body.expiresAt) : null;
+      if (request) {
+        expiresAt ??= new Date(Date.now() + REQUEST_DEFAULT_DAYS * DAY);
+        if (expiresAt.getTime() > Date.now() + REQUEST_MAX_DAYS * DAY + 60_000) {
+          throw new AppError(
+            400,
+            ErrorCode.VALIDATION,
+            `A file request can stay open for at most ${REQUEST_MAX_DAYS} days`,
+          );
+        }
+      }
       const token = randomToken(24);
       const [row] = await db
         .insert(shareLinks)
@@ -280,7 +295,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
               ? DEFAULT_REQUEST_LIMIT_BYTES
               : req.body.maxUploadBytes
             : null,
-          expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null,
+          expiresAt,
           createdBy: user.id,
         })
         .returning();
@@ -294,7 +309,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
           linkId: row!.id,
           kind: req.body.kind,
           password: !!req.body.password,
-          expiresAt: req.body.expiresAt ?? null,
+          expiresAt: expiresAt?.toISOString() ?? null,
           maxDownloads: row!.maxDownloads,
         },
       });

@@ -61,6 +61,8 @@ export const CreateFolderBody = z.object({
   name: NodeName,
   /** When true and a folder with this name exists, return it instead of failing (folder uploads). */
   reuseExisting: z.boolean().default(false),
+  /** When true and the name is taken, make "name (2)" instead of failing. */
+  renameIfTaken: z.boolean().default(false),
 });
 
 /** Copy into `parentId`; the name defaults to the original's ("name (copy)" in the same folder). */

@@ -10,8 +10,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Improved
 
-- **File requests** are easier to find: every folder's menu has **Request files…**, and the
-  Upload button inside a folder has **Ask someone for files…**.
+- **File requests** have their own **Request files** button in Files: it makes a new folder and
+  a link to send to someone in one step. Every folder's menu has **Request files…** too.
+
+### Security
+
+- **File requests** now always have an end date (7 days unless you pick, 90 at most), take at
+  most 1,000 files each, and refuse programs and scripts (`.exe`, `.bat`, `.apk` and the like).
 
 ## v0.1.0 (2026-10-02)
 

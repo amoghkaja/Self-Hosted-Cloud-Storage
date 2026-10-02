@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { requestTransport } from '../api/upload-manager';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
 import { PublicLinkPage } from './public/PublicLinkPage';
+import { RequestFilesDialog } from './sharing/RequestFilesDialog';
 import { ShareDialog } from './sharing/ShareDialog';
 
 const token = 'req_0123456789abcdefghijklmn';
@@ -118,5 +119,32 @@ describe('share dialog', () => {
       'true',
     );
     expect(within(dialog).getByRole('button', { name: 'Create request link' })).toBeInTheDocument();
+  });
+});
+
+describe('Request files button', () => {
+  it('makes a new folder and a request link into it, and shows the link', async () => {
+    const calls = mockFetch({
+      'POST /folders': () => ({ json: { id: 'd9', name: 'Tax papers 2026', type: 'folder' } }),
+      'POST /nodes/d9/links': () => ({
+        json: { id: 'l1', kind: 'upload', url: 'https://cloud.example.com/s/abc' },
+      }),
+    });
+    renderWithProviders(<RequestFilesDialog parentId="root" onClose={() => {}} />);
+    await userEvent.type(screen.getByLabelText('What are you asking for?'), 'Tax papers 2026');
+    await userEvent.click(screen.getByRole('button', { name: 'Create folder and link' }));
+    expect(await screen.findByText('https://cloud.example.com/s/abc')).toBeInTheDocument();
+    expect(calls[0]!.body).toEqual({
+      parentId: 'root',
+      name: 'Tax papers 2026',
+      renameIfTaken: true,
+    });
+    expect(calls[1]!.body).toMatchObject({
+      kind: 'upload',
+      title: 'Tax papers 2026',
+      allowDownload: false,
+      maxUploadBytes: 5 * 1024 ** 3,
+    });
+    expect(typeof (calls[1]!.body as { expiresAt: unknown }).expiresAt).toBe('string');
   });
 });

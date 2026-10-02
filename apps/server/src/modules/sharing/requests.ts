@@ -1,5 +1,6 @@
 import {
   ErrorCode,
+  isProgramFile,
   nameProblem,
   normalizeName,
   Ok,
@@ -8,9 +9,10 @@ import {
   PublicUploadBody,
   PublicUploadParams,
   PublicUploadSession,
+  REQUEST_MAX_FILES,
   TokenParams,
 } from '@familycloud/shared/all';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { albumFolders, type UploadSessionRow, uploadChunks, uploadSessions } from '../../db/schema';
@@ -82,6 +84,29 @@ export const requestRoutes: FastifyPluginAsyncZod = async (app) => {
       if (r.root.type !== 'folder') throw notFound('Link');
       const ownerId = r.root.ownerId;
       let name = req.body.name;
+      if (isProgramFile(name)) {
+        throw new AppError(
+          400,
+          ErrorCode.VALIDATION,
+          "Programs and scripts can't be sent this way. Send photos, videos or documents.",
+        );
+      }
+      const [open] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(uploadSessions)
+        .where(
+          and(
+            eq(uploadSessions.linkId, r.link.id),
+            inArray(uploadSessions.status, ['uploading', 'finalizing']),
+          ),
+        );
+      if (r.link.uploadCount + (open?.n ?? 0) >= REQUEST_MAX_FILES) {
+        throw new AppError(
+          409,
+          ErrorCode.CONFLICT,
+          `This request has taken all the files it can (${REQUEST_MAX_FILES}).`,
+        );
+      }
       const from = req.body.from ? normalizeName(req.body.from) : '';
       let senderFolder = false;
       if (from) {

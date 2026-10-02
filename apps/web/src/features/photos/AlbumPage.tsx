@@ -157,7 +157,7 @@ function AskForPhotosDialog({
           >
             <option value="7">7 days</option>
             <option value="30">30 days</option>
-            <option value="">No end date</option>
+            <option value="90">90 days</option>
           </SelectField>
         </div>
       )}

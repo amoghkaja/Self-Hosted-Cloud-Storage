@@ -12,6 +12,13 @@ export const NAME_MAX_LENGTH = 255;
 /** How much a file request takes in total unless its owner picks otherwise. */
 export const DEFAULT_REQUEST_LIMIT_BYTES = 5 * 1024 * 1024 * 1024;
 
+/** A file request always stops by itself: after this long unless its owner picks, and at most… */
+export const REQUEST_DEFAULT_DAYS = 7;
+export const REQUEST_MAX_DAYS = 90;
+
+/** The most files one request takes, so a link that gets around can't bury a folder in junk. */
+export const REQUEST_MAX_FILES = 1000;
+
 /** Older versions kept per file; the oldest goes when a file is saved again (like Google Drive's 100). */
 export const MAX_VERSIONS_PER_FILE = 50;
 export const PASSWORD_MIN_LENGTH = 10;

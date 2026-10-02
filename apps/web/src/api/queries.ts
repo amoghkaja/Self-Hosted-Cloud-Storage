@@ -284,7 +284,7 @@ export function patchChildren(
 export function useCreateFolder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { parentId: string; name: string }) =>
+    mutationFn: (body: { parentId: string; name: string; renameIfTaken?: boolean }) =>
       api<FileNode>('/folders', { json: body }),
     onSuccess: (_n, vars) => qc.invalidateQueries({ queryKey: qk.children(vars.parentId) }),
   });

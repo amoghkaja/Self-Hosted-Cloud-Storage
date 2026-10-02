@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { auditLog, nodes, users } from '../src/db/schema';
+import { auditLog, nodes, shareLinks, users } from '../src/db/schema';
 import {
   addMember,
   bytes,
@@ -352,5 +352,54 @@ describe('download limits', () => {
 
     expect((await guest.get(base)).status).toBe(410);
     expect((await guest.get(`/public/links/${token}`)).status).toBe(410);
+  });
+});
+
+describe('a request link that gets around', () => {
+  it('always has an end date: 7 days by default, 90 at most', async () => {
+    const { link } = await newRequest();
+    const days = (new Date(link.expiresAt).getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(6.9);
+    expect(days).toBeLessThan(7.1);
+    expect((await newRequest({ expiresAt: null })).link.expiresAt).not.toBeNull();
+    const tooLong = await owner.post(`/nodes/${inbox}/links`, {
+      kind: 'upload',
+      expiresAt: new Date(Date.now() + 91 * 86_400_000).toISOString(),
+    });
+    expect(tooLong.status).toBe(400);
+    // Ordinary view links may still have no end date.
+    const view = await owner.post(`/nodes/${inbox}/links`, { kind: 'view' });
+    expect(view.body.expiresAt).toBeNull();
+  });
+
+  it('refuses programs and scripts, whatever the letter case', async () => {
+    const { token } = await newRequest();
+    const guest = new Client(env.app);
+    for (const name of ['setup.EXE', 'invoice.pdf.scr', 'run.bat', 'app.apk']) {
+      const res = await send(guest, token, name, Buffer.from('MZ'));
+      expect(res.created.status, name).toBe(400);
+    }
+    expect((await send(guest, token, 'photo.jpg', bytes(10, 1))).last!.status).toBe(200);
+  });
+
+  it('stops after 1,000 files', async () => {
+    const { link, token } = await newRequest();
+    await env.ctx.db
+      .update(shareLinks)
+      .set({ uploadCount: 1000 })
+      .where(eq(shareLinks.id, link.id));
+    const res = await send(new Client(env.app), token, 'one-more.jpg', bytes(10, 2));
+    expect(res.created.status).toBe(409);
+  });
+
+  it('makes a second folder instead of reusing one when asked to rename', async () => {
+    const again = await owner.post('/folders', {
+      parentId: root,
+      name: 'Wedding photos',
+      renameIfTaken: true,
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.id).not.toBe(inbox);
+    expect(again.body.name).not.toBe('Wedding photos');
   });
 });

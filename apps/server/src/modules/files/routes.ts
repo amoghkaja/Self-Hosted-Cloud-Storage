@@ -144,7 +144,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
           name: req.body.name,
           createdBy: user.id,
         },
-        req.body.reuseExisting ? 'reuse' : 'fail',
+        req.body.reuseExisting ? 'reuse' : req.body.renameIfTaken ? 'rename' : 'fail',
       );
       return toFileNode(row);
     },

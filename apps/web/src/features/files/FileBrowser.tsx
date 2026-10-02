@@ -67,6 +67,7 @@ import {
 } from '../../components/ui';
 import { usePref } from '../../lib/storage';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { RequestFilesDialog } from '../sharing/RequestFilesDialog';
 import { ReplaceDialog } from '../uploads/ReplaceDialog';
 import { downloadNodes, useFileActions } from './actions';
 import { NewFolderDialog } from './dialogs';
@@ -116,12 +117,12 @@ function FileBrowser({ folderId }: { folderId: string }) {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewIndex = previewId ? files.findIndex((f) => f.id === previewId) : -1;
   const [newFolder, setNewFolder] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const access = detail.data?.access;
-  const here = detail.data?.node;
   const canEdit = access === 'owner' || access === 'edit';
   const actions = useFileActions({
     onPreview: (n) => setPreviewId(n.id),
@@ -273,6 +274,12 @@ function FileBrowser({ folderId }: { folderId: string }) {
                   <span className="hidden sm:inline">New folder</span>
                 </Button>
               </Tooltip>
+              {access === 'owner' && !detail.data?.album && (
+                <Button icon={<Inbox size={16} />} onClick={() => setRequesting(true)}>
+                  <span className="sm:hidden">Request</span>
+                  <span className="hidden sm:inline">Request files</span>
+                </Button>
+              )}
               <DropdownMenu
                 label="Upload"
                 trigger={
@@ -293,18 +300,6 @@ function FileBrowser({ folderId }: { folderId: string }) {
                     icon: <FolderUp />,
                     onSelect: () => folderInput.current?.click(),
                   },
-                  // My Files itself can't be shared, so a request needs a folder inside it.
-                  ...(here && access === 'owner' && !detail.data?.isRoot
-                    ? [
-                        {
-                          id: 'request',
-                          label: 'Ask someone for files…',
-                          icon: <Inbox />,
-                          separatorBefore: true,
-                          onSelect: () => actions.requestFiles(here),
-                        },
-                      ]
-                    : []),
                 ]}
               />
             </>
@@ -484,6 +479,9 @@ function FileBrowser({ folderId }: { folderId: string }) {
         }}
       />
       {newFolder && <NewFolderDialog parentId={folderId} open onOpenChange={setNewFolder} />}
+      {requesting && (
+        <RequestFilesDialog parentId={folderId} onClose={() => setRequesting(false)} />
+      )}
       {conflict && (
         <ReplaceDialog
           names={conflict.names}

@@ -316,6 +316,5 @@ export function useFileActions(o: FileActionOptions) {
     rename: (n: FileNode) => setDialog({ kind: 'rename', node: n }),
     move: (nodes: FileNode[]) => setDialog({ kind: 'move', nodes }),
     copy: (nodes: FileNode[]) => setDialog({ kind: 'copy', nodes }),
-    requestFiles: (n: FileNode) => setDialog({ kind: 'share', node: n, request: true }),
   };
 }

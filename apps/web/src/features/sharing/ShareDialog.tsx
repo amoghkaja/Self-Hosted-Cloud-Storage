@@ -312,7 +312,7 @@ function LinkTab({
           value={days}
           onChange={(e) => setDays(e.target.value)}
         >
-          {EXPIRY.map((o) => (
+          {EXPIRY.filter((o) => !request || o.value).map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
