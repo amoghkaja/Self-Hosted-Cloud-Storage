@@ -46,6 +46,7 @@ export function downloadNodes(nodes: Pick<FileNode, 'id' | 'type'>[]) {
   else triggerDownload(zipUrl(nodes.map((n) => n.id)));
 }
 
+const CHECKING = 'This file is still being checked for viruses. Try again in a minute.';
 const INFECTED = 'A virus was found in this file, so it is blocked. Delete it.';
 
 type Dialog =
@@ -88,6 +89,7 @@ export function useFileActions(o: FileActionOptions) {
   const open = useCallback(
     (n: FileNode) => {
       if (n.infected) toast.error(INFECTED);
+      else if (n.checking) toast.info(CHECKING);
       else if (n.type === 'folder') navigate(`/files/${n.id}`);
       else o.onPreview(n);
     },
@@ -174,7 +176,12 @@ export function useFileActions(o: FileActionOptions) {
           id: 'download',
           label: n.type === 'folder' ? 'Download as zip' : 'Download',
           icon: <Download />,
-          onSelect: () => (n.infected ? toast.error(INFECTED) : downloadNodes([n])),
+          onSelect: () =>
+            n.infected
+              ? toast.error(INFECTED)
+              : n.checking
+                ? toast.info(CHECKING)
+                : downloadNodes([n]),
         },
         {
           id: 'star',
@@ -267,6 +274,10 @@ export function useFileActions(o: FileActionOptions) {
         <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-danger-soft px-1.5 py-0.5 text-xs font-medium text-danger">
           <ShieldAlert className="size-3.5" aria-hidden />
           Virus found
+        </span>
+      ) : n.checking ? (
+        <span className="inline-flex shrink-0 items-center rounded-md bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">
+          Being checked
         </span>
       ) : starredIds.has(n.id) ? (
         <Star

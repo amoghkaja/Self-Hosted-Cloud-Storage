@@ -774,6 +774,16 @@ export function useAdminMutations() {
         api<Volume>(`/admin/volumes/${id}/cancel-drain`, { method: 'POST', json: {} }),
       onSuccess: refresh,
     }),
+    allowBlocked: useMutation({
+      mutationFn: (blobId: string) =>
+        api(`/admin/scanner/blobs/${blobId}/allow`, { method: 'POST', json: {} }),
+      onSuccess: refresh,
+    }),
+    deleteBlocked: useMutation({
+      mutationFn: (blobId: string) =>
+        api(`/admin/scanner/blobs/${blobId}/delete`, { method: 'POST', json: {} }),
+      onSuccess: refresh,
+    }),
     updateSettings: useMutation({
       mutationFn: (body: Partial<Settings>) =>
         api<Settings>('/admin/settings', { method: 'PATCH', json: body }),

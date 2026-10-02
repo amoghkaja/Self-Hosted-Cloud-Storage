@@ -22,6 +22,8 @@ export const FileNode = z.object({
   thumb: ThumbStatus,
   /** A virus was found in it: it can't be opened or downloaded, only deleted. */
   infected: z.boolean().optional(),
+  /** Sent through a file request and still waiting for its virus check: not openable yet. */
+  checking: z.boolean().optional(),
   createdAt: IsoDate,
   updatedAt: IsoDate,
 });

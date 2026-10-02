@@ -236,8 +236,12 @@ export const ScannerStatus = z.object({
   version: z.string().nullable(),
   /** Files not checked yet (everything, while scanning is off). */
   waiting: z.number().int(),
+  /** Of those, files from file requests that nobody can open until they are checked. */
+  held: z.number().int(),
   infected: z.array(
     z.object({
+      /** What to allow or delete: every copy of these bytes. */
+      blobId: Id,
       name: z.string(),
       owner: z.string(),
       signature: z.string().nullable(),

@@ -8,6 +8,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **Virus scanning:** files sent through a file request can't be opened until they have been
+  checked. Recent files are checked again daily for two weeks. Under Admin → Settings an admin
+  can delete a blocked file or allow one the scanner got wrong. Previews and thumbnails of
+  blocked files are blocked too.
+
 ## v0.2.0 (2026-10-02)
 
 ### New

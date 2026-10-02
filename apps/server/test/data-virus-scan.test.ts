@@ -4,14 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auditLog, blobs, nodes } from '../src/db/schema';
 import { queuePendingScans, scanBlob } from '../src/jobs/scan';
 import { clamdVersion, scanFile } from '../src/lib/clamav';
-import {
-  addMember,
-  type Client,
-  createTestEnv,
-  setupAdmin,
-  type TestEnv,
-  uploadFile,
-} from './helpers';
+import { addMember, Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
 
 /** The harmless string every scanner agrees to call a virus. */
 const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
@@ -119,7 +112,12 @@ describe('virus scanning', () => {
     const status = (await admin.get('/admin/scanner')).body;
     expect(status).toMatchObject({ installed: true, enabled: true, reachable: true });
     expect(status.infected).toEqual([
-      { name: 'invoice.pdf', owner: expect.any(String), signature: 'Eicar-Signature' },
+      {
+        blobId: await blobOf(bad.id),
+        name: 'invoice.pdf',
+        owner: expect.any(String),
+        signature: 'Eicar-Signature',
+      },
     ]);
     const log = await env.ctx.db
       .select()
@@ -152,6 +150,85 @@ describe('virus scanning', () => {
     expect(queued).toContain(blobId);
     for (const id of queued) await scanBlob(env.ctx, id);
     expect((await admin.get(`/nodes/${f.id}/content`)).status).toBe(403);
+  });
+
+  it("holds a stranger's file until it has been scanned", async () => {
+    const inbox = (await admin.post('/folders', { parentId: root, name: 'From others' })).body.id;
+    const link = (await admin.post(`/nodes/${inbox}/links`, { kind: 'upload' })).body;
+    const token = link.url.split('/s/')[1];
+    const guest = new Client(env.app);
+    const data = Buffer.from('a harmless letter');
+    const up = await guest.post(`/public/links/${token}/uploads`, {
+      name: 'letter.txt',
+      size: data.length,
+    });
+    await guest.req('PUT', `/public/links/${token}/uploads/${up.body.id}/chunks/0`, { body: data });
+    const [file] = (await admin.get(`/nodes/${inbox}/children`)).body.items;
+    expect(file.checking).toBe(true);
+    const waiting = await admin.get(`/nodes/${file.id}/content`);
+    expect(waiting.status).toBe(409);
+    expect(waiting.body.code).toBe('FILE_SCANNING');
+    expect((await admin.get('/admin/scanner')).body.held).toBe(1);
+
+    for (const id of scanJobs()) await scanBlob(env.ctx, id);
+    expect((await admin.get(`/nodes/${file.id}/content`)).status).toBe(200);
+    expect((await admin.get(`/nodes/${inbox}/children`)).body.items[0].checking).toBeUndefined();
+  });
+
+  it('lets held files go when scanning is switched off', async () => {
+    const [b] = await env.ctx.db.select().from(blobs).limit(1);
+    await env.ctx.db.update(blobs).set({ scanStatus: 'held' }).where(eq(blobs.id, b!.id));
+    await admin.patch('/admin/settings', { virusScan: false });
+    const [after] = await env.ctx.db.select().from(blobs).where(eq(blobs.id, b!.id));
+    expect(after!.scanStatus).toBe('pending');
+    await admin.patch('/admin/settings', { virusScan: true });
+    await env.ctx.db.update(blobs).set({ scanStatus: b!.scanStatus }).where(eq(blobs.id, b!.id));
+    scanJobs();
+  });
+
+  it('scans a recent clean file again the next day, with the newer virus list', async () => {
+    const f = (await uploadFile(admin, root, 'fresh.txt', Buffer.from('fresh'))).final!.body.node;
+    const blobId = await blobOf(f.id);
+    for (const id of scanJobs()) await scanBlob(env.ctx, id);
+    await queuePendingScans(env.ctx);
+    expect(scanJobs()).not.toContain(blobId);
+    await env.ctx.db
+      .update(blobs)
+      .set({ scannedAt: new Date(Date.now() - 25 * 3_600_000) })
+      .where(eq(blobs.id, blobId));
+    await queuePendingScans(env.ctx);
+    expect(scanJobs()).toContain(blobId);
+  });
+
+  it('lets an admin allow a false positive, or delete the file', async () => {
+    const a = (await uploadFile(admin, root, 'tool.bin', Buffer.from(`${EICAR} one`))).final!.body
+      .node;
+    const b = (await uploadFile(admin, root, 'junk.bin', Buffer.from(`${EICAR} two`))).final!.body
+      .node;
+    for (const id of scanJobs()) await scanBlob(env.ctx, id);
+    expect((await admin.get(`/nodes/${a.id}/content`)).status).toBe(403);
+
+    expect((await admin.post(`/admin/scanner/blobs/${await blobOf(a.id)}/allow`, {})).status).toBe(
+      200,
+    );
+    expect((await admin.get(`/nodes/${a.id}/content`)).status).toBe(200);
+    // Allowed stays allowed: another scan doesn't block it again.
+    await scanBlob(env.ctx, await blobOf(a.id));
+    expect((await admin.get(`/nodes/${a.id}/content`)).status).toBe(200);
+
+    expect((await admin.post(`/admin/scanner/blobs/${await blobOf(b.id)}/delete`, {})).status).toBe(
+      200,
+    );
+    const left = (await admin.get(`/nodes/${root}/children`)).body.items.map(
+      (n: { name: string }) => n.name,
+    );
+    expect(left).toContain('tool.bin');
+    expect(left).not.toContain('junk.bin');
+    const names = (await admin.get('/admin/scanner')).body.infected.map(
+      (f: { name: string }) => f.name,
+    );
+    expect(names).not.toContain('junk.bin');
+    expect(names).not.toContain('tool.bin');
   });
 
   it('leaves files waiting when the scanner is down, instead of calling them clean', async () => {

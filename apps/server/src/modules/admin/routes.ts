@@ -23,7 +23,7 @@ import {
   Volume,
   VolumeCandidate,
 } from '@familycloud/shared/all';
-import { and, asc, desc, eq, gt, isNull, lt, max, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, max, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { AppContext } from '../../context';
@@ -38,6 +38,7 @@ import {
   users,
   type VolumeRow,
 } from '../../db/schema';
+import { queuePendingScans } from '../../jobs/scan';
 import { audit } from '../../lib/audit';
 import { clamdVersion } from '../../lib/clamav';
 import { randomToken, sha256 } from '../../lib/crypto';
@@ -47,6 +48,7 @@ import { volumeSpace } from '../../lib/space';
 import { DAY_MS, toIso } from '../../lib/time';
 import { requireAdmin } from '../../plugins/auth';
 import { dropRecoveryCodes } from '../auth/service';
+import { trashSubtree } from '../files/tree';
 import { deleteAccount } from './delete-user';
 
 /** Advisory lock taken while an admin is demoted or disabled (see the last-admin guard). */
@@ -702,6 +704,8 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
           ctx.davAuth.forgetUser(u.id);
         }
       }
+      // Nothing will scan them now, so files held for a scan are let go (and re-queued if on).
+      if (before.virusScan !== next.virusScan) await queuePendingScans(ctx);
       await audit(db, {
         actorId: admin.id,
         action: 'admin.settings_updated',
@@ -720,13 +724,22 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
     const [waiting] = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(blobs)
-      .where(eq(blobs.scanStatus, 'pending'));
+      .where(inArray(blobs.scanStatus, ['pending', 'held']));
+    const [held] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(blobs)
+      .where(eq(blobs.scanStatus, 'held'));
     const infected = await db
-      .select({ name: nodes.name, owner: users.displayName, signature: blobs.scanSignature })
+      .select({
+        blobId: blobs.id,
+        name: nodes.name,
+        owner: users.displayName,
+        signature: blobs.scanSignature,
+      })
       .from(blobs)
       .innerJoin(nodes, eq(nodes.blobId, blobs.id))
       .innerJoin(users, eq(users.id, nodes.ownerId))
-      .where(eq(blobs.scanStatus, 'infected'))
+      .where(and(eq(blobs.scanStatus, 'infected'), isNull(nodes.deletedAt)))
       .orderBy(asc(nodes.name))
       .limit(100);
     return {
@@ -735,9 +748,67 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       reachable: clamd ? version !== null : null,
       version,
       waiting: waiting?.n ?? 0,
+      held: held?.n ?? 0,
       infected,
     };
   });
+
+  // A finding the admin knows to be wrong (a false positive): the file works again, and later
+  // scans leave it alone.
+  app.post(
+    '/admin/scanner/blobs/:id/allow',
+    { schema: { params: IdParams, response: { 200: Ok } } },
+    async (req) => {
+      const { user: admin } = requireAdmin(req);
+      const [row] = await db
+        .update(blobs)
+        .set({ scanStatus: 'allowed' })
+        .where(and(eq(blobs.id, req.params.id), eq(blobs.scanStatus, 'infected')))
+        .returning({ signature: blobs.scanSignature });
+      if (!row) throw notFound('Blocked file');
+      await audit(db, {
+        actorId: admin.id,
+        action: 'scan.allowed',
+        targetType: 'blob',
+        targetId: req.params.id,
+        ip: req.clientIp,
+        meta: { signature: row.signature },
+      });
+      return { ok: true as const };
+    },
+  );
+
+  // Moves every copy of an infected file to its owner's trash (where it stays blocked until the
+  // trash empties).
+  app.post(
+    '/admin/scanner/blobs/:id/delete',
+    { schema: { params: IdParams, response: { 200: Ok } } },
+    async (req) => {
+      const { user: admin } = requireAdmin(req);
+      const copies = await db
+        .select({ id: nodes.id, name: nodes.name })
+        .from(nodes)
+        .innerJoin(blobs, eq(blobs.id, nodes.blobId))
+        .where(
+          and(
+            eq(blobs.id, req.params.id),
+            eq(blobs.scanStatus, 'infected'),
+            isNull(nodes.deletedAt),
+          ),
+        );
+      if (copies.length === 0) throw notFound('Blocked file');
+      for (const c of copies) await trashSubtree(db, c.id, { actorId: admin.id });
+      await audit(db, {
+        actorId: admin.id,
+        action: 'scan.deleted',
+        targetType: 'blob',
+        targetId: req.params.id,
+        ip: req.clientIp,
+        meta: { names: copies.map((c) => c.name).slice(0, 20) },
+      });
+      return { ok: true as const };
+    },
+  );
 
   app.get(
     '/admin/audit',

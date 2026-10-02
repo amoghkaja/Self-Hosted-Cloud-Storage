@@ -8,6 +8,7 @@ import yazl from 'yazl';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
 import { blobs } from '../../db/schema';
+import { scanningOn } from '../../jobs/scan';
 import { AppError, badRequest, notFound } from '../../lib/errors';
 import { contentDisposition, isInlineSafe, parseRange, servedContentType } from '../../lib/http';
 import { previewPath, streamPath, thumbPath } from '../../storage/thumbs';
@@ -45,22 +46,27 @@ export interface BlobRef {
   mimeType: string | null;
 }
 
-/** Every way out for a file's own bytes passes here: a blob with a virus in it is never sent. */
-async function isInfected(ctx: AppContext, blobId: string): Promise<string | false> {
+/**
+ * Every way out for a file, or a picture of it, passes here. A blob with a virus in it is never
+ * sent, and one a stranger sent through a file request waits for its scan first.
+ */
+export async function refuseUnsafe(ctx: AppContext, blobId: string): Promise<void> {
   const [row] = await ctx.db
     .select({ status: blobs.scanStatus, signature: blobs.scanSignature })
     .from(blobs)
     .where(eq(blobs.id, blobId));
-  return row?.status === 'infected' ? (row.signature ?? 'unknown') : false;
-}
-
-export async function refuseInfected(ctx: AppContext, blobId: string): Promise<void> {
-  const signature = await isInfected(ctx, blobId);
-  if (signature) {
+  if (row?.status === 'infected') {
     throw new AppError(
       403,
       ErrorCode.FILE_INFECTED,
-      `This file is blocked: a virus was found in it (${signature}). Delete it.`,
+      `This file is blocked: a virus was found in it (${row.signature ?? 'unknown'}). Delete it.`,
+    );
+  }
+  if (row?.status === 'held' && (await scanningOn(ctx))) {
+    throw new AppError(
+      409,
+      ErrorCode.FILE_SCANNING,
+      'This file is still being checked for viruses. Try again in a minute.',
     );
   }
 }
@@ -73,7 +79,7 @@ export async function sendBlob(
   blob: BlobRef,
   opts: { inline: boolean },
 ) {
-  await refuseInfected(ctx, blob.blobId);
+  await refuseUnsafe(ctx, blob.blobId);
   const file = await ctx.volumes.blobFile({ id: blob.blobId, volumeId: blob.volumeId });
   return sendFileRange(req, reply, {
     file,
@@ -96,6 +102,7 @@ export async function sendVideoStream(
   reply: FastifyReply,
   blob: BlobRef,
 ) {
+  await refuseUnsafe(ctx, blob.blobId);
   const [row] = await ctx.db
     .select({ status: blobs.streamStatus })
     .from(blobs)
@@ -130,6 +137,7 @@ export async function sendOfficePreview(
   reply: FastifyReply,
   blob: BlobRef,
 ) {
+  await refuseUnsafe(ctx, blob.blobId);
   const [row] = await ctx.db
     .select({ status: blobs.previewStatus })
     .from(blobs)
@@ -230,6 +238,7 @@ export async function sendThumbnail(
   blobId: string,
   size: ThumbSize,
 ) {
+  await refuseUnsafe(ctx, blobId);
   const file = thumbPath(ctx.config.cacheDir, blobId, size);
   const st = await stat(file).catch(() => null);
   if (!st) {
@@ -286,7 +295,7 @@ export async function listTree(exec: Executor, folderId: string, limit = MAX_ZIP
     SELECT t.id, t.type, t.path, t.size, t.updated_at AS "updatedAt", t.mime_type AS "mimeType",
            b.id AS "blobId", b.volume_id AS "volumeId"
     FROM t LEFT JOIN blobs b ON b.id = t.blob_id
-    WHERE b.scan_status IS DISTINCT FROM 'infected'
+    WHERE b.scan_status IS NULL OR b.scan_status NOT IN ('infected', 'held')
     ORDER BY t.path
     LIMIT ${limit}
   `)) as unknown as TreeEntry[];
@@ -323,8 +332,15 @@ export async function sendZip(
     for (let i = 2; usedNames.has(name.toLowerCase()); i++) name = `${base} (${i})`;
     usedNames.add(name.toLowerCase());
     if (root.type === 'file') {
-      // Left out, like infected files inside a folder (listTree).
-      if (root.blobId && (await isInfected(ctx, root.blobId))) continue;
+      // Left out, like blocked files inside a folder (listTree).
+      if (
+        root.blobId &&
+        (await refuseUnsafe(ctx, root.blobId).then(
+          () => false,
+          () => true,
+        ))
+      )
+        continue;
       entries.push({
         id: root.id,
         type: 'file',

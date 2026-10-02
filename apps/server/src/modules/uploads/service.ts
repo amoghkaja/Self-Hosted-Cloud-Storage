@@ -25,6 +25,7 @@ import {
   uploadSessions,
   users,
 } from '../../db/schema';
+import { scanningOn } from '../../jobs/scan';
 import { toFileNode } from '../../lib/dto';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
@@ -551,6 +552,8 @@ export async function finalizeUpload(
   const thumbable = isThumbnailable(claimed.mimeType);
   const video = isVideo(claimed.mimeType);
   const office = isOfficeDocument(claimed.mimeType, claimed.name);
+  // A stranger's file (sent through a file request) isn't served until it has been scanned.
+  const held = claimed.linkId !== null && (await scanningOn(ctx));
   const { versionRetentionDays } = await ctx.settings.get();
   let committed: { node: NodeRow; orphans: StoredBlob[] };
   try {
@@ -592,6 +595,7 @@ export async function finalizeUpload(
         thumbStatus: thumbable ? 'pending' : 'unsupported',
         streamStatus: video ? 'pending' : 'none',
         previewStatus: office ? 'pending' : 'none',
+        scanStatus: held ? 'held' : 'pending',
       });
       // "Replace": save over the file of that name, keeping its old contents as a version.
       const existing = claimed.replaceExisting

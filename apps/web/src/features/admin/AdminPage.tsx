@@ -968,6 +968,13 @@ const parseDomains = (text: string) => [
 /** The on/off switch for checking uploads, with what the scanner is doing right now. */
 function VirusScanSetting({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   const status = useScannerStatus().data;
+  const m = useAdminMutations();
+  const [allowing, setAllowing] = useState<{ blobId: string; name: string } | null>(null);
+  const act = (run: Promise<unknown>, done: string) =>
+    run.then(
+      () => toast.success(done),
+      (err) => toast.error(errorMessage(err)),
+    );
   if (!status) return <Skeleton className="h-16" />;
   if (!status.installed) {
     return (
@@ -1007,20 +1014,56 @@ function VirusScanSetting({ on, onChange }: { on: boolean; onChange: (v: boolean
         {status.waiting > 0
           ? `${status.waiting.toLocaleString()} ${status.waiting === 1 ? 'file' : 'files'} not checked yet${status.enabled ? ' (about 2,000 are checked per hour)' : ''}.`
           : 'Every file has been checked.'}{' '}
-        Files over 100 MB are not checked.
+        Files over 100 MB are not checked. Recent files are checked again daily for two weeks.
       </p>
       {status.infected.length > 0 && (
         <div className="rounded-xl border border-danger/30 bg-danger-soft px-3 py-2 text-sm">
           <p className="font-medium text-danger">Blocked files</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          <ul className="mt-1 flex flex-col gap-2">
             {status.infected.map((f) => (
-              <li key={`${f.owner}/${f.name}`}>
-                {f.name} ({f.owner}): {f.signature}
+              <li
+                key={`${f.blobId}/${f.owner}/${f.name}`}
+                className="flex flex-wrap items-center gap-2"
+              >
+                <span className="min-w-0 flex-1 break-words">
+                  {f.name} ({f.owner}): {f.signature}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => act(m.deleteBlocked.mutateAsync(f.blobId), 'Moved to trash')}
+                >
+                  Delete
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setAllowing(f)}>
+                  Allow anyway
+                </Button>
               </li>
             ))}
           </ul>
         </div>
       )}
+      {status.held > 0 && (
+        <p className="text-xs text-muted">
+          {status.held} sent through file requests {status.held === 1 ? 'is' : 'are'} held until
+          checked.
+        </p>
+      )}
+      <ConfirmDialog
+        open={!!allowing}
+        onOpenChange={(o) => !o && setAllowing(null)}
+        tone="danger"
+        title={`Allow “${allowing?.name}”?`}
+        description="Only do this if you are sure the scanner is wrong about this file. It can be opened and downloaded again, and won't be checked again."
+        confirmLabel="Allow anyway"
+        onConfirm={async () => {
+          try {
+            await m.allowBlocked.mutateAsync(allowing!.blobId);
+          } catch (err) {
+            toast.error(errorMessage(err));
+            throw err;
+          }
+        }}
+      />
     </div>
   );
 }

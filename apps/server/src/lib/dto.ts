@@ -52,6 +52,7 @@ export function toFileNode(n: NodeWithThumb): FileNode {
     ownerId: n.ownerId,
     thumb: n.type === 'folder' ? 'none' : (n.thumb ?? 'none'),
     ...(n.scan === 'infected' ? { infected: true } : {}),
+    ...(n.scan === 'held' ? { checking: true } : {}),
     createdAt: toIso(n.createdAt),
     updatedAt: toIso(n.updatedAt),
   };

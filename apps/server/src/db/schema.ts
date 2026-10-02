@@ -37,8 +37,19 @@ export const thumbStatus = pgEnum('thumb_status', [
   'failed',
   'unsupported',
 ]);
-/** Virus scan of a blob. 'pending' also covers "never scanned" while scanning is off. */
-export const scanStatus = pgEnum('scan_status', ['pending', 'clean', 'infected', 'skipped']);
+/**
+ * Virus scan of a blob. 'pending' also covers "never scanned" while scanning is off. 'held': sent
+ * by a stranger through a file request, and not served until it has been scanned. 'allowed': an
+ * admin overrode a finding (a false positive).
+ */
+export const scanStatus = pgEnum('scan_status', [
+  'pending',
+  'clean',
+  'infected',
+  'skipped',
+  'held',
+  'allowed',
+]);
 export const streamStatus = pgEnum('stream_status', [
   'none',
   'pending',
@@ -185,6 +196,8 @@ export const blobs = pgTable(
     scanStatus: scanStatus('scan_status').notNull().default('pending'),
     /** What the scanner called it, e.g. "Win.Trojan.Agent-123". */
     scanSignature: text('scan_signature'),
+    /** When it was last scanned; recent files are scanned again as the virus list grows. */
+    scannedAt: ts('scanned_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [
