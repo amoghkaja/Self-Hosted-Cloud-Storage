@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.5.0 (2026-10-05)
+
 ### Improved
 
 - **Installing:** with a Cloudflare API token, the installer creates the Cloudflare Tunnel and its
