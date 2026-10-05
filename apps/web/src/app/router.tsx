@@ -96,6 +96,13 @@ export const router = createBrowserRouter([
           import('../features/settings/SettingsPage').then((m) => ({ Component: m.SettingsPage })),
       },
       {
+        path: 'storage',
+        lazy: () =>
+          import('../features/storage/FreeUpSpacePage').then((m) => ({
+            Component: m.FreeUpSpacePage,
+          })),
+      },
+      {
         path: 'whats-new',
         lazy: () =>
           import('../features/about/WhatsNewPage').then((m) => ({ Component: m.WhatsNewPage })),

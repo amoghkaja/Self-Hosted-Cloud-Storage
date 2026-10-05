@@ -9,9 +9,11 @@ import type {
   AppPassword,
   AuditPage,
   Branding,
+  CleanupReport,
   CreateAppPasswordResponse,
   DirectoryUser,
   FileNode,
+  Freed,
   LoginResponse,
   Me,
   NodeDetail,
@@ -56,6 +58,7 @@ export const qk = {
   me: ['me'] as const,
   // Under 'me' so everything that refreshes the account refreshes the space left too.
   storage: ['me', 'storage'] as const,
+  cleanup: ['me', 'cleanup'] as const,
   setup: ['setup-status'] as const,
   about: ['about'] as const,
   nodes: ['node'] as const,
@@ -410,6 +413,7 @@ export function useTrashNodes() {
         vars.items.map((n) => n.parentId),
       );
       void qc.invalidateQueries({ queryKey: qk.trash });
+      void qc.invalidateQueries({ queryKey: qk.cleanup });
     },
   });
 }
@@ -499,6 +503,22 @@ export function useToggleStar() {
 }
 
 // ── trash ───────────────────────────────────────────────────────────────────
+
+/** What takes up the caller's space, for "Free up space". */
+export function useCleanup() {
+  return useQuery({ queryKey: qk.cleanup, queryFn: () => api<CleanupReport>('/cleanup') });
+}
+
+export function useDeleteAllVersions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<Freed>('/cleanup/versions', { method: 'DELETE' }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: qk.me });
+      void qc.invalidateQueries({ queryKey: ['versions'] });
+    },
+  });
+}
 
 export function useTrash() {
   return useQuery({ queryKey: qk.trash, queryFn: () => api<TrashList>('/trash') });

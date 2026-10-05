@@ -1,4 +1,5 @@
 import { formatBytes } from '@familycloud/shared';
+import { Link } from 'react-router';
 import { useStorage } from '../api/queries';
 import { Progress, Skeleton } from '../components/ui';
 
@@ -6,7 +7,14 @@ import { Progress, Skeleton } from '../components/ui';
  * Your space: what you use and what's left for you. "Left" is the tightest of your allowance,
  * the family limit and the free disk space, so it's the same number the network drive shows.
  */
-export function StorageSummary({ detailed = false }: { detailed?: boolean }) {
+export function StorageSummary({
+  detailed = false,
+  cleanupLink = true,
+}: {
+  detailed?: boolean;
+  /** A link to "Free up space" (not on that page itself). */
+  cleanupLink?: boolean;
+}) {
   const s = useStorage().data;
   if (!s) return <Skeleton className="h-9" />;
   // The bar runs to what they could reach: their allowance, or used + what's left for them.
@@ -24,6 +32,14 @@ export function StorageSummary({ detailed = false }: { detailed?: boolean }) {
       <p className="text-xs text-muted tabular-nums">
         {formatBytes(s.usedBytes)} used · {formatBytes(s.availableBytes)} left
       </p>
+      {cleanupLink && s.usedBytes > 0 && (
+        <Link
+          to="/storage"
+          className={`self-start text-xs underline-offset-2 hover:underline pointer-coarse:py-2 ${ratio > 0.8 ? 'font-medium text-accent' : 'text-muted'}`}
+        >
+          Free up space
+        </Link>
+      )}
       {detailed && s.versionsBytes > 0 && (
         <p className="text-xs text-muted tabular-nums">
           {formatBytes(s.versionsBytes)} of that is older versions of files, kept for a while in

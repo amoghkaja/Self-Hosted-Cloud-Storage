@@ -93,6 +93,15 @@ When a file is saved over (network drive, `onConflict: "replace"`, restoring), i
 | POST | `/nodes/:id/versions/:versionId/restore` | Make it current again (what was current becomes a version) |
 | DELETE | `/nodes/:id/versions[/:versionId]` | Delete one version / all of a file's versions (owner only) |
 
+### Free up space
+
+Only the caller's own files (what others share with them counts toward the sharer's space).
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/cleanup` | `{largest, duplicates, versions, trash}`: the 50 biggest files, groups of identical files (same checksum; `count` copies, the first 20 listed), files with the most older versions, and what the trash holds. Each file has `folder`, its path below My Files |
+| DELETE | `/cleanup/versions` | Delete every older version of the caller's files for good: `{count, bytes}` |
+
 ### Trash
 
 | Method | Path | Description |

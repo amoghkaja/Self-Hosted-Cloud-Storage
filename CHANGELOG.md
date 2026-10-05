@@ -14,6 +14,9 @@ to do yourself when updating is listed under **Before you update**.
   with a heading for each day of the trip. The viewer shows when a photo was taken and, if the
   phone recorded it, a map of where. Photos already in your albums are sorted in the background
   after updating. Photos without a date (WhatsApp removes it) stay in upload order.
+- **Free up space:** a page (from the storage bar, or Settings) that shows your biggest files,
+  the same file stored more than once, older versions of files and what's in the trash, so you
+  can see what takes up your space and let go of what you don't need.
 
 ### Fixed
 

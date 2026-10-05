@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { blobs, fileVersions, nodes, users } from '../../db/schema';
+import { queueUnfinishedWork } from '../../jobs/derived';
 import { audit } from '../../lib/audit';
 import { toFileNode } from '../../lib/dto';
 import { conflict, notFound } from '../../lib/errors';
@@ -169,12 +170,7 @@ export const versionRoutes: FastifyPluginAsyncZod = async (app) => {
       // Work that never finished while these bytes were a version (replaced before the worker
       // got to them); the jobs skip anything already done.
       const { blob } = result;
-      if (blob.thumbStatus === 'pending') await ctx.jobs.send('thumbnail', { blobId: blob.id });
-      if (blob.streamStatus === 'pending') await ctx.jobs.send('video-stream', { blobId: blob.id });
-      if (blob.previewStatus === 'pending') {
-        await ctx.jobs.send('office-preview', { blobId: blob.id });
-      }
-      if (!blob.sha256) await ctx.jobs.send('hash', { blobId: blob.id });
+      await queueUnfinishedWork(ctx, blob);
       await audit(db, {
         actorId: user.id,
         action: 'file.version_restored',

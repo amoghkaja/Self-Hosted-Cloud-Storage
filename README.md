@@ -19,7 +19,7 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 - **Version history.** Save over a file from any device, or choose "Replace" when uploading one that's already there, and what it held is kept for 30 days to download or put back.
 - **Find things fast.** Recent files, Starred, and search that includes what's shared with you. Copying files and folders is instant.
 - **A real network drive.** Open your files in macOS Finder or Windows Explorer with nothing to install (WebDAV), and in the iPhone/iPad Files app through a helper app, with a separate revocable password per device.
-- **Storage you can see and share out.** The admin screen shows where the space on your disks goes and how the family's space is split between people, and lets you hand out, even out and move allowances. Everyone sees how much space they have left.
+- **Storage you can see and share out.** The admin screen shows where the space on your disks goes and how the family's space is split between people, and lets you hand out, even out and move allowances. Everyone sees how much space they have left, and a **Free up space** page shows each person their biggest files, files stored twice and old versions.
 - **Grow storage by adding disks.** Plug in a new drive and add it from the admin screen, without restarting. Retire an old drive and every file is moved off it and checked first.
 - **Optional virus scanning.** Every upload can be checked with ClamAV on your own server; infected files are blocked. Off by default, since it needs about 1.5 GB of memory.
 - **Trash with undo**, a 30-day safety net before anything is gone for good.

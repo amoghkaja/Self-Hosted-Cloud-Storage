@@ -1,5 +1,6 @@
 import { isOfficeDocument } from '@familycloud/shared/all';
 import type { AppContext } from '../context';
+import type { BlobRow } from '../db/schema';
 import { isThumbnailable, isVideo } from '../storage/thumbs';
 import type { JobPayloads } from './queue';
 
@@ -31,4 +32,17 @@ export async function queueDerivedWork(ctx: AppContext, blobId: string, work: De
   if (work.streamStatus === 'pending') await send('video-stream');
   if (work.previewStatus === 'pending') await send('office-preview');
   if (work.infoStatus === 'pending') await send('media-info');
+}
+
+/**
+ * Queues whatever never finished for an existing blob, e.g. one replaced before the worker got to
+ * it and now restored from a version. The jobs skip anything already done.
+ */
+export async function queueUnfinishedWork(ctx: AppContext, blob: BlobRow) {
+  const send = (name: BlobJob) => ctx.jobs.send(name, { blobId: blob.id });
+  if (!blob.sha256) await send('hash');
+  if (blob.thumbStatus === 'pending') await send('thumbnail');
+  if (blob.streamStatus === 'pending') await send('video-stream');
+  if (blob.previewStatus === 'pending') await send('office-preview');
+  if (blob.infoStatus === 'pending') await send('media-info');
 }
