@@ -6,6 +6,7 @@ import {
   boolean,
   check,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -198,6 +199,15 @@ export const blobs = pgTable(
     scanSignature: text('scan_signature'),
     /** When it was last scanned; recent files are scanned again as the virus list grows. */
     scannedAt: ts('scanned_at'),
+    /** Photos and videos: whether the date taken and place have been read from the file yet. */
+    infoStatus: streamStatus('info_status').notNull().default('none'),
+    /**
+     * When a photo or video was taken, on the camera's clock (local time where it was taken, no
+     * time zone), so photos from everyone on a trip line up by the day and hour they were taken.
+     */
+    takenAt: timestamp('taken_at', { mode: 'string' }),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [

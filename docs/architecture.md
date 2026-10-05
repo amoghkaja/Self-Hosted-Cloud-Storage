@@ -144,13 +144,14 @@ pg-boss queues live in PostgreSQL (no Redis). Jobs are retried with backoff; rec
 | Job | Trigger |
 | --- | --- |
 | `thumbnail`, `hash` | After each upload (and re-queued on worker start if missed) |
+| `media-info` | After each photo or video upload: reads when and where it was taken (EXIF, or the video's tags) for album order. The file is never changed |
 | `drain-volume` | Admin clicks "Move files off & retire"; resumed on worker start |
 | `purge-trash` | Daily 03:17 (items older than the retention period) |
 | `purge-versions` | Daily 03:27 (older versions past their retention period) |
 | `reconcile-usage` | Daily 03:47 |
 | `expire-uploads` | Every 15 min (abandoned or crashed uploads release their reservation; temp files older than 2 days are removed) |
 | `cleanup-sessions` | Daily (also old invites and reset links, and audit entries older than a year) |
-| `recover-work` | Hourly: re-queues thumbnails, previews, streams and checksums whose job was lost. Every media job does nothing if its work is already done, so a second run is harmless |
+| `recover-work` | Hourly: re-queues thumbnails, previews, streams, photo dates and checksums whose job was lost (and the backlog of photos stored before dates were read). Every media job does nothing if its work is already done, so a second run is harmless |
 
 ## Scaling path
 

@@ -9,6 +9,7 @@ import {
   reconcileUsage,
   recoverPendingWork,
 } from './jobs/maintenance';
+import { readMediaInfo } from './jobs/media-info';
 import { makeOfficePreview } from './jobs/office';
 import { JOBS, type JobPayloads, type PgBossQueue } from './jobs/queue';
 import { queuePendingScans, scanBlob } from './jobs/scan';
@@ -67,6 +68,11 @@ async function main() {
     handle('scan', (d) => scanBlob(ctx, d.blobId)),
   );
   await boss.work(
+    JOBS.mediaInfo,
+    { localConcurrency: 2 },
+    handle('media-info', (d) => readMediaInfo(ctx, d.blobId)),
+  );
+  await boss.work(
     JOBS.drainVolume,
     { localConcurrency: 1 },
     handle('drain-volume', (d) => drainVolume(ctx, d.volumeId)),
@@ -91,7 +97,6 @@ async function main() {
     JOBS.recoverWork,
     handle('recover-work', async () => {
       await recoverPendingWork(ctx);
-      await queuePendingScans(ctx);
       await queuePendingScans(ctx);
     }),
   );

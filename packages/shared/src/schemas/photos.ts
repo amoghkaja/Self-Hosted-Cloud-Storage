@@ -62,6 +62,10 @@ export const AlbumPhoto = z.object({
   thumb: ThumbStatus,
   addedBy: UserRef,
   createdAt: IsoDate,
+  /** When it was taken, on the camera's clock: "YYYY-MM-DDTHH:MM:SS" with no time zone. */
+  takenAt: z.string().nullable(),
+  /** Where it was taken, when the phone recorded it. */
+  location: z.object({ latitude: z.number(), longitude: z.number() }).nullable(),
 });
 export type AlbumPhoto = z.infer<typeof AlbumPhoto>;
 

@@ -120,6 +120,13 @@
       "when": 1790963741176,
       "tag": "0016_scan_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791204418613,
+      "tag": "0017_photo_info",
+      "breakpoints": true
     }
   ]
 }

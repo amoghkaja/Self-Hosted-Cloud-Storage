@@ -1,10 +1,11 @@
 import { formatBytes, isOfficeDocument } from '@familycloud/shared';
-import { ChevronLeft, ChevronRight, Download, File, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, File, MapPin, X } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui';
 import { parseSheets, type Sheet } from '../../lib/sheetHtml';
 import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
+import { formatTaken, mapUrl } from '../photos/days';
 import { kindOf } from './FileIcon';
 import { PdfViewer } from './PdfViewer';
 
@@ -15,6 +16,9 @@ export interface PreviewItem {
   size: number;
   type: 'file' | 'folder';
   thumb: 'none' | 'pending' | 'ready' | 'failed' | 'unsupported';
+  /** Album photos: when and where they were taken. */
+  takenAt?: string | null;
+  location?: { latitude: number; longitude: number } | null;
 }
 
 export interface PreviewSource {
@@ -456,9 +460,21 @@ export default function PreviewModal({
               <D.Title className="truncate text-sm font-medium">{item.name}</D.Title>
               <D.Description className="text-xs text-white/60">
                 {items.length > 1 ? `${index + 1} of ${items.length} · ` : ''}
+                {item.takenAt ? `${formatTaken(item.takenAt)} · ` : ''}
                 {formatBytes(item.size)}
               </D.Description>
             </div>
+            {item.location && (
+              <a
+                href={mapUrl(item.location)}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Where this was taken, on a map"
+                className="flex size-11 items-center justify-center rounded-lg hover:bg-white/10"
+              >
+                <MapPin size={20} aria-hidden />
+              </a>
+            )}
             {source.canDownload && (
               <a
                 href={source.content(item.id, false)}

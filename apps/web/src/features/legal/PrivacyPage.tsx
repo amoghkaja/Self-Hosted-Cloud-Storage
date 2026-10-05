@@ -74,6 +74,10 @@ export function PrivacyPage() {
                 dates, plus small previews (thumbnails, video and document previews) so they open
                 quickly.
               </li>
+              <li>
+                For photos and videos, when and where they were taken, read from what your phone
+                saved in the file, so albums can show them in order and on a map.
+              </li>
               {setup.versionRetentionDays > 0 && (
                 <li>
                   Older versions of files that are saved over, for {setup.versionRetentionDays}{' '}
@@ -110,7 +114,10 @@ export function PrivacyPage() {
               remove it. Someone sending you files through a file request can't see anything in the
               folder.
             </li>
-            <li>Everyone in the family can see the trip albums in Family Photos.</li>
+            <li>
+              Everyone in the family can see the trip albums in Family Photos, including when and
+              where each photo was taken.
+            </li>
           </ul>
         </Part>
 

@@ -6,7 +6,6 @@ import {
   ErrorCode,
   type FileNode,
   guessMimeType,
-  isOfficeDocument,
   type Settings,
   type UploadConflict,
   type UploadSession,
@@ -25,11 +24,11 @@ import {
   uploadSessions,
   users,
 } from '../../db/schema';
+import { derivedWork, queueDerivedWork } from '../../jobs/derived';
 import { scanningOn } from '../../jobs/scan';
 import { toFileNode } from '../../lib/dto';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
-import { isThumbnailable, isVideo } from '../../storage/thumbs';
 import { loadAccess, lockWriteAccess, requireFolder } from '../files/access';
 import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
 import {
@@ -549,9 +548,7 @@ export async function finalizeUpload(
     throw conflict('The upload was cancelled', ErrorCode.UPLOAD_STATE);
   }
 
-  const thumbable = isThumbnailable(claimed.mimeType);
-  const video = isVideo(claimed.mimeType);
-  const office = isOfficeDocument(claimed.mimeType, claimed.name);
+  const work = derivedWork(claimed.mimeType, claimed.name);
   // A stranger's file (sent through a file request) isn't served until it has been scanned.
   const held = claimed.linkId !== null && (await scanningOn(ctx));
   const { versionRetentionDays } = await ctx.settings.get();
@@ -592,9 +589,7 @@ export async function finalizeUpload(
         id: claimed.blobId,
         volumeId: claimed.volumeId,
         size: claimed.size,
-        thumbStatus: thumbable ? 'pending' : 'unsupported',
-        streamStatus: video ? 'pending' : 'none',
-        previewStatus: office ? 'pending' : 'none',
+        ...work,
         scanStatus: held ? 'held' : 'pending',
       });
       // "Replace": save over the file of that name, keeping its old contents as a version.
@@ -653,14 +648,10 @@ export async function finalizeUpload(
   // Committed: from here on nothing may remove the new file's bytes.
   const { node, orphans } = committed;
   await deleteBlobFiles(ctx, orphans);
-  await ctx.jobs.send('hash', { blobId: claimed.blobId }).catch(() => {});
-  if (ctx.config.clamav) await ctx.jobs.send('scan', { blobId: claimed.blobId }).catch(() => {});
-  if (thumbable) await ctx.jobs.send('thumbnail', { blobId: claimed.blobId }).catch(() => {});
-  if (video) await ctx.jobs.send('video-stream', { blobId: claimed.blobId }).catch(() => {});
-  if (office) await ctx.jobs.send('office-preview', { blobId: claimed.blobId }).catch(() => {});
+  await queueDerivedWork(ctx, claimed.blobId, work);
   return {
     session: { ...claimed, status: 'completed', nodeId: node.id },
-    node: toFileNode({ ...node, thumb: thumbable ? 'pending' : 'unsupported' }),
+    node: toFileNode({ ...node, thumb: work.thumbStatus }),
   };
 }
 

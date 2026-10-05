@@ -41,6 +41,13 @@ const MEDIA = sql`(${nodes.mimeType} LIKE 'image/%' OR ${nodes.mimeType} LIKE 'v
 
 type SQL = ReturnType<typeof sql>;
 
+/**
+ * Album order: when each photo was taken (camera clock), else when it was uploaded (photos sent
+ * through WhatsApp lose their date). As text, so it round-trips through a page cursor exactly.
+ */
+const shotAt = sql`coalesce(${blobs.takenAt}, ${nodes.createdAt} AT TIME ZONE 'UTC')`;
+const shotAtText = sql<string>`to_char(${shotAt}, 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
+
 /** Live photos in any contributor folder of the album. */
 const inAlbum = (albumId: string | SQL) => sql`${nodes.parentId} IN (
   SELECT folder_id FROM album_folders WHERE album_id = ${albumId}
@@ -78,7 +85,8 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
           WHERE n.parent_id IN (SELECT folder_id FROM album_folders WHERE album_id = a.id)
             AND n.deleted_at IS NULL AND n.type = 'file'
             AND (n.mime_type LIKE 'image/%' OR n.mime_type LIKE 'video/%')
-          ORDER BY (n.id = a.cover_node_id) DESC, (b.thumb_status = 'ready') DESC, n.created_at, n.id
+          ORDER BY (n.id = a.cover_node_id) DESC, (b.thumb_status = 'ready') DESC,
+                   coalesce(b.taken_at, n.created_at AT TIME ZONE 'UTC'), n.id
           LIMIT 1
         ) c ON true
         WHERE a.id IN (${sql.join(
@@ -406,20 +414,23 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
       let after: SQL | undefined;
       if (req.query.cursor) {
         const [at, id] = decodeCursor(req.query.cursor);
-        after = sql`(${nodes.createdAt}, ${nodes.id}) > (${at}::timestamptz, ${id}::uuid)`;
+        after = sql`(${shotAt}, ${nodes.id}) > (${at}::timestamp, ${id}::uuid)`;
       }
       const rows = await db
         .select({
           node: nodes,
           thumb: blobs.thumbStatus,
-          scan: blobs.scanStatus,
+          takenAt: blobs.takenAt,
+          latitude: blobs.latitude,
+          longitude: blobs.longitude,
+          sortAt: shotAtText,
           owner: { id: users.id, displayName: users.displayName },
         })
         .from(nodes)
         .innerJoin(blobs, eq(blobs.id, nodes.blobId))
         .innerJoin(users, eq(users.id, nodes.ownerId))
         .where(and(inAlbum(a.id), after))
-        .orderBy(nodes.createdAt, nodes.id)
+        .orderBy(shotAt, nodes.id)
         .limit(req.query.limit + 1);
       const page = rows.slice(0, req.query.limit);
       const last = page.at(-1);
@@ -432,11 +443,14 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
           thumb: r.thumb,
           addedBy: r.owner,
           createdAt: toIso(r.node.createdAt),
+          takenAt: r.takenAt ? r.takenAt.replace(' ', 'T').slice(0, 19) : null,
+          location:
+            r.latitude !== null && r.longitude !== null
+              ? { latitude: r.latitude, longitude: r.longitude }
+              : null,
         })),
         nextCursor:
-          rows.length > req.query.limit && last
-            ? encodeCursor([last.node.createdAt.toISOString(), last.node.id])
-            : null,
+          rows.length > req.query.limit && last ? encodeCursor([last.sortAt, last.node.id]) : null,
       };
     },
   );
@@ -500,7 +514,7 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
       .from(nodes)
       .innerJoin(blobs, eq(blobs.id, nodes.blobId))
       .where(inAlbum(a.id))
-      .orderBy(nodes.createdAt, nodes.id);
+      .orderBy(shotAt, nodes.id);
     if (rows.length === 0) throw notFound('Photos');
     const roots: ZipRoot[] = rows.map((r) => ({
       id: r.node.id,

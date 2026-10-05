@@ -13,6 +13,7 @@ export const JOBS = {
   cleanupSessions: 'cleanup-sessions',
   recoverWork: 'recover-work',
   purgeVersions: 'purge-versions',
+  mediaInfo: 'media-info',
 } as const;
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
 
@@ -29,6 +30,7 @@ export interface JobPayloads {
   'cleanup-sessions': Record<string, never>;
   'recover-work': Record<string, never>;
   'purge-versions': Record<string, never>;
+  'media-info': { blobId: string };
 }
 
 export interface JobQueue {
@@ -48,6 +50,7 @@ const POLICY: Partial<Record<JobName, 'short' | 'exclusive'>> = {
   'office-preview': 'short',
   hash: 'short',
   scan: 'short',
+  'media-info': 'short',
   'drain-volume': 'exclusive',
 };
 

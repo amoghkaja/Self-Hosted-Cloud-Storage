@@ -2,14 +2,14 @@ import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { ErrorCode, isOfficeDocument } from '@familycloud/shared/all';
+import { ErrorCode } from '@familycloud/shared/all';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, uploadSessions, users } from '../../db/schema';
+import { derivedWork, queueDerivedWork } from '../../jobs/derived';
 import { AppError, conflict } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
-import { isThumbnailable, isVideo } from '../../storage/thumbs';
 import { lockWriteAccess } from '../files/access';
 import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
 import { replaceContent, type StoredBlob, withRoomFromVersions } from '../versions/service';
@@ -113,9 +113,7 @@ export async function ingest(
     await mkdir(path.dirname(final), { recursive: true });
     await rename(tmp, final);
 
-    const thumbable = isThumbnailable(input.mimeType);
-    const video = isVideo(input.mimeType);
-    const office = isOfficeDocument(input.mimeType, input.name);
+    const work = derivedWork(input.mimeType, input.name);
     const result = await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
       const [live] = await tx
@@ -136,9 +134,7 @@ export async function ingest(
         id: blobId,
         volumeId: volume.id,
         size: input.size,
-        thumbStatus: thumbable ? 'pending' : 'unsupported',
-        streamStatus: video ? 'pending' : 'none',
-        previewStatus: office ? 'pending' : 'none',
+        ...work,
       });
       let node: NodeRow;
       let created = true;
@@ -202,11 +198,7 @@ export async function ingest(
     committed = true;
 
     await deleteBlobFiles(ctx, result.orphans);
-    await ctx.jobs.send('hash', { blobId }).catch(() => {});
-    if (ctx.config.clamav) await ctx.jobs.send('scan', { blobId }).catch(() => {});
-    if (thumbable) await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
-    if (video) await ctx.jobs.send('video-stream', { blobId }).catch(() => {});
-    if (office) await ctx.jobs.send('office-preview', { blobId }).catch(() => {});
+    await queueDerivedWork(ctx, blobId, work);
     return { node: result.node, created: result.created };
   } finally {
     if (!committed) {

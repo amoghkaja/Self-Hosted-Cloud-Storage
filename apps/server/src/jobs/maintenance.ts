@@ -354,6 +354,19 @@ export async function recoverPendingWork(ctx: AppContext): Promise<void> {
     )
     .limit(2000);
   for (const b of documents) await ctx.jobs.send('office-preview', { blobId: b.id });
+  // Also photos stored before dates were read (a one-off backlog after updating).
+  const media = await ctx.db
+    .select({ id: blobs.id })
+    .from(blobs)
+    .where(
+      and(
+        eq(blobs.infoStatus, 'pending'),
+        lt(blobs.createdAt, new Date(Date.now() - 10 * 60_000)),
+        current,
+      ),
+    )
+    .limit(2000);
+  for (const b of media) await ctx.jobs.send('media-info', { blobId: b.id });
   const unhashed = await ctx.db
     .select({ id: blobs.id })
     .from(blobs)

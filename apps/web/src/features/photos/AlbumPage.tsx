@@ -34,6 +34,7 @@ import { usePageTitle } from '../../lib/usePageTitle';
 import { triggerDownload } from '../files/actions';
 import type { PreviewItem, PreviewSource } from '../files/PreviewModal';
 import { LinkBox } from '../sharing/LinkActions';
+import { dayLabel, groupByDay } from './days';
 import { TripDialog, tripDates } from './TripForm';
 
 const PreviewModal = lazy(() => import('../files/PreviewModal'));
@@ -182,6 +183,7 @@ export function AlbumPage() {
   usePageTitle(album.data?.title ?? 'Photos');
 
   const items = useMemo(() => photos.data?.pages.flatMap((p) => p.items) ?? [], [photos.data]);
+  const days = useMemo(() => groupByDay(items), [items]);
   const previewItems: PreviewItem[] = useMemo(
     () => items.map((p) => ({ ...p, type: 'file' as const })),
     [items],
@@ -373,11 +375,23 @@ export function AlbumPage() {
           >
             {() => (
               <>
-                <ul className="-mx-3 grid grid-cols-3 gap-0.5 sm:mx-0 sm:grid-cols-4 sm:gap-1 lg:grid-cols-6">
-                  {items.map((p) => (
-                    <Tile key={p.id} p={p} albumId={a.id} onOpen={() => setPreviewId(p.id)} />
+                <div className="flex flex-col gap-6">
+                  {days.map((d) => (
+                    <section
+                      key={`${d.day}-${d.items[0]!.id}`}
+                      aria-label={dayLabel(d.day, a.startDate, a.endDate)}
+                    >
+                      <h2 className="mb-2 text-sm font-medium text-muted">
+                        {dayLabel(d.day, a.startDate, a.endDate)}
+                      </h2>
+                      <ul className="-mx-3 grid grid-cols-3 gap-0.5 sm:mx-0 sm:grid-cols-4 sm:gap-1 lg:grid-cols-6">
+                        {d.items.map((p) => (
+                          <Tile key={p.id} p={p} albumId={a.id} onOpen={() => setPreviewId(p.id)} />
+                        ))}
+                      </ul>
+                    </section>
                   ))}
-                </ul>
+                </div>
                 <div ref={sentinel} aria-hidden="true" />
                 {isFetchingNextPage && <Skeleton className="h-24" />}
               </>

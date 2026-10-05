@@ -8,6 +8,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### New
+
+- **Family Photos:** trip albums are in the order photos were taken, whoever uploaded them first,
+  with a heading for each day of the trip. The viewer shows when a photo was taken and, if the
+  phone recorded it, a map of where. Photos already in your albums are sorted in the background
+  after updating. Photos without a date (WhatsApp removes it) stay in upload order.
+
 ### Fixed
 
 - **Virus scanning:** files checked by v0.2.0 are now included in the daily re-check.
