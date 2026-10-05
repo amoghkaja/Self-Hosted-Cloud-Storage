@@ -61,7 +61,7 @@ test.describe
       const history = page.getByRole('dialog', { name: /Version history/ });
       await expect(history.getByText('Current')).toBeVisible();
       await history.getByRole('button', { name: /^Restore the version/ }).click();
-      await expect(page.getByText(/Restored the version/)).toBeVisible();
+      await expect(page.getByText(/^Restored the version from /)).toBeVisible();
       // (Escape would first dismiss the toast: Radix gives the newest layer the key.)
       await history.getByRole('button', { name: 'Close' }).last().click();
 
