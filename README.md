@@ -44,7 +44,7 @@ cd familycloud
 ./scripts/install.sh --install-docker
 ```
 
-It installs the newest release and asks a few questions: how your family will reach it (a free **Cloudflare Tunnel** with no router changes, your own domain, Tailscale, or "later"), the address, a name and where to keep the files. It generates all the secrets, starts everything and offers to install updates automatically. If it installed Docker, log out and back in, then run `./scripts/install.sh` again.
+It installs the newest release (and Docker, if needed) and asks a few questions: how your family will reach it (a free **Cloudflare Tunnel** with no router changes, your own domain, Tailscale, or "later"), the address, a name and where to keep the files. For the tunnel, paste a Cloudflare API token and it creates the tunnel and DNS record itself. It generates all the secrets, starts everything and offers to install updates automatically. 
 
 **2. Create your account.** The installer prints a link and a one-time setup token. Open the link, paste the token and create the admin account.
 

@@ -7,6 +7,10 @@ A tunnel lets people reach Family Cloud at `https://cloud.example.com` without o
 - Your domain must use Cloudflare's nameservers. If it doesn't yet: Cloudflare dashboard → **Add a domain**, then change the nameservers at your registrar. Cloudflare copies your existing DNS records (email etc.) during onboarding; check they're all there before switching.
 - A free Cloudflare account is enough.
 
+## The easy way: let the installer do it
+
+Make an API token (My Profile → **API Tokens** → **Create Token** → **Create Custom Token**) with **Account · Cloudflare Tunnel · Edit**, **Zone · DNS · Edit** and **Zone · Zone · Read**, run `./scripts/install.sh`, choose **1** and paste it. The installer does everything below for you, including the DNS record, and doesn't keep the API token. The rest of this page is the manual way, which gives the same result.
+
 ## Create the tunnel
 
 1. Cloudflare dashboard → **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**.

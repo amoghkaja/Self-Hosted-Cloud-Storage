@@ -10,6 +10,7 @@ import { createContext, ensureSetupToken } from './context';
 import { users } from './db/schema';
 import { reconcileUsage } from './jobs/maintenance';
 import { MemoryQueue } from './jobs/queue';
+import { setupTunnel } from './lib/cloudflare';
 import { randomToken } from './lib/crypto';
 import { hashPassword } from './lib/passwords';
 import { exportFiles } from './modules/admin/export';
@@ -29,6 +30,9 @@ Commands:
   export --out DIR [--email E]   Rebuild normal folders from the blob store (disaster recovery).
                                  Hard-links when on the same disk, copies otherwise.
   migrate                        Apply database migrations and exit
+  cloudflare-tunnel --hostname H Create (or reuse) a Cloudflare Tunnel to this app for address H,
+                                 with its DNS record, and print the tunnel token. Reads a
+                                 Cloudflare API token from CLOUDFLARE_API_TOKEN.
 `;
 
 /**
@@ -68,11 +72,29 @@ async function main() {
       email: { type: 'string' },
       name: { type: 'string' },
       out: { type: 'string' },
+      hostname: { type: 'string' },
     },
     allowPositionals: true,
   });
   if (!command || command === 'help' || command === '--help') {
     stdout.write(HELP);
+    return;
+  }
+
+  // Needs no database: the installer runs it before anything is set up.
+  if (command === 'cloudflare-tunnel') {
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    if (!apiToken || !values.hostname) {
+      throw new Error(
+        'Usage: CLOUDFLARE_API_TOKEN=... cli cloudflare-tunnel --hostname cloud.example.com',
+      );
+    }
+    const { token } = await setupTunnel({
+      apiToken,
+      hostname: values.hostname,
+      log: (line) => stderr.write(`  ${line}\n`),
+    });
+    stdout.write(`${token}\n`);
     return;
   }
 

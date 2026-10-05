@@ -17,13 +17,14 @@ cd familycloud
 ./scripts/install.sh --install-docker
 ```
 
-If the script installed Docker, log out and back in (so your user can use Docker) and run `./scripts/install.sh` again.
+If Docker isn't there yet, the script installs it and carries on. Log out and back in afterwards to use `docker` commands yourself.
 
-A fresh clone installs the newest release. The installer asks:
+A fresh clone installs the newest release. Before changing anything, it checks that the app's port (3080) is free, shows which disk the files will go on and how much room it has (and suggests a bigger disk if there is one), and tells you when it needs your password for `sudo`. The installer asks:
 
 | Question | Example | Notes |
 | --- | --- | --- |
 | How will your family reach it? | `1` (Cloudflare Tunnel) | Tunnel, your own domain, Tailscale, or only this computer for now. See step 3. Choosing "later" is fine. |
+| Cloudflare API token (tunnel only) | | The installer creates the tunnel and its DNS record with it. See step 3 |
 | Address family members will use | `https://cloud.example.com` | Must match what people type in the browser |
 | Name shown in the app | `Smith Family Cloud` | |
 | Where to keep files and the database | `/srv/familycloud` | Put it on the disk with the most space |
@@ -52,7 +53,17 @@ Pick one. You can choose when installing, or later by re-running `./scripts/inst
 
 ### Cloudflare Tunnel
 
-Follow [cloudflare-tunnel.md](cloudflare-tunnel.md) to create the tunnel, then run `./scripts/install.sh`, choose **1** and paste the token. The installer turns on the tunnel (it sets `COMPOSE_PROFILES=tunnel` in `deploy/.env`, so later `docker compose` commands include it).
+Your domain must already be on Cloudflare (free plan). Make an API token at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token** → **Create Custom Token**, with these three permissions (and your domain under Zone Resources):
+
+| Type | Permission | Access |
+| --- | --- | --- |
+| Account | Cloudflare Tunnel | Edit |
+| Zone | DNS | Edit |
+| Zone | Zone | Read |
+
+Run `./scripts/install.sh`, choose **1**, enter the address and paste the token. The installer creates a tunnel named `familycloud`, points the address at the app, adds the DNS record and turns the tunnel on (it sets `COMPOSE_PROFILES=tunnel` in `deploy/.env`, so later `docker compose` commands include it). The API token is used once and not saved; you can delete it in Cloudflare afterwards. It never replaces an existing DNS record: if the address already has one, it stops and tells you.
+
+Prefer clicking through the dashboard? Follow [cloudflare-tunnel.md](cloudflare-tunnel.md) and paste the tunnel token instead; the installer recognises it.
 
 ### Port forwarding + Caddy
 

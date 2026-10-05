@@ -5,8 +5,9 @@
 #   ./scripts/install.sh                   interactive
 #   ./scripts/install.sh --install-docker  also install Docker Engine (Ubuntu/Debian, uses sudo)
 #
-# Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_TUNNEL_TOKEN=... ./scripts/install.sh -y
-#   (or DOMAIN=cloud.example.com for Caddy; AUTO_UPDATE=yes adds the weekly update job)
+# Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_API_TOKEN=... ./scripts/install.sh -y
+#   (CLOUDFLARE_TUNNEL_TOKEN=... for a tunnel you made yourself, or DOMAIN=cloud.example.com for
+#   Caddy; AUTO_UPDATE=yes adds the weekly update job; APP_PORT=3081 if 3080 is taken)
 # WAIT_SECS=600 gives a slow machine longer to start the first time (default 180).
 # A fresh clone installs the newest release; set UPDATE_CHANNEL=main to run the main branch.
 set -euo pipefail
@@ -18,11 +19,12 @@ ROOT="$(pwd)"
 ENV_FILE="$ROOT/deploy/.env"
 YES=false
 INSTALL_DOCKER=false
+ARGS=()
 for arg in "$@"; do
   case "$arg" in
-    -y|--yes) YES=true ;;
+    -y|--yes) YES=true; ARGS+=("$arg") ;;
     --install-docker) INSTALL_DOCKER=true ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -70,8 +72,9 @@ if ! command -v docker >/dev/null; then
     bold "Installing Docker Engine (sudo required)…"
     curl -fsSL https://get.docker.com | sudo sh
     sudo usermod -aG docker "$USER"
-    info "Added $USER to the docker group. Log out and back in (or run: newgrp docker), then re-run this script."
-    exit 0
+    # The new group only reaches new log-ins; sg gives it to the rest of this install now.
+    info "Docker is installed. Carrying on (log out and back in later to use docker yourself)."
+    exec sg docker -c "$(printf '%q ' "$ROOT/scripts/install.sh" "${ARGS[@]}")"
   fi
   die "Docker is not installed. Re-run with --install-docker, or see https://docs.docker.com/engine/install/"
 fi
@@ -105,10 +108,18 @@ if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" && -z "${DOMAIN:-}" ]] && ! $YES; then
   unset PUBLIC_URL
   case "${ACCESS:-1}" in
     1)
-      info "Create the tunnel first: docs/cloudflare-tunnel.md (about 10 minutes). Its public"
-      info "hostname is the address below, and it gives you the token to paste here."
       ask PUBLIC_URL "Address family members will use" "${OLD_URL:-https://cloud.example.com}"
-      ask_secret CLOUDFLARE_TUNNEL_TOKEN "Cloudflare Tunnel token, hidden as you paste (Enter to add later)"
+      info "The installer sets up the tunnel and its DNS record for you, with a Cloudflare API token:"
+      info "dash.cloudflare.com/profile/api-tokens → Create Token → Create Custom Token, with"
+      info "  Account · Cloudflare Tunnel · Edit,  Zone · DNS · Edit,  Zone · Zone · Read"
+      info "It's used once and not stored. (A tunnel token you made yourself works too.)"
+      ask_secret CF_TOKEN "Cloudflare API token, hidden as you paste (Enter to add later)"
+      # Tunnel tokens are base64 JSON ({"a":…} → eyJ…); API tokens are short and plain.
+      if [[ "${CF_TOKEN:-}" == eyJ* ]]; then
+        CLOUDFLARE_TUNNEL_TOKEN=$CF_TOKEN
+      elif [[ -n "${CF_TOKEN:-}" ]]; then
+        CLOUDFLARE_API_TOKEN=$CF_TOKEN
+      fi
       ;;
     2)
       info "Point a DNS A record for the name at your home IP, and forward TCP 80 and 443"
@@ -143,11 +154,49 @@ STORAGE_ROOT=${STORAGE_ROOT%/}
 [[ "$STORAGE_ROOT" =~ ^(/[A-Za-z0-9._-]+){2,}$ && "$STORAGE_ROOT/" != */./* && "$STORAGE_ROOT/" != */../* ]] \
   || die "The storage location must be a dedicated folder at least two levels deep, e.g. /srv/familycloud (letters, digits, . _ - only)."
 
+# ── Checks before changing anything ─────────────────────────────────────────
+APP_RUNNING=$(cd "$ROOT/deploy" && docker compose ps -q app 2>/dev/null || true)
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+if [[ -z "$APP_RUNNING" ]] && port_busy "$APP_PORT"; then
+  die "Port $APP_PORT is already used by another program here. Pick a free one: APP_PORT=3081 ./scripts/install.sh"
+fi
+if [[ -n "${DOMAIN:-}" ]] && [[ -z "$(cd "$ROOT/deploy" && docker compose ps -q caddy 2>/dev/null || true)" ]]; then
+  for p in 80 443; do
+    port_busy "$p" && die "Port $p is already used by another program (a web server?). Caddy needs ports 80 and 443."
+  done
+fi
+# Where the files will live: the disk with the folder (or its nearest existing parent).
+DISK_AT=$STORAGE_ROOT
+while [[ ! -d "$DISK_AT" ]]; do DISK_AT=$(dirname "$DISK_AT"); done
+read -r DISK_DEV DISK_FREE_KB DISK_MOUNT < <(df -Pk "$DISK_AT" | awk 'NR == 2 { print $1, $4, $6 }')
+gb() { awk -v k="$1" 'BEGIN { printf "%.0f GB", k / 1048576 }'; }
+info "Files will be kept on $DISK_DEV (mounted at $DISK_MOUNT): $(gb "$DISK_FREE_KB") free."
+# A bigger disk that isn't the system disk is usually where family files belong.
+BIGGEST=$(df -Pk -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs 2>/dev/null \
+  | awk -v m="$DISK_MOUNT" 'NR > 1 && $6 != m && $6 != "/boot" && $6 !~ "^/boot/" { print $4, $6 }' \
+  | sort -rn | head -1)
+if [[ -n "$BIGGEST" && ! -f "$ENV_FILE" ]] && (( ${BIGGEST%% *} > 2 * DISK_FREE_KB )); then
+  info "Tip: ${BIGGEST#* } has $(gb "${BIGGEST%% *}") free. To keep files there, run again with"
+  info "     STORAGE_ROOT=${BIGGEST#* }/familycloud ./scripts/install.sh"
+fi
+if (( DISK_FREE_KB < 10 * 1048576 )) && [[ ! -f "$ENV_FILE" ]]; then
+  info "That's not much room for a family's photos and videos."
+  if ! $YES; then
+    read -r -p "  Continue anyway? [y/N] " ans || true
+    [[ "$ans" =~ ^[Yy] ]] || exit 1
+  fi
+fi
+MEM_GB=$(awk '/^MemTotal:/ { printf "%.1f", $2 / 1048576 }' /proc/meminfo)
+
 # Asked on a first install only; scripts/virus-scan.sh changes it later. Off by default: the
 # scanner needs more memory than a small machine such as a Raspberry Pi can spare.
 if [[ ! -f "$ENV_FILE" ]]; then
-  ask VIRUS_SCAN "Check uploads for viruses? Needs about 1.5 GB of memory (yes/no)" "no"
+  ask VIRUS_SCAN "Check uploads for viruses? Needs about 1.5 GB of memory; this computer has $MEM_GB GB (yes/no)" "no"
   [[ "${VIRUS_SCAN,,}" == y* ]] && CLAMAV_HOST=clamav
+  if [[ -n "${CLAMAV_HOST:-}" ]] && awk -v m="$MEM_GB" 'BEGIN { exit !(m < 3) }'; then
+    info "With $MEM_GB GB that may leave too little for everything else; turn it off later with"
+    info "./scripts/virus-scan.sh off if the computer gets slow."
+  fi
 fi
 CLAMAV_HOST=${CLAMAV_HOST:-}
 
@@ -177,6 +226,7 @@ COMPOSE_PROFILES=$(IFS=,; echo "${PROFILES[*]}")
 export COMPOSE_PROFILES
 
 bold "Preparing $STORAGE_ROOT"
+sudo -n true 2>/dev/null || info "Creating the folders needs your computer password (sudo)." 
 for d in volumes/disk1 cache db backups clamav; do
   if [[ ! -d "$STORAGE_ROOT/$d" ]]; then
     sudo mkdir -p "$STORAGE_ROOT/$d"
@@ -225,6 +275,20 @@ APP_VERSION=$(checkout_version)
 if [[ "$IMAGE" == "$LOCAL_IMAGE" ]] || ! docker compose pull --quiet app 2>/dev/null; then
   info "Building the image on this machine (takes a few minutes, longer on a Raspberry Pi)…"
   docker compose build app
+fi
+# The tunnel from an API token, with the tool in the image just pulled (no extra programs here).
+if [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -z "$CLOUDFLARE_TUNNEL_TOKEN" ]]; then
+  bold "Setting up the Cloudflare Tunnel"
+  export CLOUDFLARE_API_TOKEN
+  CLOUDFLARE_TUNNEL_TOKEN=$(docker run --rm -e CLOUDFLARE_API_TOKEN "$IMAGE" \
+    node dist/cli.js cloudflare-tunnel --hostname "${PUBLIC_URL#*://}" | tail -1) \
+    || die "The tunnel wasn't set up (see above). Fix that, then re-run ./scripts/install.sh (your settings are kept)."
+  [[ "$CLOUDFLARE_TUNNEL_TOKEN" == eyJ* ]] || die "Cloudflare didn't return a tunnel token. Re-run ./scripts/install.sh to try again."
+  set_env "$ENV_FILE" CLOUDFLARE_TUNNEL_TOKEN "$CLOUDFLARE_TUNNEL_TOKEN"
+  PROFILES+=(tunnel)
+  COMPOSE_PROFILES=$(IFS=,; echo "${PROFILES[*]}")
+  set_env "$ENV_FILE" COMPOSE_PROFILES "$COMPOSE_PROFILES"
+  info "Tunnel ready: ${PUBLIC_URL} reaches this computer (DNS can take a minute or two)."
 fi
 docker compose up -d --remove-orphans
 wait_healthy || die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."

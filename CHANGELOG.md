@@ -8,6 +8,14 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **Installing:** with a Cloudflare API token, the installer creates the Cloudflare Tunnel and its
+  DNS record itself (no more copying a tunnel token from the dashboard). It carries on after
+  installing Docker instead of asking you to log out and run it again, and before changing
+  anything it checks the port is free and shows which disk your files will go on and how much
+  room it has.
+
 ## v0.4.0 (2026-10-05)
 
 ### New

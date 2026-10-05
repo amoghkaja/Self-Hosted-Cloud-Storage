@@ -75,3 +75,38 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  installer:
+    name: Installer and updater
+    runs-on: ubuntu-24.04
+    # Builds the image on the runner, as a fresh install of main does, and starts it: about 6
+    # minutes.
+    timeout-minutes: 20
+    env:
+      # Test this commit's installer (on stable, a fresh clone switches to the newest release).
+      UPDATE_CHANNEL: main
+      PUBLIC_URL: http://localhost:3080
+      STORAGE_ROOT: /srv/familycloud
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Shell scripts pass shellcheck
+        run: shellcheck --severity=warning scripts/*.sh
+      - name: Install on a clean machine
+        run: ./scripts/install.sh -y
+      - name: The app answers and waits for its first admin
+        run: |
+          curl -fsS localhost:3080/healthz
+          curl -fsS localhost:3080/api/v1/auth/setup-status | grep -q '"needsSetup":true'
+          cd deploy && docker compose exec -T app node dist/cli.js setup-token
+      - name: Running it again keeps every setting
+        run: |
+          grep -v '^# Generated' deploy/.env > "$RUNNER_TEMP/before.env"
+          ./scripts/install.sh -y
+          grep -v '^# Generated' deploy/.env | diff "$RUNNER_TEMP/before.env" -
+      - name: The updater checks for a newer version
+        run: ./scripts/update.sh --check
+      - name: Logs
+        if: failure()
+        run: cd deploy && docker compose ps && docker compose logs --tail 80
