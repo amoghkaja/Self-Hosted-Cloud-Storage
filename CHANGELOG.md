@@ -20,6 +20,10 @@ to do yourself when updating is listed under **Before you update**.
 - **Search inside files:** search finds PDFs, Word, Excel and PowerPoint files and text files by
   the words in them, not just their names, and shows the bit of text that matched. Files already
   stored are read in the background after updating (a large collection can take a few hours).
+- **Rewind a folder:** put a folder (or all of My Files) back as it was an hour, a day or a week
+  ago, or at any moment the trash still covers. Deleted files come back and files that were
+  saved over get back what they held, and it shows you what will change first. Nothing is lost:
+  what files hold now is kept as an older version.
 
 ### Fixed
 

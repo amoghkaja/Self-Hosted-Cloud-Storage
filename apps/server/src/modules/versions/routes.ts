@@ -21,7 +21,7 @@ import { requireUser } from '../../plugins/auth';
 import { lockWriteAccess, requireAccess } from '../files/access';
 import { sendBlob } from '../files/serve';
 import { deleteBlobFiles, QUOTA_LOCK } from '../files/tree';
-import { deleteVersions, replaceContent } from './service';
+import { deleteVersions, restoreVersion } from './service';
 
 /** "report.docx" saved 2026-09-20 14:03 UTC -> "report (2026-09-20 14.03).docx". */
 function versionFileName(name: string, savedAt: Date): string {
@@ -143,28 +143,7 @@ export const versionRoutes: FastifyPluginAsyncZod = async (app) => {
           .for('update');
         if (!file || file.parentId !== a.node.parentId)
           throw conflict('The file changed meanwhile');
-        const [version] = await tx
-          .delete(fileVersions)
-          .where(and(eq(fileVersions.id, req.params.versionId), eq(fileVersions.nodeId, file.id)))
-          .returning();
-        if (!version) throw notFound('Version');
-        // What's there now becomes a version too, so restoring can itself be undone.
-        const replaced = await replaceContent(
-          tx,
-          file,
-          { blobId: version.blobId, size: version.size, mimeType: version.mimeType },
-          { actorId: user.id, keepVersion: true },
-        );
-        // The restored bytes were counted as a version and now count as the file instead.
-        const delta = replaced.usageDelta - version.size;
-        if (delta !== 0) {
-          await tx
-            .update(users)
-            .set({ usedBytes: sql`greatest(${users.usedBytes} + ${delta}, 0)` })
-            .where(eq(users.id, file.ownerId));
-        }
-        const [blob] = await tx.select().from(blobs).where(eq(blobs.id, version.blobId));
-        return { node: replaced.node, orphans: replaced.orphans, blob: blob! };
+        return restoreVersion(tx, file, req.params.versionId, user.id);
       });
       await deleteBlobFiles(ctx, result.orphans);
       // Work that never finished while these bytes were a version (replaced before the worker

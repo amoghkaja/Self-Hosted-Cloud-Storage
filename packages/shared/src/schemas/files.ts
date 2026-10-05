@@ -218,3 +218,24 @@ export const TrashList = z.object({ items: z.array(TrashItem), retentionDays: z.
 export type TrashList = z.infer<typeof TrashList>;
 
 export const RestoreResult = z.object({ node: FileNode });
+
+/** Rewind a folder: put it back as it was at a moment within the trash's retention period. */
+export const RewindQuery = z.object({ at: IsoDate });
+export const RewindBody = RewindQuery;
+
+export const RewindPreview = z.object({
+  /** Deleted since then, still in the trash: put back (a few names to show). */
+  restore: z.object({ count: z.number().int(), names: z.array(z.string()) }),
+  /** Saved over since then: what they held then comes back (what's there now becomes a version). */
+  revert: z.object({ count: z.number().int(), names: z.array(z.string()) }),
+  /** Files added since then: left as they are. */
+  added: z.number().int(),
+});
+export type RewindPreview = z.infer<typeof RewindPreview>;
+
+export const RewindResult = z.object({
+  restored: z.number().int(),
+  reverted: z.number().int(),
+  added: z.number().int(),
+});
+export type RewindResult = z.infer<typeof RewindResult>;

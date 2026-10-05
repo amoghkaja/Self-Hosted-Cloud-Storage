@@ -29,6 +29,9 @@ const ShareDialog = lazy(() =>
 const VersionsDialog = lazy(() =>
   import('./VersionsDialog').then((m) => ({ default: m.VersionsDialog })),
 );
+const RewindDialog = lazy(() =>
+  import('./RewindDialog').then((m) => ({ default: m.RewindDialog })),
+);
 
 /** Starts a browser download without navigating away (the server sends Content-Disposition). */
 export function triggerDownload(href: string) {
@@ -55,6 +58,7 @@ type Dialog =
   | { kind: 'copy'; nodes: FileNode[] }
   | { kind: 'share'; node: FileNode; request?: boolean }
   | { kind: 'versions'; node: FileNode }
+  | { kind: 'rewind'; node: FileNode }
   | null;
 
 export interface FileActionOptions {
@@ -202,12 +206,20 @@ export function useFileActions(o: FileActionOptions) {
           onSelect: () => setDialog({ kind: 'share', node: n }),
         });
         if (n.type === 'folder') {
-          list.push({
-            id: 'request',
-            label: 'Request files…',
-            icon: <Inbox />,
-            onSelect: () => setDialog({ kind: 'share', node: n, request: true }),
-          });
+          list.push(
+            {
+              id: 'request',
+              label: 'Request files…',
+              icon: <Inbox />,
+              onSelect: () => setDialog({ kind: 'share', node: n, request: true }),
+            },
+            {
+              id: 'rewind',
+              label: 'Rewind…',
+              icon: <History />,
+              onSelect: () => setDialog({ kind: 'rewind', node: n }),
+            },
+          );
         }
       }
       if (n.type === 'file' && (o.canEditContent ?? o.canEdit)(n)) {
@@ -325,6 +337,9 @@ export function useFileActions(o: FileActionOptions) {
         )}
         {dialog?.kind === 'versions' && (
           <VersionsDialog node={dialog.node} onClose={() => setDialog(null)} />
+        )}
+        {dialog?.kind === 'rewind' && (
+          <RewindDialog folder={dialog.node} onClose={() => setDialog(null)} />
         )}
       </Suspense>
     </>

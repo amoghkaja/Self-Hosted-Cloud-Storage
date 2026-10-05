@@ -14,6 +14,7 @@ import {
   FolderInput,
   FolderPlus,
   FolderUp,
+  History,
   Inbox,
   LayoutGrid,
   List,
@@ -72,6 +73,7 @@ import { ReplaceDialog } from '../uploads/ReplaceDialog';
 import { downloadNodes, useFileActions } from './actions';
 import { NewFolderDialog } from './dialogs';
 import { FileView, FileViewSkeleton } from './FileView';
+import { RewindDialog } from './RewindDialog';
 
 const PreviewModal = lazy(() => import('./PreviewModal'));
 
@@ -118,6 +120,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
   const previewIndex = previewId ? files.findIndex((f) => f.id === previewId) : -1;
   const [newFolder, setNewFolder] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [rewinding, setRewinding] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -304,6 +307,13 @@ function FileBrowser({ folderId }: { folderId: string }) {
               />
             </>
           )}
+          {access === 'owner' && (
+            <IconButton
+              label="Rewind this folder"
+              icon={<History />}
+              onClick={() => setRewinding(true)}
+            />
+          )}
           <DropdownMenu
             label="Sort"
             trigger={
@@ -481,6 +491,9 @@ function FileBrowser({ folderId }: { folderId: string }) {
       {newFolder && <NewFolderDialog parentId={folderId} open onOpenChange={setNewFolder} />}
       {requesting && (
         <RequestFilesDialog parentId={folderId} onClose={() => setRequesting(false)} />
+      )}
+      {rewinding && (
+        <RewindDialog folder={{ id: folderId, name }} onClose={() => setRewinding(false)} />
       )}
       {conflict && (
         <ReplaceDialog

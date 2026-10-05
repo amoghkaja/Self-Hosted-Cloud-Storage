@@ -13,6 +13,10 @@ import {
   Ok,
   RecentQuery,
   RestoreResult,
+  RewindBody,
+  RewindPreview,
+  RewindQuery,
+  RewindResult,
   SearchHit,
   SearchQuery,
   ThumbQuery,
@@ -32,6 +36,7 @@ import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { loadAccess, requireAccess, requireFolder, satisfies } from './access';
 import { copyNode } from './copy';
+import { checkRewindTime, previewRewind, rewindFolder } from './rewind';
 import {
   sendBlob,
   sendOfficePreview,
@@ -458,6 +463,42 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     const zipName = roots.length === 1 ? `${first.name}.zip` : 'Download.zip';
     return sendZip(ctx, req, reply, roots, zipName);
   });
+
+  // ── rewind ────────────────────────────────────────────────────────────────
+
+  // Only the owner: rewinding brings things back from their trash, which only they can see.
+  app.get(
+    '/nodes/:id/rewind',
+    { schema: { params: IdParams, querystring: RewindQuery, response: { 200: RewindPreview } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      await requireFolder(db, user.id, req.params.id, 'owner');
+      const at = new Date(req.query.at);
+      await checkRewindTime(ctx, at);
+      return previewRewind(ctx, req.params.id, at);
+    },
+  );
+
+  app.post(
+    '/nodes/:id/rewind',
+    { schema: { params: IdParams, body: RewindBody, response: { 200: RewindResult } } },
+    async (req) => {
+      const { user } = requireUser(req);
+      await requireFolder(db, user.id, req.params.id, 'owner');
+      const at = new Date(req.body.at);
+      await checkRewindTime(ctx, at);
+      const result = await rewindFolder(ctx, user, req.params.id, at);
+      await audit(db, {
+        actorId: user.id,
+        action: 'folder.rewound',
+        targetType: 'node',
+        targetId: req.params.id,
+        ip: req.clientIp,
+        meta: { at: req.body.at, ...result },
+      });
+      return result;
+    },
+  );
 
   // ── trash ─────────────────────────────────────────────────────────────────
 

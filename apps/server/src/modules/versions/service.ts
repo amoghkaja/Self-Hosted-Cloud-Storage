@@ -1,9 +1,9 @@
 import { ErrorCode, MAX_VERSIONS_PER_FILE } from '@familycloud/shared/all';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
-import { blobs, fileVersions, type NodeRow, nodes, users } from '../../db/schema';
-import { AppError } from '../../lib/errors';
+import { type BlobRow, blobs, fileVersions, type NodeRow, nodes, users } from '../../db/schema';
+import { AppError, notFound } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
 import { lockWriteAccess } from '../files/access';
 import { blobUnused, deleteBlobFiles, QUOTA_LOCK } from '../files/tree';
@@ -167,6 +167,40 @@ export async function moveContentOnto(
     return replaced.orphans;
   });
   await deleteBlobFiles(ctx, orphans);
+}
+
+/**
+ * Makes a version the file's contents again; what's there now becomes a version, so this can be
+ * undone too. Runs inside the caller's transaction, which holds the shared quota lock and has
+ * the file's row locked. Delete the returned orphans' files once it has committed.
+ */
+export async function restoreVersion(
+  tx: Executor,
+  file: NodeRow,
+  versionId: string,
+  actorId: string,
+): Promise<{ node: NodeRow; orphans: StoredBlob[]; blob: BlobRow }> {
+  const [version] = await tx
+    .delete(fileVersions)
+    .where(and(eq(fileVersions.id, versionId), eq(fileVersions.nodeId, file.id)))
+    .returning();
+  if (!version) throw notFound('Version');
+  const replaced = await replaceContent(
+    tx,
+    file,
+    { blobId: version.blobId, size: version.size, mimeType: version.mimeType },
+    { actorId, keepVersion: true },
+  );
+  // The restored bytes were counted as a version and now count as the file instead.
+  const delta = replaced.usageDelta - version.size;
+  if (delta !== 0) {
+    await tx
+      .update(users)
+      .set({ usedBytes: sql`greatest(${users.usedBytes} + ${delta}, 0)` })
+      .where(eq(users.id, file.ownerId));
+  }
+  const [blob] = await tx.select().from(blobs).where(eq(blobs.id, version.blobId));
+  return { node: replaced.node, orphans: replaced.orphans, blob: blob! };
 }
 
 /**

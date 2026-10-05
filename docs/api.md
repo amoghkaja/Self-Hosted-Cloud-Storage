@@ -93,6 +93,15 @@ When a file is saved over (network drive, `onConflict: "replace"`, restoring), i
 | POST | `/nodes/:id/versions/:versionId/restore` | Make it current again (what was current becomes a version) |
 | DELETE | `/nodes/:id/versions[/:versionId]` | Delete one version / all of a file's versions (owner only) |
 
+### Rewind
+
+Puts a folder back as it was at a moment within the trash's retention period: items deleted since then come out of the trash (newest first, so a folder comes back before what was deleted from it earlier), and files saved over since then get back what they held (what they hold now becomes a version). Files added since stay; moves and renames aren't recorded, so they stay too. Owner only.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/nodes/:id/rewind?at=` | What it would do: `{restore: {count, names}, revert: {count, names}, added}` |
+| POST | `/nodes/:id/rewind` | `{at}`: do it. `{restored, reverted, added}` |
+
 ### Free up space
 
 Only the caller's own files (what others share with them counts toward the sharer's space).
