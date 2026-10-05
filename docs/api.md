@@ -65,7 +65,7 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 | GET | `/nodes/:id/stream` | A video's 720p H.264 streaming copy once the worker has made it, else the original |
 | GET | `/nodes/:id/preview` | Office documents: a PDF (or, for spreadsheets, an HTML copy served as an attachment); `404` with `X-Preview-Status` until it's ready |
 | GET | `/zip?ids=a,b,c` | Stream a zip of files/folders |
-| GET | `/search?q=` | Search by name: your files and everything shared with you |
+| GET | `/search?q=` | Your files and everything shared with you: matches by name first, then documents whose words start with every word typed (each of those has a `snippet`). Files in the trash, infected or waiting for a virus check aren't searched inside |
 | GET | `/recent` | Files added or changed lately, yours and in folders shared with you (`?limit`) |
 | GET | `/starred` | Your starred items that you can still open |
 | PUT / DELETE | `/nodes/:id/star` | Star / unstar |

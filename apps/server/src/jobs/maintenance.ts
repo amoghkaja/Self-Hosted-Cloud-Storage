@@ -367,6 +367,18 @@ export async function recoverPendingWork(ctx: AppContext): Promise<void> {
     )
     .limit(2000);
   for (const b of media) await ctx.jobs.send('media-info', { blobId: b.id });
+  const texts = await ctx.db
+    .select({ id: blobs.id })
+    .from(blobs)
+    .where(
+      and(
+        eq(blobs.textStatus, 'pending'),
+        lt(blobs.createdAt, new Date(Date.now() - 10 * 60_000)),
+        current,
+      ),
+    )
+    .limit(2000);
+  for (const b of texts) await ctx.jobs.send('extract-text', { blobId: b.id });
   const unhashed = await ctx.db
     .select({ id: blobs.id })
     .from(blobs)

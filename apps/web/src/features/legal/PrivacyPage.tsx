@@ -78,6 +78,10 @@ export function PrivacyPage() {
                 For photos and videos, when and where they were taken, read from what your phone
                 saved in the file, so albums can show them in order and on a map.
               </li>
+              <li>
+                The words in your documents (PDFs, Office files and text), so search can find files
+                by what's in them. Only people who can see a file can find it this way.
+              </li>
               {setup.versionRetentionDays > 0 && (
                 <li>
                   Older versions of files that are saved over, for {setup.versionRetentionDays}{' '}

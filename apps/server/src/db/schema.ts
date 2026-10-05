@@ -5,6 +5,7 @@ import {
   bigserial,
   boolean,
   check,
+  customType,
   date,
   doublePrecision,
   index,
@@ -19,6 +20,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { uuidv7 } from 'uuidv7';
+
+const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' });
 
 const id = () =>
   uuid('id')
@@ -208,6 +211,8 @@ export const blobs = pgTable(
     takenAt: timestamp('taken_at', { mode: 'string' }),
     latitude: doublePrecision('latitude'),
     longitude: doublePrecision('longitude'),
+    /** Documents: whether their words have been read for search yet (see blobTexts). */
+    textStatus: streamStatus('text_status').notNull().default('none'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [
@@ -215,6 +220,25 @@ export const blobs = pgTable(
     // The hourly sweep and the admin page look only at what still waits or was caught.
     index('blobs_scan_idx').on(t.scanStatus).where(sql`${t.scanStatus} IN ('pending', 'infected')`),
   ],
+);
+
+/**
+ * The words in a document (PDF, Office file or plain text), for search inside files. Language
+ * neutral ('simple': no stemming), since a family writes in more than one language. Positions are
+ * stripped to keep big documents within the tsvector size limit; only presence is needed.
+ */
+export const blobTexts = pgTable(
+  'blob_texts',
+  {
+    blobId: uuid('blob_id')
+      .primaryKey()
+      .references(() => blobs.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    words: tsvector('words')
+      .notNull()
+      .generatedAlwaysAs(sql`strip(to_tsvector('simple'::regconfig, content))`),
+  },
+  (t) => [index('blob_texts_words_idx').using('gin', t.words)],
 );
 
 export const nodes = pgTable(

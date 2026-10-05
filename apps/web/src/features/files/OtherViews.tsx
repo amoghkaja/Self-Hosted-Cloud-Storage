@@ -263,7 +263,7 @@ export function SearchPage() {
         <EmptyState
           icon={<Search />}
           title="Search your files"
-          description="Type a name in the search box. Files shared with you are searched too."
+          description="Type a name, or words in a document, in the search box. Files shared with you are searched too."
         />
       ) : (
         <QueryState
@@ -274,7 +274,7 @@ export function SearchPage() {
             <EmptyState
               icon={<Search />}
               title="No matches"
-              description="Try part of the name, like “beach” or “2024”."
+              description="Try part of a name or a word in the file, like “beach” or “2024”."
             />
           }
         >
@@ -282,7 +282,11 @@ export function SearchPage() {
             <FlatList
               nodes={d.items}
               label={`Search results for ${q}`}
-              subtitle={sharedBy}
+              // Found by what's in it: show where. Else who shared it, if it's not yours.
+              subtitle={(n) => {
+                const snippet = d.items.find((h) => h.id === n.id)?.snippet;
+                return snippet ? `“…${snippet}…”` : sharedBy(n);
+              }}
               // Things shared with you are found too; changing them is done from their folder.
               editable={(n) => n.ownerId === me.id}
             />

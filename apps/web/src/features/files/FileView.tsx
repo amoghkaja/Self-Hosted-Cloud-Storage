@@ -276,6 +276,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
       );
 
     if (p.view === 'list') {
+      const subtitle = p.subtitle?.(item);
       return withContextMenu(
         <div
           role="row"
@@ -296,12 +297,14 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
               <span className="truncate">{item.name}</span>
               {p.badge?.(item)}
             </p>
-            <p className="truncate text-xs text-muted sm:hidden">
-              {item.type === 'file' ? `${formatBytes(item.size)} · ` : ''}
-              {formatRelative(item.updatedAt)}
-            </p>
-            {p.subtitle && (
-              <p className="hidden truncate text-xs text-muted sm:block">{p.subtitle(item)}</p>
+            {/* Phones have room for one line: the subtitle when there is one, else size and date. */}
+            {subtitle ? (
+              <p className="truncate text-xs text-muted">{subtitle}</p>
+            ) : (
+              <p className="truncate text-xs text-muted sm:hidden">
+                {item.type === 'file' ? `${formatBytes(item.size)} · ` : ''}
+                {formatRelative(item.updatedAt)}
+              </p>
             )}
           </div>
           <div role="gridcell" className="hidden text-sm text-muted sm:block">

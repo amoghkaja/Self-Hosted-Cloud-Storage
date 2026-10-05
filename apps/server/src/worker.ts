@@ -13,6 +13,7 @@ import { readMediaInfo } from './jobs/media-info';
 import { makeOfficePreview } from './jobs/office';
 import { JOBS, type JobPayloads, type PgBossQueue } from './jobs/queue';
 import { queuePendingScans, scanBlob } from './jobs/scan';
+import { extractText } from './jobs/text';
 import { configureSharp, generateThumbnail } from './jobs/thumbnail';
 import { makeVideoStream } from './jobs/video';
 import { purgeExpiredVersions } from './modules/versions/service';
@@ -71,6 +72,11 @@ async function main() {
     JOBS.mediaInfo,
     { localConcurrency: 2 },
     handle('media-info', (d) => readMediaInfo(ctx, d.blobId)),
+  );
+  await boss.work(
+    JOBS.extractText,
+    { localConcurrency: 2 },
+    handle('extract-text', (d) => extractText(ctx, d.blobId)),
   );
   await boss.work(
     JOBS.drainVolume,

@@ -79,6 +79,7 @@ export async function makeOfficePreview(ctx: AppContext, blobId: string): Promis
       return;
     }
     await ctx.jobs.send('thumbnail', { blobId }).catch(() => {});
+    await ctx.jobs.send('extract-text', { blobId }).catch(() => {});
   } catch (err) {
     const missing = (err as NodeJS.ErrnoException).code === 'ENOENT';
     ctx.log.warn(

@@ -85,6 +85,10 @@ export const SearchQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+/** A search result: a file found by its name, or by the words in it (with a bit of the text). */
+export const SearchHit = FileNode.extend({ snippet: z.string().optional() });
+export type SearchHit = z.infer<typeof SearchHit>;
+
 export const ContentQuery = z.object({
   inline: z.enum(['0', '1']).default('0'),
 });

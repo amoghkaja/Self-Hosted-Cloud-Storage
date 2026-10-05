@@ -14,6 +14,7 @@ export const JOBS = {
   recoverWork: 'recover-work',
   purgeVersions: 'purge-versions',
   mediaInfo: 'media-info',
+  extractText: 'extract-text',
 } as const;
 export type JobName = (typeof JOBS)[keyof typeof JOBS];
 
@@ -31,6 +32,7 @@ export interface JobPayloads {
   'recover-work': Record<string, never>;
   'purge-versions': Record<string, never>;
   'media-info': { blobId: string };
+  'extract-text': { blobId: string };
 }
 
 export interface JobQueue {
@@ -51,6 +53,7 @@ const POLICY: Partial<Record<JobName, 'short' | 'exclusive'>> = {
   hash: 'short',
   scan: 'short',
   'media-info': 'short',
+  'extract-text': 'short',
   'drain-volume': 'exclusive',
 };
 

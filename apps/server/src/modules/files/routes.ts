@@ -13,19 +13,21 @@ import {
   Ok,
   RecentQuery,
   RestoreResult,
+  SearchHit,
   SearchQuery,
   ThumbQuery,
   TrashList,
   UpdateNodeBody,
   ZipQuery,
 } from '@familycloud/shared/all';
-import { and, desc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { albumFolders, albums, blobs, nodes, stars, users } from '../../db/schema';
+import { albumFolders, albums, blobs, blobTexts, nodes, stars, users } from '../../db/schema';
 import { audit } from '../../lib/audit';
 import { toFileNode } from '../../lib/dto';
 import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
+import { HEADLINE, HEADLINE_CHARS, wordQuery } from '../../lib/search';
 import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { loadAccess, requireAccess, requireFolder, satisfies } from './access';
@@ -223,33 +225,72 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   // Your own files and everything family members share with you (not other people's private
-  // files, and not the trash).
+  // files, and not the trash): by name, then by the words inside documents.
   app.get(
     '/search',
     {
       schema: {
         querystring: SearchQuery,
-        response: { 200: z.object({ items: z.array(FileNode) }) },
+        response: { 200: z.object({ items: z.array(SearchHit) }) },
       },
     },
     async (req) => {
       const { user } = requireUser(req);
+      const { limit } = req.query;
+      const visible = and(
+        isNull(nodes.deletedAt),
+        sql`${nodes.parentId} IS NOT NULL`,
+        or(eq(nodes.ownerId, user.id), sql`${nodes.id} IN ${sharedWith(user.id)}`),
+      );
       const q = req.query.q.replace(/[\\%_]/g, (c) => `\\${c}`);
-      const rows = await db
+      const named = await db
         .select({ node: nodes, thumb: blobs.thumbStatus, scan: blobs.scanStatus })
         .from(nodes)
         .leftJoin(blobs, eq(blobs.id, nodes.blobId))
-        .where(
-          and(
-            isNull(nodes.deletedAt),
-            sql`${nodes.parentId} IS NOT NULL`,
-            sql`${nodes.name} ILIKE ${`%${q}%`}`,
-            or(eq(nodes.ownerId, user.id), sql`${nodes.id} IN ${sharedWith(user.id)}`),
-          ),
-        )
+        .where(and(visible, sql`${nodes.name} ILIKE ${`%${q}%`}`))
         .orderBy(sql`similarity(${nodes.name}, ${req.query.q}) desc`, desc(nodes.updatedAt))
-        .limit(req.query.limit);
-      return { items: rows.map((r) => toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan })) };
+        .limit(limit);
+      const items: SearchHit[] = named.map((r) =>
+        toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan }),
+      );
+
+      const words = wordQuery(req.query.q);
+      if (words && items.length < limit) {
+        const tsq = sql`to_tsquery('simple', ${words})`;
+        const found = await db
+          .select({
+            node: nodes,
+            thumb: blobs.thumbStatus,
+            scan: blobs.scanStatus,
+            snippet: sql<string>`ts_headline('simple', left(${blobTexts.content}, ${HEADLINE_CHARS}), ${tsq}, ${HEADLINE})`,
+          })
+          .from(blobTexts)
+          .innerJoin(nodes, eq(nodes.blobId, blobTexts.blobId))
+          .innerJoin(blobs, eq(blobs.id, blobTexts.blobId))
+          .where(
+            and(
+              visible,
+              sql`${blobTexts.words} @@ ${tsq}`,
+              // Nothing from a file that can't be opened: no peeking at it through its words.
+              notInArray(blobs.scanStatus, ['infected', 'held']),
+              named.length
+                ? notInArray(
+                    nodes.id,
+                    named.map((r) => r.node.id),
+                  )
+                : undefined,
+            ),
+          )
+          .orderBy(desc(nodes.updatedAt))
+          .limit(limit - items.length);
+        for (const r of found) {
+          items.push({
+            ...toFileNode({ ...r.node, thumb: r.thumb, scan: r.scan }),
+            snippet: r.snippet.replace(/\s+/g, ' ').trim(),
+          });
+        }
+      }
+      return { items };
     },
   );
 

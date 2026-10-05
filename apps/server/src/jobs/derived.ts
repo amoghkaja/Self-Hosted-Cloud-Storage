@@ -3,6 +3,7 @@ import type { AppContext } from '../context';
 import type { BlobRow } from '../db/schema';
 import { isThumbnailable, isVideo } from '../storage/thumbs';
 import type { JobPayloads } from './queue';
+import { textSource } from './text';
 
 type BlobJob = {
   [N in keyof JobPayloads]: JobPayloads[N] extends { blobId: string } ? N : never;
@@ -16,6 +17,7 @@ export function derivedWork(mimeType: string | null, name: string) {
     streamStatus: isVideo(mimeType) ? 'pending' : 'none',
     previewStatus: isOfficeDocument(mimeType, name) ? 'pending' : 'none',
     infoStatus: media ? 'pending' : 'none',
+    textStatus: textSource(mimeType, name) ? 'pending' : 'none',
   } as const;
 }
 export type DerivedWork = ReturnType<typeof derivedWork>;
@@ -32,6 +34,7 @@ export async function queueDerivedWork(ctx: AppContext, blobId: string, work: De
   if (work.streamStatus === 'pending') await send('video-stream');
   if (work.previewStatus === 'pending') await send('office-preview');
   if (work.infoStatus === 'pending') await send('media-info');
+  if (work.textStatus === 'pending') await send('extract-text');
 }
 
 /**
@@ -45,4 +48,5 @@ export async function queueUnfinishedWork(ctx: AppContext, blob: BlobRow) {
   if (blob.streamStatus === 'pending') await send('video-stream');
   if (blob.previewStatus === 'pending') await send('office-preview');
   if (blob.infoStatus === 'pending') await send('media-info');
+  if (blob.textStatus === 'pending') await send('extract-text');
 }

@@ -127,6 +127,13 @@
       "when": 1791204418613,
       "tag": "0017_photo_info",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791204998093,
+      "tag": "0018_document_text",
+      "breakpoints": true
     }
   ]
 }

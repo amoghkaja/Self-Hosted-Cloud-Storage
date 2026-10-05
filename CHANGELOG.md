@@ -17,6 +17,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Free up space:** a page (from the storage bar, or Settings) that shows your biggest files,
   the same file stored more than once, older versions of files and what's in the trash, so you
   can see what takes up your space and let go of what you don't need.
+- **Search inside files:** search finds PDFs, Word, Excel and PowerPoint files and text files by
+  the words in them, not just their names, and shows the bit of text that matched. Files already
+  stored are read in the background after updating (a large collection can take a few hours).
 
 ### Fixed
 

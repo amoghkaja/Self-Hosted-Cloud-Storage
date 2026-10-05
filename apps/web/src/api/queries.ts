@@ -21,6 +21,7 @@ import type {
   Passkey,
   PasswordResetLink,
   ScannerStatus,
+  SearchHit,
   SessionInfo,
   Settings,
   SetupStatus,
@@ -421,7 +422,7 @@ export function useTrashNodes() {
 export function useSearch(q: string) {
   return useQuery({
     queryKey: qk.search(q),
-    queryFn: ({ signal }) => api<{ items: FileNode[] }>('/search', { query: { q }, signal }),
+    queryFn: ({ signal }) => api<{ items: SearchHit[] }>('/search', { query: { q }, signal }),
     enabled: q.trim().length > 0,
     staleTime: 10_000,
     // Results update as you type: keep the last ones on screen instead of flashing a skeleton.
