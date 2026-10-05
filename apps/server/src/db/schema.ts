@@ -565,6 +565,46 @@ export const albumFolders = pgTable(
   ],
 );
 
+/**
+ * Hearts and comments on photos in trip albums, seen by everyone who can see the album (the whole
+ * family). They go with the photo, or with the person's account.
+ */
+export const photoHearts = pgTable(
+  'photo_hearts',
+  {
+    nodeId: uuid('node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.nodeId, t.userId] }),
+    index('photo_hearts_user_idx').on(t.userId),
+  ],
+);
+
+export const photoComments = pgTable(
+  'photo_comments',
+  {
+    id: id(),
+    nodeId: uuid('node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    body: text('body').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('photo_comments_node_idx').on(t.nodeId, t.createdAt),
+    index('photo_comments_user_idx').on(t.userId),
+  ],
+);
+
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: jsonb('value').notNull(),

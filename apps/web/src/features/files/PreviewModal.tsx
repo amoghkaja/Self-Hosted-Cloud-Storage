@@ -414,12 +414,15 @@ export default function PreviewModal({
   onIndexChange,
   onClose,
   source,
+  footer,
 }: {
   items: PreviewItem[];
   index: number;
   onIndexChange: (i: number) => void;
   onClose: () => void;
   source: PreviewSource;
+  /** Below the file, e.g. hearts and comments on an album photo. */
+  footer?: (item: PreviewItem) => ReactNode;
 }) {
   const item = items[index];
   const onCloseAutoFocus = useReturnFocus(true);
@@ -513,6 +516,7 @@ export default function PreviewModal({
               <ChevronRight size={24} aria-hidden />
             </button>
           </div>
+          {footer && <div className="shrink-0">{footer(item)}</div>}
         </D.Content>
       </D.Portal>
     </D.Root>

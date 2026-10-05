@@ -9,7 +9,7 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 ## What it does
 
 - **Private files for everyone.** Each person's **My Files** is theirs alone: nobody else (admins included) can see it unless they share something.
-- **Family Photos.** Trip albums for the whole family: give a trip a name, dates and who went, and everyone on it adds photos straight from their phone. Every family member can see every album and filter by person; each person's photos still count against their own storage.
+- **Family Photos.** Trip albums for the whole family: give a trip a name, dates and who went, and everyone on it adds photos straight from their phone. Photos sort by when they were taken, day by day, and everyone can leave hearts and comments. Every family member can see every album and filter by person; each person's photos still count against their own storage.
 - **Accounts for the whole family.** Invite people with a link. Optionally allow only your family's email domain (e.g. `@smithfamily.com`) to be invited or sign in. Forgotten password? An admin sends a one-time reset link; nobody needs to touch the server.
 - **Sign in with Face ID or Touch ID.** Passkeys (synced through iCloud Keychain or Google Password Manager), plus passwords with optional two-factor codes and recovery codes for a lost phone.
 - **Upload anything, from anywhere.** Big uploads are sent in pieces, survive a dropped Wi‑Fi connection, and resume where they left off. Drag in whole folders.

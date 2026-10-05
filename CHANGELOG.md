@@ -24,6 +24,8 @@ to do yourself when updating is listed under **Before you update**.
   ago, or at any moment the trash still covers. Deleted files come back and files that were
   saved over get back what they held, and it shows you what will change first. Nothing is lost:
   what files hold now is kept as an older version.
+- **Hearts and comments** on photos in trip albums: tap the heart, or open the comments under a
+  photo, and see who loved it. The album shows which photos have hearts and comments.
 
 ### Fixed
 

@@ -3,9 +3,11 @@ import {
   ArrowLeft,
   Download,
   EllipsisVertical,
+  Heart,
   ImagePlus,
   Images,
   Inbox,
+  MessageCircle,
   Pencil,
   Play,
   Trash2,
@@ -35,6 +37,7 @@ import { triggerDownload } from '../files/actions';
 import type { PreviewItem, PreviewSource } from '../files/PreviewModal';
 import { LinkBox } from '../sharing/LinkActions';
 import { dayLabel, groupByDay } from './days';
+import { PhotoSocialBar } from './PhotoSocial';
 import { TripDialog, tripDates } from './TripForm';
 
 const PreviewModal = lazy(() => import('../files/PreviewModal'));
@@ -46,7 +49,13 @@ function Tile({ p, albumId, onOpen }: { p: AlbumPhoto; albumId: string; onOpen: 
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${p.name}, added by ${p.addedBy.displayName}`}
+        aria-label={[
+          `${p.name}, added by ${p.addedBy.displayName}`,
+          p.hearts ? `${p.hearts} ${p.hearts === 1 ? 'heart' : 'hearts'}` : '',
+          p.comments ? `${p.comments} ${p.comments === 1 ? 'comment' : 'comments'}` : '',
+        ]
+          .filter(Boolean)
+          .join(', ')}
         className="group relative block aspect-square w-full overflow-hidden bg-surface-2"
       >
         {p.thumb === 'ready' ? (
@@ -64,6 +73,22 @@ function Tile({ p, albumId, onOpen }: { p: AlbumPhoto; albumId: string; onOpen: 
               aria-hidden
               className={p.thumb === 'pending' ? 'animate-pulse' : ''}
             />
+          </span>
+        )}
+        {(p.hearts > 0 || p.comments > 0) && (
+          <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[11px] text-white tabular-nums">
+            {p.hearts > 0 && (
+              <span className="flex items-center gap-0.5">
+                <Heart size={11} aria-hidden fill="currentColor" />
+                {p.hearts}
+              </span>
+            )}
+            {p.comments > 0 && (
+              <span className="flex items-center gap-0.5">
+                <MessageCircle size={11} aria-hidden />
+                {p.comments}
+              </span>
+            )}
           </span>
         )}
         {video && (
@@ -406,6 +431,12 @@ export function AlbumPage() {
                 onIndexChange={(i) => setPreviewId(previewItems[i]?.id ?? null)}
                 onClose={() => setPreviewId(null)}
                 source={source}
+                footer={(item) => {
+                  const photo = items.find((p) => p.id === item.id);
+                  return photo ? (
+                    <PhotoSocialBar key={photo.id} albumId={a.id} photo={photo} />
+                  ) : null;
+                }}
               />
             </Suspense>
           )}

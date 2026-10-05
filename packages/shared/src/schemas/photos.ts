@@ -66,6 +66,10 @@ export const AlbumPhoto = z.object({
   takenAt: z.string().nullable(),
   /** Where it was taken, when the phone recorded it. */
   location: z.object({ latitude: z.number(), longitude: z.number() }).nullable(),
+  hearts: z.number().int(),
+  /** The caller gave it a heart. */
+  hearted: z.boolean(),
+  comments: z.number().int(),
 });
 export type AlbumPhoto = z.infer<typeof AlbumPhoto>;
 
@@ -82,3 +86,23 @@ export const AlbumPhotosQuery = z.object({
 
 /** Where the caller's photos for this album go (a folder in their own space). */
 export const AlbumFolder = z.object({ folderId: Id });
+
+export const PhotoComment = z.object({
+  id: Id,
+  author: UserRef,
+  body: z.string(),
+  createdAt: IsoDate,
+  /** The author, the photo's owner or an admin may delete it. */
+  canDelete: z.boolean(),
+});
+export type PhotoComment = z.infer<typeof PhotoComment>;
+
+/** Hearts and comments on one album photo, oldest comment first. */
+export const PhotoSocial = z.object({
+  hearts: z.array(UserRef),
+  hearted: z.boolean(),
+  comments: z.array(PhotoComment),
+});
+export type PhotoSocial = z.infer<typeof PhotoSocial>;
+
+export const CommentBody = z.object({ body: z.string().trim().min(1).max(1000) });

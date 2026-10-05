@@ -141,8 +141,12 @@ An album is a trip: a name, dates and who went. Each person's photos live in a f
 | POST | `/albums` | `{title, startDate, endDate?, note?, peopleIds}` |
 | GET / PATCH / DELETE | `/albums/:id` | Album details / edit (starter or admin; also `coverNodeId`) / delete (photos stay in people's folders) |
 | POST | `/albums/:id/folder` | Your upload folder for the album (created on first use); then upload with `POST /uploads` |
-| GET | `/albums/:id/photos` | Photos and videos in the order they were taken (camera clock; upload time for photos without a date), with `takenAt` and `location` (`?cursor&limit`) |
+| GET | `/albums/:id/photos` | Photos and videos in the order they were taken (camera clock; upload time for photos without a date), with `takenAt`, `location`, and heart and comment counts (`?cursor&limit`) |
 | GET | `/albums/:id/photos/:nodeId/content`, `/thumbnail` | A photo, or its thumbnail (`?size=256\|1600`) |
+| GET | `/albums/:id/photos/:nodeId/social` | Hearts (who) and comments on a photo: `{hearts, hearted, comments}` |
+| PUT / DELETE | `/albums/:id/photos/:nodeId/heart` | Give or take back your heart |
+| POST | `/albums/:id/photos/:nodeId/comments` | `{body}` (up to 1,000 characters). Every family member can comment |
+| DELETE | `/albums/:id/photos/:nodeId/comments/:commentId` | The writer, the photo's owner or an admin |
 | GET | `/albums/:id/zip` | Every photo in one zip |
 
 ### Public links (no account)

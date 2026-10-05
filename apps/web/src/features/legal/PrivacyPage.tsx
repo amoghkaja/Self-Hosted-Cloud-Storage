@@ -120,7 +120,7 @@ export function PrivacyPage() {
             </li>
             <li>
               Everyone in the family can see the trip albums in Family Photos, including when and
-              where each photo was taken.
+              where each photo was taken, and the hearts and comments people leave on them.
             </li>
           </ul>
         </Part>

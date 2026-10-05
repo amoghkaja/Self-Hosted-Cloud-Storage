@@ -6,11 +6,13 @@ import {
   AlbumPhotoPage,
   AlbumPhotosQuery,
   AlbumsQuery,
+  CommentBody,
   ContentQuery,
   CreateAlbumBody,
   ErrorCode,
   IdParams,
   Ok,
+  PhotoSocial,
   ThumbQuery,
   type ThumbStatus,
   UpdateAlbumBody,
@@ -26,6 +28,8 @@ import {
   albums,
   blobs,
   nodes,
+  photoComments,
+  photoHearts,
   users,
 } from '../../db/schema';
 import { audit } from '../../lib/audit';
@@ -409,7 +413,7 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      requireUser(req);
+      const auth = requireUser(req);
       const a = await loadAlbum(req.params.id);
       let after: SQL | undefined;
       if (req.query.cursor) {
@@ -425,6 +429,9 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
           longitude: blobs.longitude,
           sortAt: shotAtText,
           owner: { id: users.id, displayName: users.displayName },
+          hearts: sql<number>`(SELECT count(*)::int FROM photo_hearts h WHERE h.node_id = ${nodes.id})`,
+          hearted: sql<boolean>`EXISTS (SELECT 1 FROM photo_hearts h WHERE h.node_id = ${nodes.id} AND h.user_id = ${auth.user.id})`,
+          comments: sql<number>`(SELECT count(*)::int FROM photo_comments c WHERE c.node_id = ${nodes.id})`,
         })
         .from(nodes)
         .innerJoin(blobs, eq(blobs.id, nodes.blobId))
@@ -448,6 +455,9 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
             r.latitude !== null && r.longitude !== null
               ? { latitude: r.latitude, longitude: r.longitude }
               : null,
+          hearts: r.hearts,
+          hearted: r.hearted,
+          comments: r.comments,
         })),
         nextCursor:
           rows.length > req.query.limit && last ? encodeCursor([last.sortAt, last.node.id]) : null,
@@ -503,6 +513,122 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
       const p = await albumPhoto(req.params.id, req.params.nodeId);
       if (p.thumb !== 'ready') throw notFound('Thumbnail');
       return sendThumbnail(ctx, req, reply, p.node.blobId!, req.query.size);
+    },
+  );
+
+  // ── hearts and comments ───────────────────────────────────────────────────
+
+  async function social(nodeId: string, photoOwnerId: string, auth: AuthContext) {
+    const [hearts, comments] = await Promise.all([
+      db
+        .select({ id: users.id, displayName: users.displayName })
+        .from(photoHearts)
+        .innerJoin(users, eq(users.id, photoHearts.userId))
+        .where(eq(photoHearts.nodeId, nodeId))
+        .orderBy(photoHearts.createdAt),
+      db
+        .select({ c: photoComments, author: { id: users.id, displayName: users.displayName } })
+        .from(photoComments)
+        .innerJoin(users, eq(users.id, photoComments.userId))
+        .where(eq(photoComments.nodeId, nodeId))
+        .orderBy(photoComments.createdAt, photoComments.id)
+        .limit(500),
+    ]);
+    return {
+      hearts,
+      hearted: hearts.some((h) => h.id === auth.user.id),
+      comments: comments.map((r) => ({
+        id: r.c.id,
+        author: r.author,
+        body: r.c.body,
+        createdAt: toIso(r.c.createdAt),
+        canDelete: canDeleteComment(r.c.userId, photoOwnerId, auth),
+      })),
+    };
+  }
+
+  const canDeleteComment = (authorId: string, photoOwnerId: string, auth: AuthContext) =>
+    authorId === auth.user.id || photoOwnerId === auth.user.id || auth.user.role === 'admin';
+
+  app.get(
+    '/albums/:id/photos/:nodeId/social',
+    { schema: { params: PhotoParams, response: { 200: PhotoSocial } } },
+    async (req) => {
+      const auth = requireUser(req);
+      const p = await albumPhoto(req.params.id, req.params.nodeId);
+      return social(p.node.id, p.node.ownerId, auth);
+    },
+  );
+
+  app.put(
+    '/albums/:id/photos/:nodeId/heart',
+    { schema: { params: PhotoParams, response: { 200: PhotoSocial } } },
+    async (req) => {
+      const auth = requireUser(req);
+      const p = await albumPhoto(req.params.id, req.params.nodeId);
+      await db
+        .insert(photoHearts)
+        .values({ nodeId: p.node.id, userId: auth.user.id })
+        .onConflictDoNothing();
+      return social(p.node.id, p.node.ownerId, auth);
+    },
+  );
+
+  app.delete(
+    '/albums/:id/photos/:nodeId/heart',
+    { schema: { params: PhotoParams, response: { 200: PhotoSocial } } },
+    async (req) => {
+      const auth = requireUser(req);
+      const p = await albumPhoto(req.params.id, req.params.nodeId);
+      await db
+        .delete(photoHearts)
+        .where(and(eq(photoHearts.nodeId, p.node.id), eq(photoHearts.userId, auth.user.id)));
+      return social(p.node.id, p.node.ownerId, auth);
+    },
+  );
+
+  app.post(
+    '/albums/:id/photos/:nodeId/comments',
+    {
+      schema: { params: PhotoParams, body: CommentBody, response: { 200: PhotoSocial } },
+      // Plenty for a chat about a photo; stops a stuck client from filling the album with copies.
+      config: {
+        rateLimit: { max: Math.round(30 * ctx.config.rateLimitScale), timeWindow: '1 minute' },
+      },
+    },
+    async (req) => {
+      const auth = requireUser(req);
+      const p = await albumPhoto(req.params.id, req.params.nodeId);
+      await db
+        .insert(photoComments)
+        .values({ nodeId: p.node.id, userId: auth.user.id, body: req.body.body });
+      return social(p.node.id, p.node.ownerId, auth);
+    },
+  );
+
+  app.delete(
+    '/albums/:id/photos/:nodeId/comments/:commentId',
+    {
+      schema: {
+        params: PhotoParams.extend({ commentId: z.uuid() }),
+        response: { 200: PhotoSocial },
+      },
+    },
+    async (req) => {
+      const auth = requireUser(req);
+      const p = await albumPhoto(req.params.id, req.params.nodeId);
+      const [comment] = await db
+        .select()
+        .from(photoComments)
+        .where(
+          and(eq(photoComments.id, req.params.commentId), eq(photoComments.nodeId, p.node.id)),
+        );
+      if (!comment) throw notFound('Comment');
+      if (!canDeleteComment(comment.userId, p.node.ownerId, auth)) {
+        throw forbidden('Only the person who wrote it, or whose photo it is, can delete it');
+      }
+      await db.delete(photoComments).where(eq(photoComments.id, comment.id));
+      return social(p.node.id, p.node.ownerId, auth);
     },
   );
 
