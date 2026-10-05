@@ -21,7 +21,7 @@ jobs:
     # The arm64 half is emulated and slow, but a build that is still going after this is stuck.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # tags, for git describe
       - name: Image name (GHCR requires lowercase) and version
