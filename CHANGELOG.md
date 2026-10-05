@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.4.0 (2026-10-05)
+
 ### New
 
 - **Family Photos:** trip albums are in the order photos were taken, whoever uploaded them first,
