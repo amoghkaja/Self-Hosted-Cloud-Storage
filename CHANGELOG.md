@@ -15,6 +15,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Uploads:** a moment without a connection no longer fails every file of a folder upload at
   once, and retrying or resuming a big upload no longer starts it again from the beginning if
   the connection drops just then.
+- **Folder uploads:** empty folders inside a folder you drag in are made too, and dragging in an
+  empty folder makes it. They used to be left out without a word.
 - **Uploads:** cancelling a file of a folder upload works at once, even while its folder is still
   being made; pressing Retry straight after no longer shows it as cancelled while it uploads.
 - **Keyboard:** the Name, Modified and Size column headers sort a folder with Enter or Space, as

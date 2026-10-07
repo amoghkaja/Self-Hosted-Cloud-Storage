@@ -262,6 +262,16 @@ export class UploadManager {
     this.pump();
   }
 
+  /** Makes the empty folders of a dropped folder ("Trip/Day 3"); the others come with files. */
+  async addFolders(parentId: string, dirs: string[]): Promise<void> {
+    try {
+      await Promise.all(dirs.map((dir) => this.ensurePath(parentId, dir)));
+    } finally {
+      // As when uploads go idle (see pump): don't keep reusing folders that may be deleted later.
+      if (this.active === 0 && !this.items.some((i) => i.status === 'queued')) this.folders.clear();
+    }
+  }
+
   cancel(id: string): void {
     const item = this.find(id);
     if (!item || item.status === 'done') return;

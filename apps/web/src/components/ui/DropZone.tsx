@@ -81,36 +81,49 @@ export interface PickedFile {
   relativeDir: string;
 }
 
+export interface DroppedItems {
+  files: PickedFile[];
+  /** Folders with nothing in them ("Holiday/Day 3"): the files' folders come with the files. */
+  emptyFolders: string[];
+}
+
 /** Expands a drop (files and whole folders, recursively) into a flat list with relative paths. */
-export async function collectDroppedFiles(data: DataTransfer): Promise<PickedFile[]> {
+export async function collectDroppedFiles(data: DataTransfer): Promise<DroppedItems> {
   const entries = Array.from(data.items ?? [])
     .map((i) => (i.kind === 'file' ? i.webkitGetAsEntry?.() : null))
     .filter((e): e is FileSystemEntry => !!e);
   if (entries.length === 0) {
-    return Array.from(data.files).map((file) => ({ file, relativeDir: '' }));
+    return {
+      files: Array.from(data.files).map((file) => ({ file, relativeDir: '' })),
+      emptyFolders: [],
+    };
   }
-  const out: PickedFile[] = [];
+  const files: PickedFile[] = [];
+  const emptyFolders: string[] = [];
   const walk = async (entry: FileSystemEntry, dir: string): Promise<void> => {
     if (entry.isFile) {
       const file = await new Promise<File>((res, rej) =>
         (entry as FileSystemFileEntry).file(res, rej),
       );
-      out.push({ file, relativeDir: dir });
+      files.push({ file, relativeDir: dir });
       return;
     }
     const reader = (entry as FileSystemDirectoryEntry).createReader();
     const childDir = dir ? `${dir}/${entry.name}` : entry.name;
+    let empty = true;
     // readEntries returns results in batches; keep reading until it returns nothing.
     for (;;) {
       const batch = await new Promise<FileSystemEntry[]>((res, rej) =>
         reader.readEntries(res, rej),
       );
       if (batch.length === 0) break;
+      empty = false;
       for (const child of batch) await walk(child, childDir);
     }
+    if (empty) emptyFolders.push(childDir);
   };
   for (const e of entries) await walk(e, '');
-  return out;
+  return { files, emptyFolders };
 }
 
 /** Files from an <input type="file" webkitdirectory> keep their folder in webkitRelativePath. */

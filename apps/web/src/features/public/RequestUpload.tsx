@@ -88,7 +88,10 @@ export function RequestUpload({ token, info }: { token: string; info: PublicLink
       <DropZone
         label="Drop to send"
         onDrop={(dt) =>
-          collectDroppedFiles(dt).then(send, () => toast.error("Couldn't read the dropped files"))
+          collectDroppedFiles(dt).then(
+            ({ files }) => send(files),
+            () => toast.error("Couldn't read the dropped files"),
+          )
         }
       >
         <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border-strong bg-surface px-4 py-10 text-center">

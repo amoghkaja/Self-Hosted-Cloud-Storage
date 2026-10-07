@@ -235,8 +235,16 @@ function FileBrowser({ folderId }: { folderId: string }) {
       disabled={!canEdit}
       label={`Drop to upload to ${name || 'this folder'}`}
       onDrop={(dt) =>
-        collectDroppedFiles(dt).then(upload, (err) =>
-          toast.error(`Couldn't read the dropped files: ${errorMessage(err)}`),
+        collectDroppedFiles(dt).then(
+          ({ files, emptyFolders }) => {
+            if (emptyFolders.length) {
+              uploadManager
+                .addFolders(folderId, emptyFolders)
+                .catch((err) => toast.error(`Couldn't make a folder: ${errorMessage(err)}`));
+            }
+            return upload(files);
+          },
+          (err) => toast.error(`Couldn't read the dropped files: ${errorMessage(err)}`),
         )
       }
       className="min-h-[60vh]"

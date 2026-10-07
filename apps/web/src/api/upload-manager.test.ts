@@ -345,6 +345,29 @@ describe('UploadManager', () => {
     expect(t.abortUpload).toHaveBeenCalledWith('s-f.bin');
   });
 
+  it('makes the empty folders of a dropped folder, once each, alongside its files', async () => {
+    const { t, folders } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('x'),
+      status: 'completed',
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    const changed: string[] = [];
+    m.onFolderChanged = (id) => changed.push(id);
+    const made = m.addFolders('root', ['Trip/Day 2', 'Trip/Plans/Ideas']);
+    m.add('root', [{ file: new File(['1'], '1.jpg'), relativeDir: 'Trip/Day 1' }]);
+    await made;
+    await waitIdle(m);
+    expect(folders.sort()).toEqual([
+      'root/Trip',
+      'root/Trip/Day 1',
+      'root/Trip/Day 2',
+      'root/Trip/Plans',
+      'root/Trip/Plans/Ideas',
+    ]);
+    expect(changed).toContain('root');
+  });
+
   it('refreshes the folder a folder upload creates its first folder in', async () => {
     const { t } = fakeTransport();
     (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
