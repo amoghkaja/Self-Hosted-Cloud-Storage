@@ -74,4 +74,20 @@ describe('hearts and comments', () => {
     await expectAccessible(document.body);
     expect(within(document.body).getByRole('button', { name: /2 comments/ })).toBeInTheDocument();
   });
+
+  it('asks before deleting a comment', async () => {
+    const mine = comment('77777777-7777-4777-8777-777777777777', 'Wish I was there', me, true);
+    const calls = mockFetch({
+      [`GET ${base}/social`]: () => ({ json: { ...before, comments: [mine] } }),
+      [`DELETE ${base}/comments/${mine.id}`]: () => ({ json: { ...before, comments: [] } }),
+    });
+    renderWithProviders(<PhotoSocialBar albumId={albumId} photo={photo} />);
+    await userEvent.click(screen.getByRole('button', { name: /1 comment/ }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete Kid’s comment' }));
+    const ask = await screen.findByRole('alertdialog', { name: 'Delete Kid’s comment?' });
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    await userEvent.click(within(ask).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText('Wish I was there')).toBeNull());
+  });
 });

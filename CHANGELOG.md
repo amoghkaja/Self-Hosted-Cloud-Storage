@@ -38,6 +38,8 @@ to do yourself when updating is listed under **Before you update**.
   straight away and keep ".jpg". The cursor used to sit at the end of the name.
 - **Deleting a link or file request** asks first. It used to go with one tap on the bin right
   next to Copy, and a deleted link can't be brought back (a new one has a different address).
+- **Deleting a comment on a photo** asks first, showing the comment. The bins of stacked
+  comments sit right under each other, and the photo's owner can delete anyone's comment.
 
 ## v0.5.0 (2026-10-05)
 
