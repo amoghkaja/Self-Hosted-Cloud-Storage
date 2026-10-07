@@ -93,6 +93,8 @@ jobs:
           fetch-depth: 0
       - name: Shell scripts pass shellcheck
         run: shellcheck --severity=warning scripts/*.sh
+      - name: An older PostgreSQL 18 image, as on a machine installed a while ago
+        run: docker pull -q postgres:18.0-alpine && docker tag postgres:18.0-alpine postgres:18-alpine
       - name: Install on a clean machine
         run: ./scripts/install.sh -y
       - name: The app answers and waits for its first admin
@@ -131,6 +133,21 @@ jobs:
           sudo mount -t tmpfs -o "size=256m,uid=$(id -u)" tmpfs "$RUNNER_TEMP/backup-disk"
           ./scripts/backup.sh
           restic snapshots --json | jq -e 'length == 1'
+      - name: Updating backs up the database, moves to the new version and refreshes every image
+        run: |
+          # A newer commit on main, in a local stand-in for GitHub; this machine runs the one before.
+          git -c user.name=CI -c user.email=ci@localhost commit -q --allow-empty -m "A newer version"
+          git init -q --bare "$RUNNER_TEMP/origin.git"
+          git push -q "$RUNNER_TEMP/origin.git" HEAD:refs/heads/main
+          git remote set-url origin "$RUNNER_TEMP/origin.git"
+          git checkout -q --detach HEAD~1
+          ./scripts/update.sh <<<y
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]
+          ls "$STORAGE_ROOT"/backups/pre-update-*.dump
+          # The database image was refreshed too (it started as 18.0).
+          VERSION=$(cd deploy && docker compose exec -T db postgres --version)
+          echo "$VERSION"
+          [[ "$VERSION" != *" 18.0" ]]
       - name: Logs
         if: failure()
         run: cd deploy && docker compose ps && docker compose logs --tail 80

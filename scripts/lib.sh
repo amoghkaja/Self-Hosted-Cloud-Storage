@@ -105,8 +105,9 @@ wait_healthy() {
 }
 
 # The version the running app reports ("unknown" for images older than v0.1.0), or "not running".
+# Not reading stdin, which holds the answers to the questions asked after it.
 running_version() {
-  docker compose exec -T app node -p 'process.env.APP_VERSION || "unknown"' 2>/dev/null \
+  docker compose exec -T app node -p 'process.env.APP_VERSION || "unknown"' 2>/dev/null </dev/null \
     || echo "not running"
 }
 

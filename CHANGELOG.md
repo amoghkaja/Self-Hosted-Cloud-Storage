@@ -19,6 +19,13 @@ to do yourself when updating is listed under **Before you update**.
 - **Server:** the logs Docker keeps for each container are capped at 50 MB. They used to grow
   with every request until the containers were next replaced, and could fill the system disk.
 
+### Security
+
+- **Updating:** `update.sh` also downloads the newest builds of the database (PostgreSQL 18),
+  Cloudflare Tunnel, Caddy and virus scanner images. They used to stay as they were on the day
+  you installed, without their security fixes, and an old virus scanner stops getting new virus
+  lists.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

@@ -133,6 +133,10 @@ if [[ "$IMAGE" == "$LOCAL_IMAGE" ]] || ! docker compose pull --quiet app 2>/dev/
   info "Building the image on this machine (takes a few minutes)…"
   docker compose build app
 fi
+# Docker downloads the database, tunnel, Caddy and virus scanner images (postgres:18-alpine and
+# so on) only once. Fetch their newest builds too, or their security fixes never arrive.
+docker compose pull --quiet --ignore-buildable \
+  || info "Couldn't download newer images for the database and other services; keeping the current ones."
 
 bold "Restarting"
 docker compose up -d --remove-orphans
