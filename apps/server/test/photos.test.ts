@@ -201,6 +201,18 @@ describe('trip albums', () => {
     expect(added.body.detail).toBe('Someone in the list is not in the family');
   });
 
+  it('never makes a Mac\'s hidden "._" file the album cover', async () => {
+    const album = (
+      await mom.post('/albums', { title: 'Mac copy', startDate: '2026-04-03', peopleIds: [momId] })
+    ).body;
+    const { folderId } = (await mom.post(`/albums/${album.id}/folder`, {})).body;
+    await uploadFile(mom, folderId, '._IMG_9.jpg', bytes(10, 9), { mimeType: 'image/jpeg' });
+    expect((await kid.get(`/albums/${album.id}`)).body).toMatchObject({
+      photoCount: 0,
+      cover: null,
+    });
+  });
+
   it('pages through an album with the cursors it hands out', async () => {
     const album = (
       await mom.post('/albums', { title: 'Pages', startDate: '2026-04-02', peopleIds: [momId] })

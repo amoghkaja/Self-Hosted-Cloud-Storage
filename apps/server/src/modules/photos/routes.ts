@@ -89,13 +89,11 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
           WHERE ${inAlbum(sql`a.id`)}
         ) s ON true
         LEFT JOIN LATERAL (
-          SELECT n.id, b.thumb_status AS thumb FROM nodes n
-          JOIN blobs b ON b.id = n.blob_id
-          WHERE n.parent_id IN (SELECT folder_id FROM album_folders WHERE album_id = a.id)
-            AND n.deleted_at IS NULL AND n.type = 'file'
-            AND (n.mime_type LIKE 'image/%' OR n.mime_type LIKE 'video/%')
-          ORDER BY (n.id = a.cover_node_id) DESC, (b.thumb_status = 'ready') DESC,
-                   coalesce(b.taken_at, n.created_at AT TIME ZONE 'UTC'), n.id
+          SELECT nodes.id, b.thumb_status AS thumb FROM nodes
+          JOIN blobs b ON b.id = nodes.blob_id
+          WHERE ${inAlbum(sql`a.id`)}
+          ORDER BY (nodes.id = a.cover_node_id) DESC, (b.thumb_status = 'ready') DESC,
+                   coalesce(b.taken_at, nodes.created_at AT TIME ZONE 'UTC'), nodes.id
           LIMIT 1
         ) c ON true
         WHERE a.id IN (${sql.join(
