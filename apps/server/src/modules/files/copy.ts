@@ -2,6 +2,7 @@ import { ErrorCode } from '@familycloud/shared/all';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
+import type { Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { reserveSpace } from '../uploads/service';
@@ -12,6 +13,14 @@ import { insertNode } from './tree';
 
 export const MAX_COPY_ENTRIES = 10_000;
 
+/**
+ * What copying a folder takes along. Files still waiting for their virus check come too (the
+ * copies share their bytes, so they wait just as long); infected ones are left behind.
+ */
+export function listCopyTree(exec: Executor, folderId: string) {
+  return listTree(exec, folderId, MAX_COPY_ENTRIES + 1, ['infected']);
+}
+
 export interface CopyInput {
   userId: string;
   source: Pick<NodeRow, 'id' | 'type' | 'name' | 'blobId' | 'size' | 'mimeType'>;
@@ -21,8 +30,8 @@ export interface CopyInput {
   onConflict: 'fail' | 'rename';
   /** Copy only the folder itself, not what's in it (WebDAV Depth: 0). */
   shallow?: boolean;
-  /** The source folder's contents, when the caller already listed them (listTree). */
-  tree?: Awaited<ReturnType<typeof listTree>>;
+  /** The source folder's contents, when the caller already listed them (listCopyTree). */
+  tree?: Awaited<ReturnType<typeof listCopyTree>>;
 }
 
 /**
@@ -34,7 +43,7 @@ export interface CopyInput {
 export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeRow> {
   const tree =
     input.source.type === 'folder' && !input.shallow
-      ? (input.tree ?? (await listTree(ctx.db, input.source.id, MAX_COPY_ENTRIES + 1)))
+      ? (input.tree ?? (await listCopyTree(ctx.db, input.source.id)))
       : [];
   if (tree.length > MAX_COPY_ENTRIES) {
     throw new AppError(
