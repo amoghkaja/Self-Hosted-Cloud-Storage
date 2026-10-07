@@ -13,6 +13,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Share links with a download limit** now count every download. A download program could ask
   for a file or a zip "in pieces" in a way that still sent all of it without counting, so the
   link never ran out.
+- **Trip folders:** a document kept with a trip's photos (a boarding pass, a booking) isn't in
+  the album, and now instant uploads treat it as private too. Before, a family member who had
+  the very same file could upload it "instantly" and so find out it was there.
 
 ## v0.5.0 (2026-10-05)
 

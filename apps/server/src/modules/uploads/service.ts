@@ -283,7 +283,9 @@ export async function instantUpload(
       scan: blobs.scanStatus,
       nodeId: nodes.id,
       ownerId: nodes.ownerId,
-      inAlbum: sql<boolean>`EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
+      // The whole family sees what's in a trip album, but an album shows only photos and videos.
+      inAlbum: sql<boolean>`(${nodes.mimeType} LIKE 'image/%' OR ${nodes.mimeType} LIKE 'video/%')
+        AND EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
     })
     .from(blobs)
     .innerJoin(nodes, eq(nodes.blobId, blobs.id))

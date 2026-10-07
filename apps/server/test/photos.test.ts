@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { nodes } from '../src/db/schema';
+import { hashBlob } from '../src/jobs/maintenance';
 import {
   addMember,
   bytes,
@@ -132,6 +136,38 @@ describe('trip albums', () => {
     await kid.del(`/nodes/${first}`);
     const second = (await kid.post(`/albums/${album.id}/folder`, {})).body.folderId;
     expect(second).not.toBe(first);
+  });
+
+  it("keeps what isn't a photo or video private, even from someone who knows its checksum", async () => {
+    const album = (
+      await dad.post('/albums', { title: 'Paris', startDate: '2026-05-01', peopleIds: [dadId] })
+    ).body;
+    const { folderId } = (await dad.post(`/albums/${album.id}/folder`, {})).body;
+    const kidRoot = (await kid.get('/auth/me')).body.rootNodeId;
+    /** Stores `data` in Dad's trip folder, then asks for an instant copy as the kid. */
+    const probe = async (name: string, data: Buffer, mimeType: string) => {
+      const node = (await uploadFile(dad, folderId, name, data, { mimeType })).final!.body.node;
+      const [row] = await env.ctx.db
+        .select({ blobId: nodes.blobId })
+        .from(nodes)
+        .where(eq(nodes.id, node.id));
+      await hashBlob(env.ctx, row!.blobId!);
+      const res = await kid.post('/uploads/instant', {
+        parentId: kidRoot,
+        name: `copy of ${name}`,
+        size: data.length,
+        sha256: createHash('sha256').update(data).digest('hex'),
+      });
+      expect(res.status).toBe(200);
+      return res.body.node;
+    };
+
+    // A boarding pass kept with the trip's photos isn't in the album, so the kid can't get it.
+    expect(await probe('boarding pass.pdf', bytes(2000, 41), 'application/pdf')).toBeNull();
+    // A photo in the album is the family's to see, so a copy of it is fine.
+    expect(await probe('eiffel.jpg', bytes(3000, 42), 'image/jpeg')).toMatchObject({
+      name: 'copy of eiffel.jpg',
+    });
   });
 
   it('refuses unknown people and bad dates', async () => {
