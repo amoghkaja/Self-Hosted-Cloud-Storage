@@ -42,6 +42,8 @@ to do yourself when updating is listed under **Before you update**.
   under the top bar while you scroll; its Clear button and the count were hidden there.
 - **Undo on a phone:** the Undo and close buttons on messages like "Moved … to trash" are
   easier to hit with a thumb.
+- **Offline:** opening a folder or page with no connection says "You're offline" instead of
+  showing grey placeholders forever, and loads by itself when the connection is back.
 - **Deleting a comment on a photo** asks first, showing the comment. The bins of stacked
   comments sit right under each other, and the photo's owner can delete anyone's comment.
 

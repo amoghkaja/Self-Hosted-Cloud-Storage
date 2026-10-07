@@ -1,3 +1,4 @@
+import { onlineManager, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -205,6 +206,31 @@ describe('states', () => {
       </QueryState>,
     );
     expect(screen.getByText('data 1')).toBeInTheDocument();
+  });
+
+  it('QueryState says so when offline instead of loading forever, and loads once back', async () => {
+    onlineManager.setOnline(false);
+    function Folder() {
+      const q = useQuery({ queryKey: ['folder'], queryFn: async () => ['notes.txt'] });
+      return (
+        <QueryState query={q} loading={<p>skeleton</p>}>
+          {(d) => <p>{d.join()}</p>}
+        </QueryState>
+      );
+    }
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Folder />
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByText("You're offline")).toBeInTheDocument();
+      expect(screen.queryByText('skeleton')).toBeNull();
+      onlineManager.setOnline(true);
+      expect(await screen.findByText('notes.txt')).toBeInTheDocument();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('EmptyState and ErrorState are accessible', async () => {

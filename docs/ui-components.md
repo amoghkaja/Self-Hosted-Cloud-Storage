@@ -121,6 +121,7 @@ Menus stop click and key events at their boundary. React bubbles events from por
 ```
 
 - **Loading:** `aria-busy` plus a screen-reader "Loading…".
+- **Offline:** a first load that is waiting for the network (TanStack Query's `paused`) says "You're offline" instead of showing the skeleton forever; it loads by itself once back online.
 - **Error:** `ErrorState` with the server's message and a **Try again** button.
 - **Empty and data:** rendered as given.
 
