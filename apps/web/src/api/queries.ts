@@ -276,6 +276,13 @@ function invalidateNodeViews(qc: QueryClient, folders: (string | null | undefine
   void qc.invalidateQueries({ queryKey: qk.starred });
 }
 
+/** Items came back out of the trash (Restore, or Undo right after moving them there). */
+export function invalidateRestored(qc: QueryClient, folders: (string | null | undefined)[]) {
+  invalidateNodeViews(qc, folders);
+  void qc.invalidateQueries({ queryKey: qk.trash });
+  void qc.invalidateQueries({ queryKey: qk.cleanup });
+}
+
 /** Applies `fn` to every cached page of a folder listing (optimistic updates). */
 export function patchChildren(
   qc: QueryClient,
@@ -530,10 +537,7 @@ export function useRestore() {
   return useMutation({
     mutationFn: (id: string) =>
       api<{ node: FileNode }>(`/trash/${id}/restore`, { method: 'POST', json: {} }),
-    onSuccess: (res) => {
-      void qc.invalidateQueries({ queryKey: qk.trash });
-      invalidateNodeViews(qc, [res.node.parentId]);
-    },
+    onSuccess: (res) => invalidateRestored(qc, [res.node.parentId]),
   });
 }
 
