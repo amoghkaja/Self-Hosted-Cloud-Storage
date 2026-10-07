@@ -170,6 +170,35 @@ describe('trip albums', () => {
     });
   });
 
+  it('can still edit a trip after someone on it has had their account disabled', async () => {
+    const aunt = await addMember(env, dad, 'aunt@example.com');
+    const album = (
+      await mom.post('/albums', {
+        title: 'Kerala',
+        startDate: '2026-02-01',
+        peopleIds: [momId, aunt.me.id],
+      })
+    ).body;
+    expect((await dad.patch(`/admin/users/${aunt.me.id}`, { disabled: true })).status).toBe(200);
+    // The edit form sends everyone already on the trip back, the aunt too.
+    const edited = await mom.patch(`/albums/${album.id}`, {
+      title: 'Kerala backwaters',
+      peopleIds: [momId, aunt.me.id],
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.title).toBe('Kerala backwaters');
+    expect(edited.body.people.map((p: { id: string }) => p.id).sort()).toEqual(
+      [momId, aunt.me.id].sort(),
+    );
+    // …but nobody disabled can be added to a trip they weren't on.
+    const other = (
+      await mom.post('/albums', { title: 'Munnar', startDate: '2026-02-05', peopleIds: [momId] })
+    ).body;
+    const added = await mom.patch(`/albums/${other.id}`, { peopleIds: [momId, aunt.me.id] });
+    expect(added.status).toBe(400);
+    expect(added.body.detail).toBe('Someone in the list is not in the family');
+  });
+
   it('refuses unknown people and bad dates', async () => {
     const bad = await mom.post('/albums', {
       title: 'X',

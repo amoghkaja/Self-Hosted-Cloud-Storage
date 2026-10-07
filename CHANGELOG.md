@@ -21,6 +21,9 @@ to do yourself when updating is listed under **Before you update**.
 
 - **File requests:** when the folder owner's storage is full, the person sending files is told
   so, instead of "Not enough storage left in your quota" (they don't have one).
+- **Family Photos:** a trip can be edited again after someone on it has had their account
+  disabled. Saving said "Someone in the list is not in the family", and there was no way round
+  it; they now stay on the trip.
 
 ## v0.5.0 (2026-10-05)
 
