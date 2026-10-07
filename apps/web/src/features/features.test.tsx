@@ -7,6 +7,7 @@ import { TooltipProvider } from '../components/ui';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
 import { ByteSizeInput } from './admin/ByteSizeInput';
 import { LoginPage } from './auth/LoginPage';
+import { RenameDialog } from './files/dialogs';
 import { FileView, type ViewItem } from './files/FileView';
 import { TrashPage } from './files/OtherViews';
 
@@ -178,6 +179,28 @@ describe('FileView', () => {
     expect(name).toHaveAttribute('aria-sort', 'ascending');
     await userEvent.click(within(name).getByRole('button'));
     expect(onChange).toHaveBeenCalledWith('name', 'desc');
+  });
+});
+
+describe('RenameDialog', () => {
+  it('selects the name without its extension, so typing keeps ".jpg"', async () => {
+    renderWithProviders(
+      <RenameDialog
+        node={{ id: 'n1', name: 'Beach day.jpg', type: 'file' }}
+        parentId="p"
+        onClose={() => {}}
+      />,
+    );
+    const input = await screen.findByLabelText('Name');
+    await waitFor(() => expect(input).toHaveFocus());
+    await waitFor(() =>
+      expect([
+        (input as HTMLInputElement).selectionStart,
+        (input as HTMLInputElement).selectionEnd,
+      ]).toEqual([0, 'Beach day'.length]),
+    );
+    await userEvent.keyboard('Sunset');
+    expect(input).toHaveValue('Sunset.jpg');
   });
 });
 

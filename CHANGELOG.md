@@ -34,6 +34,8 @@ to do yourself when updating is listed under **Before you update**.
   what), instead of breaking onto a second line in a different place each time.
 - **Uploading on a small phone:** the upload list takes at most a quarter of the screen, so the
   folder and its buttons stay in view while a batch of photos goes up.
+- **Rename:** the name is selected without its ending, as intended, so you can type the new name
+  straight away and keep ".jpg". The cursor used to sit at the end of the name.
 
 ## v0.5.0 (2026-10-05)
 
