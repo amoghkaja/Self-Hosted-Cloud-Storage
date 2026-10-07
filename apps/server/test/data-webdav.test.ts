@@ -4,6 +4,7 @@ import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodes } from '../src/db/schema';
 import { copyNode } from '../src/modules/files/copy';
+import { moveNode } from '../src/modules/files/tree';
 import { addMember, type Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
 
 let env: TestEnv;
@@ -137,7 +138,7 @@ describe('MOVE and COPY', () => {
     expect((await alice.get('/trash')).body.items).toHaveLength(0);
   });
 
-  it('COPY never trashes an item it replaces once that moved out of reach', async () => {
+  it('COPY and MOVE never trash an item they replace once it moved out of reach', async () => {
     const team = (await alice.post('/folders', { parentId: aliceRoot, name: 'Team' })).body.id;
     const plan = (await alice.post('/folders', { parentId: team, name: 'plan' })).body.id;
     const hidden = (await alice.post('/folders', { parentId: aliceRoot, name: 'Hidden' })).body.id;
@@ -157,6 +158,19 @@ describe('MOVE and COPY', () => {
     });
     await expect(copy).rejects.toMatchObject({ status: 403 });
     expect((await alice.get(`/nodes/${plan}`)).status).toBe(200);
+
+    // The same race with MOVE over "plan 2".
+    const plan2 = (await alice.post('/folders', { parentId: team, name: 'plan 2' })).body.id;
+    await alice.patch(`/nodes/${plan2}`, { parentId: hidden });
+    const move = moveNode(
+      env.ctx.db,
+      memo!,
+      { name: 'plan 2', parentId: team },
+      { replaceId: plan2, actorId: bobId },
+    );
+    await expect(move).rejects.toMatchObject({ status: 403 });
+    expect((await alice.get(`/nodes/${plan2}`)).status).toBe(200);
+    expect((await alice.get('/trash')).body.items).toHaveLength(0);
   });
 
   it('refuses to copy a folder into itself', async () => {
