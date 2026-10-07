@@ -52,8 +52,8 @@ export class Keyring {
   }
 
   verify<T extends Record<string, unknown>>(purpose: string, token: string): T | null {
-    const [body, mac] = token.split('.');
-    if (!body || !mac) return null;
+    const [body, mac, ...rest] = token.split('.');
+    if (!body || !mac || rest.length) return null;
     const expected = createHmac('sha256', this.key(`sign:${purpose}`))
       .update(body)
       .digest('base64url');

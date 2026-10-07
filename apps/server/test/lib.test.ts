@@ -43,6 +43,8 @@ describe('Keyring', () => {
     expect(keys.verify('mfa', t)).toMatchObject({ uid: 'u1' });
     expect(keys.verify('link-unlock', t)).toBeNull();
     expect(keys.verify('mfa', `${t}x`)).toBeNull();
+    // One token per payload: callers that remember used tokens compare them as text.
+    expect(keys.verify('mfa', `${t}.x`)).toBeNull();
     expect(keys.verify('mfa', keys.sign('mfa', { uid: 'u1' }, -1))).toBeNull();
   });
 
