@@ -141,13 +141,42 @@ jobs:
           git push -q "$RUNNER_TEMP/origin.git" HEAD:refs/heads/main
           git remote set-url origin "$RUNNER_TEMP/origin.git"
           git checkout -q --detach HEAD~1
+          SINCE=$(date +%s)
           ./scripts/update.sh <<<y
           [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]
           ls "$STORAGE_ROOT"/backups/pre-update-*.dump
+          # The database copy was made after the app stopped, so it holds everything it wrote.
+          docker events --since "$SINCE" --until "$(date +%s)" \
+            --format '{{.Action}} {{.Actor.Attributes.name}}' > "$RUNNER_TEMP/events"
+          STOPPED=$(grep -n -m1 '^stop familycloud-app-' "$RUNNER_TEMP/events" | cut -d: -f1)
+          DUMPED=$(grep -n -m1 '^exec_start: pg_dump' "$RUNNER_TEMP/events" | cut -d: -f1)
+          (( STOPPED < DUMPED ))
           # The database image was refreshed too (it started as 18.0).
           VERSION=$(cd deploy && docker compose exec -T db postgres --version)
           echo "$VERSION"
           [[ "$VERSION" != *" 18.0" ]]
+      - name: An update that can't build or back up changes nothing
+        run: |
+          # A newer version that doesn't build: the update stops, and nothing changes.
+          OLD=$(git rev-parse HEAD)
+          OLD_IMAGE=$(grep '^IMAGE=' deploy/.env)
+          OLD_APP=$(cd deploy && docker compose ps -q app)
+          echo 'RUN false' >> Dockerfile
+          git -c user.name=CI -c user.email=ci@localhost commit -q -am "A version that doesn't build"
+          git push -q origin HEAD:main
+          git reset -q --hard "$OLD"
+          if ./scripts/update.sh <<<y; then exit 1; fi
+          [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
+          [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          # The next version builds, but the database backup fails: the app that was running starts again.
+          git checkout -q --detach origin/main
+          git -c user.name=CI -c user.email=ci@localhost revert --no-edit HEAD >/dev/null
+          git push -q origin HEAD:main
+          git checkout -q -
+          if BACKUP_DIR=/nonexistent ./scripts/update.sh <<<y; then exit 1; fi
+          [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
+          [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          curl -fsS localhost:3080/healthz
       - name: Logs
         if: failure()
         run: cd deploy && docker compose ps && docker compose logs --tail 80

@@ -21,6 +21,11 @@ to do yourself when updating is listed under **Before you update**.
 - **Virus scanning:** the guide to using a scanner on another computer missed a step: the server
   couldn't reach it, so files waited to be checked forever and those sent through a file request
   couldn't be opened. See "Using your own scanner" in `docs/virus-scanning.md`.
+- **Updating:** the database backup made before an update is now taken once the new version is
+  downloaded or built, with the app stopped. It used to be taken first, so anything saved while
+  the new version downloaded (or built, which takes a while on a Raspberry Pi) was missing from
+  it. If the new version can't be built or the backup fails, the update now puts everything back
+  as it was, instead of leaving the next version half set up.
 
 ### Security
 
