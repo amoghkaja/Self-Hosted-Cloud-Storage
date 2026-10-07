@@ -107,9 +107,11 @@ jobs:
           grep -v '^# Generated' deploy/.env | diff "$RUNNER_TEMP/before.env" -
       - name: The updater checks for a newer version
         run: ./scripts/update.sh --check
-      - name: Backups go to the backup disk, never onto the system disk when it's unplugged
+      - name: Backups go to the backup disk (never the system disk when it's unplugged)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq restic
+          # Like a disk added with add-disk.sh: its lost+found can only be read by root.
+          sudo mkdir -p -m 700 "$STORAGE_ROOT/volumes/disk2/lost+found"
           export RESTIC_REPOSITORY=$RUNNER_TEMP/backup-disk/familycloud RESTIC_PASSWORD=ci-only
           mkdir "$RUNNER_TEMP/backup-disk"
           sudo mount -t tmpfs -o "size=256m,uid=$(id -u)" tmpfs "$RUNNER_TEMP/backup-disk"

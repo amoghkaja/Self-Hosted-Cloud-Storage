@@ -65,8 +65,10 @@ if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
   fi
   if [[ "$REPO_DIR" == /* ]]; then mount_of "$REPO_DIR" > "$REPO_MOUNT_FILE"; fi
   log "restic backup of volumes + database dumps"
-  # Thumbnails (cache/) are derived data and are deliberately skipped.
-  restic backup --tag familycloud --exclude '*/tmp/*' "$STORAGE_ROOT/volumes" "$BACKUP_DIR"
+  # Thumbnails (cache/) are derived data and are deliberately skipped. So is each disk's
+  # lost+found: only root can read it, and an unreadable folder fails the run before pruning.
+  restic backup --tag familycloud --exclude '*/tmp/*' --exclude "$STORAGE_ROOT/volumes/*/lost+found" \
+    "$STORAGE_ROOT/volumes" "$BACKUP_DIR"
   restic forget --tag familycloud --keep-daily 7 --keep-weekly 5 --keep-monthly 12 --prune
   log "restic done"
 else

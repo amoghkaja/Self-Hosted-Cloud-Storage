@@ -13,6 +13,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Backups:** when the backup disk isn't plugged in, the nightly backup stops with a message in
   its log. Before, it started a new backup in the empty folder the disk leaves behind, which is
   on the system disk, and could fill it with a copy of every file.
+- **Backups:** after adding a disk with `scripts/add-disk.sh`, every off-site backup ended with an
+  error and old backups were never cleaned up, because of the disk's `lost+found` folder (which
+  only the system can read). That folder is now skipped.
 
 ## v0.5.0 (2026-10-05)
 
