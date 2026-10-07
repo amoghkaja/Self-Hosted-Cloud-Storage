@@ -8,6 +8,12 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Security
+
+- **Share links with a download limit** now count every download. A download program could ask
+  for a file or a zip "in pieces" in a way that still sent all of it without counting, so the
+  link never ran out.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

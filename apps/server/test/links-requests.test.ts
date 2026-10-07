@@ -353,6 +353,46 @@ describe('download limits', () => {
     expect((await guest.get(base)).status).toBe(410);
     expect((await guest.get(`/public/links/${token}`)).status).toBe(410);
   });
+
+  it('counts whatever sends the file from its start, whatever the Range header says', async () => {
+    const ticket = (await uploadFile(owner, root, 'ticket.txt', Buffer.from('admit one'))).final!
+      .body.node;
+    const res = await owner.post(`/nodes/${ticket.id}/links`, { maxDownloads: 3 });
+    const base = `/public/links/${tokenOf(res.body.url)}/content/${ticket.id}`;
+    const guest = new Client(env.app);
+    const counted = async () =>
+      (await owner.get(`/nodes/${ticket.id}/links`)).body.items[0].downloadCount;
+
+    // "The last 1,000 bytes" of a 9-byte file is all of it.
+    const suffix = await guest.get(base, { range: 'bytes=-1000' });
+    expect(suffix.status).toBe(206);
+    expect(suffix.raw.payload).toBe('admit one');
+    expect(await counted()).toBe(1);
+    // A Range the server doesn't honour gets the whole file.
+    const ignored = await guest.get(base, { range: 'pages=2-' });
+    expect(ignored.status).toBe(200);
+    expect(ignored.raw.payload).toBe('admit one');
+    expect(await counted()).toBe(2);
+    // So does a resume whose If-Range no longer matches.
+    const stale = await guest.get(base, { range: 'bytes=3-', 'if-range': '"older"' });
+    expect(stale.status).toBe(200);
+    expect(stale.raw.payload).toBe('admit one');
+    expect(await counted()).toBe(3);
+    expect((await guest.get(base, { range: 'bytes=3-' })).status).toBe(410);
+  });
+
+  it('counts every zip, whatever the Range header says', async () => {
+    const box = (await owner.post('/folders', { parentId: root, name: 'Tickets' })).body.id;
+    await uploadFile(owner, box, 'one.txt', Buffer.from('one'));
+    const res = await owner.post(`/nodes/${box}/links`, { maxDownloads: 1 });
+    const zip = `/public/links/${tokenOf(res.body.url)}/zip/${box}`;
+    const guest = new Client(env.app);
+    const first = await guest.get(zip, { range: 'bytes=100-' });
+    expect(first.status).toBe(200);
+    expect(first.headers['content-type']).toBe('application/zip');
+    expect((await owner.get(`/nodes/${box}/links`)).body.items[0].downloadCount).toBe(1);
+    expect((await guest.get(zip)).status).toBe(410);
+  });
 });
 
 describe('a request link that gets around', () => {
