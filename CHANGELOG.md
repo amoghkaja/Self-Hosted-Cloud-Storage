@@ -19,6 +19,8 @@ to do yourself when updating is listed under **Before you update**.
   they do with a click. Enter used to open the first item in the folder instead.
 - **Undo** after moving something to the trash brings it back on the Recent and Starred pages
   too, not only in its folder; until you reloaded, it stayed missing there.
+- **Family Photos:** going back to an album right after deleting, renaming or moving one of its
+  photos in the trip folder shows the change, instead of the photo as it was.
 - **Passkeys:** when adding a passkey doesn't work (for example after leaving the Face ID prompt
   open for more than five minutes), you're told why instead of being bounced to the sign-in
   page and back.
