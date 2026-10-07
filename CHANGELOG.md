@@ -32,6 +32,8 @@ to do yourself when updating is listed under **Before you update**.
   copy the key with one tap instead of typing 32 letters.
 - **Admin → Activity on a phone:** every entry is laid out the same way (the time, then who did
   what), instead of breaking onto a second line in a different place each time.
+- **Uploading on a small phone:** the upload list takes at most a quarter of the screen, so the
+  folder and its buttons stay in view while a batch of photos goes up.
 
 ## v0.5.0 (2026-10-05)
 

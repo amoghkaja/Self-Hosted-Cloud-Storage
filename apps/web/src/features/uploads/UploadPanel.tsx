@@ -179,7 +179,9 @@ export function UploadPanel() {
         )}
       </header>
       {!collapsed && (
-        <ul className="max-h-72 divide-y divide-border overflow-y-auto">
+        // A quarter of a phone's height at most: 18rem plus the tab bar covered most of an
+        // iPhone SE, Upload button and file list included.
+        <ul className="max-h-[min(18rem,25dvh)] divide-y divide-border overflow-y-auto sm:max-h-72">
           {items.map((i) => (
             <UploadRow key={i.id} item={i} />
           ))}
