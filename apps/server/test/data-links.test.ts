@@ -33,6 +33,38 @@ describe('view-only links', () => {
     expect(res.status).toBe(403);
     expect((await guest.get(`/public/links/${token}/content/${text}?inline=1`)).status).toBe(200);
   });
+
+  it('the video stream cannot be used to download an original the browser cannot play', async () => {
+    const box = (await owner.post('/folders', { parentId: folder, name: 'Videos' })).body.id;
+    const upload = async (name: string, mimeType: string) =>
+      (await uploadFile(owner, box, name, Buffer.from(`${name} bytes`), { mimeType })).final!.body
+        .node.id as string;
+    const mkv = await upload('camcorder.mkv', 'video/x-matroska');
+    const mp4 = await upload('phone.mp4', 'video/mp4');
+    const viewOnly = tokenOf(
+      (await owner.post(`/nodes/${box}/links`, { allowDownload: false })).body.url,
+    );
+    const guest = new Client(env.app);
+    // No streaming copy yet: the .mkv original would have gone out as an attachment.
+    const stream = await guest.get(`/public/links/${viewOnly}/stream/${mkv}`);
+    expect(stream.status).toBe(404);
+    expect(stream.body.code).toBe('NOT_FOUND');
+    expect((await guest.get(`/public/links/${viewOnly}/content/${mkv}?inline=1`)).status).toBe(403);
+    // A video the browser plays is still watched as it is.
+    const played = await guest.get(`/public/links/${viewOnly}/stream/${mp4}`);
+    expect(played.status).toBe(200);
+    expect(played.headers['content-disposition']).toMatch(/^inline/);
+    expect(played.raw.payload).toBe('phone.mp4 bytes');
+
+    // Where downloads are allowed, the original is still a download, and it counts.
+    const limited = await owner.post(`/nodes/${box}/links`, { maxDownloads: 1 });
+    const token = tokenOf(limited.body.url);
+    expect((await guest.get(`/public/links/${token}/stream/${mkv}`)).status).toBe(404);
+    const dl = await guest.get(`/public/links/${token}/content/${mkv}?inline=1`);
+    expect(dl.status).toBe(200);
+    expect(dl.headers['content-disposition']).toMatch(/^attachment/);
+    expect((await guest.get(`/public/links/${token}/content/${mkv}`)).status).toBe(410);
+  });
 });
 
 describe('link management', () => {

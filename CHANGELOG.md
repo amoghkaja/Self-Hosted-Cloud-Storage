@@ -16,6 +16,10 @@ to do yourself when updating is listed under **Before you update**.
 - **Trip folders:** a document kept with a trip's photos (a boarding pass, a booking) isn't in
   the album, and now instant uploads treat it as private too. Before, a family member who had
   the very same file could upload it "instantly" and so find out it was there.
+- **View-only links:** a video the browser can't play as it is (an `.mkv` or `.avi`, say) could
+  be downloaded through the link's video player, even with downloads turned off, until its
+  streaming copy was ready (or for good, if one couldn't be made). The player now waits for the
+  streaming copy, and downloading the original follows the link's download settings.
 
 ### Fixed
 

@@ -581,7 +581,9 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
-  // Watching a video is viewing, so it works on view-only links too.
+  // Watching a video is viewing, so it works on view-only links too. An original that would go
+  // out as a download (one the browser can't play) is the content route's: downloads allowed,
+  // and counted.
   app.get(
     '/public/links/:token/stream/:nodeId',
     { config: strictLimit(600), schema: { params: PublicNodeParams } },
@@ -590,13 +592,19 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       if (n.type !== 'file' || !n.blobId || !n.volumeId || !n.mimeType?.startsWith('video/')) {
         throw notFound('Video');
       }
-      return sendVideoStream(ctx, req, reply, {
-        blobId: n.blobId,
-        volumeId: n.volumeId,
-        size: n.size,
-        name: n.name,
-        mimeType: n.mimeType,
-      });
+      return sendVideoStream(
+        ctx,
+        req,
+        reply,
+        {
+          blobId: n.blobId,
+          volumeId: n.volumeId,
+          size: n.size,
+          name: n.name,
+          mimeType: n.mimeType,
+        },
+        { watchOnly: true },
+      );
     },
   );
 

@@ -124,13 +124,16 @@ export async function sendBlob(
 
 /**
  * Plays a video: the 720p streaming copy when the worker has made one (small enough for family
- * abroad, and H.264 so it plays in every browser), otherwise the original.
+ * abroad, and H.264 so it plays in every browser), otherwise the original. An original of a type
+ * that can't be shown inline goes out as a download; `watchOnly` (a public link, where downloads
+ * have their own rules) refuses that instead.
  */
 export async function sendVideoStream(
   ctx: AppContext,
   req: FastifyRequest,
   reply: FastifyReply,
   blob: BlobRef,
+  opts: { watchOnly?: boolean } = {},
 ) {
   await refuseUnsafe(ctx, blob.blobId);
   const [row] = await ctx.db
@@ -151,6 +154,9 @@ export async function sendVideoStream(
         logId: blob.blobId,
       });
     }
+  }
+  if (opts.watchOnly && !isInlineSafe(blob.mimeType)) {
+    throw new AppError(404, ErrorCode.NOT_FOUND, "This video can't be played here yet");
   }
   return sendBlob(ctx, req, reply, blob, { inline: true });
 }
