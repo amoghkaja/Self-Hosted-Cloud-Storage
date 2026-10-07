@@ -20,6 +20,11 @@ to do yourself when updating is listed under **Before you update**.
   empty "older version" (both write an empty file before its contents). Empty files are never
   kept as versions.
 
+### Security
+
+- **Network drive:** a device removed in Settings (or an account disabled) at the moment that
+  device was signing in could keep working for up to a minute. It's now locked out at once.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

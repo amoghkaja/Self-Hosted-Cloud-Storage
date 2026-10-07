@@ -41,6 +41,11 @@ const MAX_FAILURES_PER_MINUTE = 10;
 export class DavAuthenticator {
   private readonly cache = new LRUCache<string, CachedAuth>({ max: 1000, ttl: 60_000 });
   private readonly failures = new LRUCache<string, number>({ max: 10_000, ttl: 60_000 });
+  /**
+   * Bumped by forgetUser. A lookup that read a device password before it was removed (or its
+   * account disabled) must not put it back into the cache afterwards.
+   */
+  private generation = 0;
 
   constructor(
     private readonly db: Db,
@@ -54,6 +59,7 @@ export class DavAuthenticator {
 
   async authenticate(header: string | undefined, ip: string): Promise<UserRow | null> {
     if (!header?.startsWith('Basic ')) return null;
+    const generation = this.generation;
     const key = sha256(header);
     const { allowedEmailDomains } = await this.settings.get();
     const hit = this.cache.get(key);
@@ -92,12 +98,15 @@ export class DavAuthenticator {
         .set({ lastUsedAt: new Date(), lastUsedIp: ip })
         .where(eq(appPasswords.id, row.app.id));
     }
-    this.cache.set(key, { user: row.user, appPasswordId: row.app.id });
+    if (generation === this.generation) {
+      this.cache.set(key, { user: row.user, appPasswordId: row.app.id });
+    }
     return row.user;
   }
 
   /** Drop cached logins for a user (password revoked, account disabled). */
   forgetUser(userId: string): void {
+    this.generation++;
     for (const [k, v] of this.cache.entries()) {
       if (v.user.id === userId) this.cache.delete(k);
     }
