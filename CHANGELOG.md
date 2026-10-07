@@ -25,6 +25,8 @@ to do yourself when updating is listed under **Before you update**.
   on two lines, which on a phone is where you can read it.
 - **Trash on phones:** names and where things were deleted from can be read in full (the Restore
   button sits under them), and Restore shows it's working, so a second tap doesn't try again.
+- **Selecting on a phone or tablet:** a file's menu (⋮, or press and hold) now has **Select all**
+  next to Select, so moving or downloading a whole folder's photos no longer takes a tap on each.
 
 ## v0.5.0 (2026-10-05)
 

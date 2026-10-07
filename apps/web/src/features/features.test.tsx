@@ -110,6 +110,33 @@ describe('FileView', () => {
     await waitFor(() => expect(rows[1]).toHaveAttribute('aria-selected', 'true'));
   });
 
+  it('offers Select all in the item menu, for touch screens without Ctrl+A', async () => {
+    renderWithProviders(
+      <FileView
+        items={items}
+        view="list"
+        label="Files"
+        onOpen={() => {}}
+        onSelectionChange={() => {}}
+        actionsFor={() => [{ id: 'open', label: 'Open', onSelect: () => {} }]}
+      />,
+    );
+    const rows = within(await screen.findByRole('grid'))
+      .getAllByRole('row')
+      .slice(1);
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for notes.txt' }));
+    const menu = await screen.findByRole('menu');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Select all' }));
+    await waitFor(() =>
+      expect(rows.every((r) => r.getAttribute('aria-selected') === 'true')).toBe(true),
+    );
+    // Everything is selected: the menu no longer offers it.
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for notes.txt' }));
+    expect(
+      within(await screen.findByRole('menu')).queryByRole('menuitem', { name: 'Select all' }),
+    ).toBeNull();
+  });
+
   it('keeps keyboard focus in the list when the focused item is removed', async () => {
     function Harness() {
       const [list, setList] = useState(items);

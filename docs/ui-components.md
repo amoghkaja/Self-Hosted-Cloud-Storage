@@ -154,7 +154,7 @@ Errors are announced assertively, everything else politely. Toasts sit at the to
   - Space toggles; Ctrl/Cmd+A selects all; Escape clears.
   - Enter opens, Delete trashes, F2 renames.
   - Shift+F10 or the menu key opens the item's actions.
-- **Mouse and touch:** click selects, Ctrl/Shift-click multi-selects, double-click opens. On touch devices a tap opens and a long-press opens the context menu.
+- **Mouse and touch:** click selects, Ctrl/Shift-click multi-selects, double-click opens. On touch devices a tap opens and a long-press opens the context menu; its **Select** and **Select all** start selecting, after which taps toggle items.
 - **Infinite scroll** fetches the next page as you near the end.
 - Selection is keyed by id, so it survives re-sorting and background refreshes.
 

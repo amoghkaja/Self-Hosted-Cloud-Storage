@@ -4,7 +4,7 @@
 // this file only (see biome.json overrides); keyboard + axe behaviour is covered by tests.
 import { formatBytes, type SortDir, type SortKey } from '@familycloud/shared';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowUp, Check, CircleCheck, EllipsisVertical } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CircleCheck, EllipsisVertical, ListChecks } from 'lucide-react';
 import {
   Fragment,
   type ReactNode,
@@ -213,6 +213,17 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
               separatorBefore: true,
               onSelect: () => nav.toggle(index),
             },
+            // Touch screens have no Ctrl+A: without this, taking 200 photos elsewhere meant 200 taps.
+            ...(nav.selected.size < p.items.length
+              ? [
+                  {
+                    id: 'select-all',
+                    label: 'Select all',
+                    icon: <ListChecks />,
+                    onSelect: nav.selectAll,
+                  },
+                ]
+              : []),
           ]
         : own;
     const common = {
