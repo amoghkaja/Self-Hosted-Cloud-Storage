@@ -30,10 +30,11 @@ export async function deleteUnusedBlobs(tx: Executor, ids: string[]): Promise<St
 
 /**
  * Points a file at new contents. The old contents become a version (the newest
- * MAX_VERSIONS_PER_FILE are kept), or are let go when versions are off. Runs inside the caller's
- * transaction, which holds the shared quota lock and has the file's row locked. Returns how the
- * owner's stored bytes change (for their usage counter), and the blobs nothing uses any more
- * (delete their files with deleteBlobFiles once the transaction has committed).
+ * MAX_VERSIONS_PER_FILE are kept), or are let go when versions are off or the file was empty.
+ * Runs inside the caller's transaction, which holds the shared quota lock and has the file's row
+ * locked. Returns how the owner's stored bytes change (for their usage counter), and the blobs
+ * nothing uses any more (delete their files with deleteBlobFiles once the transaction has
+ * committed).
  */
 export async function replaceContent(
   tx: Executor,
@@ -45,7 +46,9 @@ export async function replaceContent(
   let usageDelta = file.blobId === next.blobId ? 0 : next.size;
   const dropped: string[] = [];
   if (file.blobId && file.blobId !== next.blobId) {
-    if (opts.keepVersion) {
+    // An empty file holds nothing to go back to, and Finder and Windows write one before the
+    // real contents of every file they copy to the network drive.
+    if (opts.keepVersion && file.size > 0) {
       await tx.insert(fileVersions).values({
         nodeId: file.id,
         blobId: file.blobId,

@@ -166,6 +166,19 @@ describe('PUT', () => {
     expect(missing.statusCode).toBe(412);
   });
 
+  it('does not keep the empty file Finder and Windows write first as a version', async () => {
+    const placeholder = await aliceDav('PUT', '/dav/My%20Files/copied.txt', {
+      headers: { 'content-length': '0' },
+    });
+    expect(placeholder.statusCode).toBe(201);
+    const contents = await aliceDav('PUT', '/dav/My%20Files/copied.txt', { body: 'the contents' });
+    expect(contents.statusCode).toBe(204);
+    const children = await alice.get(`/nodes/${aliceRoot}/children`);
+    const file = children.body.items.find((n: { name: string }) => n.name === 'copied.txt');
+    expect((await alice.get(`/nodes/${file.id}/versions`)).body.items).toEqual([]);
+    expect((await aliceDav('GET', '/dav/My%20Files/copied.txt')).body).toBe('the contents');
+  });
+
   it('refuses a partial PUT instead of replacing the file with the part sent', async () => {
     await aliceDav('PUT', '/dav/My%20Files/resume.txt', { body: 'helloworld' });
     // What `curl -T file -C -` sends to resume an upload: only the bytes after the first five.

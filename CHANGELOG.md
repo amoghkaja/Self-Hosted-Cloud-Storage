@@ -12,6 +12,9 @@ to do yourself when updating is listed under **Before you update**.
 
 - **Network drive:** a partial upload (such as resuming one with `curl -C -`) is refused instead of
   replacing the whole file with just the part that was sent.
+- **Version history:** files copied to the network drive from Finder or Windows no longer get an
+  empty "older version" (both write an empty file before its contents). Empty files are never
+  kept as versions.
 
 ## v0.5.0 (2026-10-05)
 
