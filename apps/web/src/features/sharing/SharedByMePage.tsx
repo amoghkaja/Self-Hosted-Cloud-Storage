@@ -26,7 +26,7 @@ function SharedItem({ item }: { item: SharedByMeItem }) {
   return (
     <li className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4">
       <div className="flex items-center gap-3">
-        <FileIcon node={node} thumbSrc={thumbUrl(node.id, 256)} />
+        <FileIcon node={node} thumbSrc={thumbUrl(node.id, 256, node.updatedAt)} />
         <Link to={where} className="min-w-0 flex-1 truncate font-medium hover:underline">
           {node.name}
         </Link>

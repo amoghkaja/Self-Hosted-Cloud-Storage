@@ -87,7 +87,9 @@ export function PublicLinkPage() {
     () => ({
       content: (id: string, inline: boolean) =>
         apiUrl(`${base}/content/${id}`, inline ? { inline: 1 } : undefined),
-      thumb: (id: string, size: 256 | 1600) => apiUrl(`${base}/thumbnail/${id}`, { size }),
+      // Versioned like thumbUrl: the file may have been saved over since it was last viewed.
+      thumb: (id: string, size: 256 | 1600, version?: string) =>
+        apiUrl(`${base}/thumbnail/${id}`, { size, v: version }),
       stream: (id: string) => apiUrl(`${base}/stream/${id}`),
       preview: (id: string) => apiUrl(`${base}/preview/${id}`),
       canDownload: !!info.data?.allowDownload,
@@ -268,7 +270,7 @@ export function PublicLinkPage() {
           view="list"
           label={`Contents of ${listing?.folder.name ?? root.name}`}
           onOpen={(n) => (n.type === 'folder' ? setParams({ folder: n.id }) : setPreviewId(n.id))}
-          thumbSrc={(n) => (n.thumb === 'ready' ? source.thumb(n.id, 256) : undefined)}
+          thumbSrc={(n) => (n.thumb === 'ready' ? source.thumb(n.id, 256, n.updatedAt) : undefined)}
           actionsFor={(n) =>
             data.allowDownload
               ? [

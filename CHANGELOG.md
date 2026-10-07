@@ -21,6 +21,9 @@ to do yourself when updating is listed under **Before you update**.
   empty folder makes it. They used to be left out without a word.
 - **Uploads:** cancelling a file of a folder upload works at once, even while its folder is still
   being made; pressing Retry straight after no longer shows it as cancelled while it uploads.
+- **Thumbnails and photo previews** show the new picture after a photo is saved over (Replace on
+  upload, restoring an older version, Rewind), in your files and on shared links. The browser
+  kept showing the old one.
 - **Keyboard:** the Name, Modified and Size column headers sort a folder with Enter or Space, as
   they do with a click. Enter used to open the first item in the folder instead.
 - **Undo** after moving something to the trash brings it back on the Recent and Starred pages

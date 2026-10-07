@@ -16,6 +16,8 @@ export interface PreviewItem {
   size: number;
   type: 'file' | 'folder';
   thumb: 'none' | 'pending' | 'ready' | 'failed' | 'unsupported';
+  /** Changes when the contents do (see thumbUrl). */
+  updatedAt?: string;
   /** Album photos: when and where they were taken. */
   takenAt?: string | null;
   location?: { latitude: number; longitude: number } | null;
@@ -23,7 +25,7 @@ export interface PreviewItem {
 
 export interface PreviewSource {
   content: (id: string, inline: boolean) => string;
-  thumb: (id: string, size: 256 | 1600) => string;
+  thumb: (id: string, size: 256 | 1600, version?: string) => string;
   /** Videos: a streaming version sized for phones and slow links (falls back to `content`). */
   stream?: (id: string) => string;
   /** Word, Excel and PowerPoint files: a PDF rendering made by the server. */
@@ -141,7 +143,7 @@ function VideoPlayer({ item, source }: { item: PreviewItem; source: PreviewSourc
         ref={video}
         key={`${item.id}-${original}`}
         src={src}
-        poster={item.thumb === 'ready' ? source.thumb(item.id, 1600) : undefined}
+        poster={item.thumb === 'ready' ? source.thumb(item.id, 1600, item.updatedAt) : undefined}
         controls
         playsInline
         preload="metadata"
@@ -337,7 +339,7 @@ function Viewer({
     // Prefer the 1600px WebP: fast on phones and works for HEIC/TIFF that browsers can't show.
     const src =
       item.thumb === 'ready'
-        ? source.thumb(item.id, 1600)
+        ? source.thumb(item.id, 1600, item.updatedAt)
         : BROWSER_IMAGES.has(mime)
           ? source.content(item.id, true)
           : null;

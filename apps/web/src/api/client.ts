@@ -105,8 +105,13 @@ export const contentUrl = (nodeId: string, inline = false) =>
 /** A video's streaming version (720p when ready, else the original). */
 export const streamUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/stream`);
 export const previewUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/preview`);
-export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256) =>
-  apiUrl(`/nodes/${nodeId}/thumbnail`, { size });
+/**
+ * Browsers keep a thumbnail for good (it's served as immutable), so the address carries the
+ * file's `updatedAt`: saving over a file (Replace, a restored version, Rewind) gives its new
+ * picture a new address instead of showing the old one.
+ */
+export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256, version?: string) =>
+  apiUrl(`/nodes/${nodeId}/thumbnail`, { size, v: version });
 export const zipUrl = (ids: string[]) => apiUrl('/zip', { ids: ids.join(',') });
 export const versionUrl = (nodeId: string, versionId: string) =>
   apiUrl(`/nodes/${nodeId}/versions/${versionId}/content`);
