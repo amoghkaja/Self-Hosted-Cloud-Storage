@@ -1,9 +1,8 @@
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { AppContext } from '../../context';
 import { uploadSessions, users } from '../../db/schema';
-import { deleteBlobFiles, QUOTA_LOCK } from '../files/tree';
+import { deleteBlobFiles, deleteUnusedBlobs, QUOTA_LOCK } from '../files/tree';
 import { releaseUpload } from '../uploads/service';
-import { deleteUnusedBlobs } from '../versions/service';
 
 /**
  * Deletes an account and everything in it: files (live, trashed and older versions), shares

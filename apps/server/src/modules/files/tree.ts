@@ -438,17 +438,10 @@ export async function purgeTrashRoots(
       `)) as unknown as { blobId: string; size: number }[];
       // Deleting the unit's root cascades to everything below it and to their versions.
       await tx.delete(nodes).where(eq(nodes.id, rootId));
-      const deleted: { id: string; volumeId: string }[] = [];
-      const ids = fileRows.map((f) => f.blobId);
-      await lockBlobs(tx, ids);
-      for (let i = 0; i < ids.length; i += 5000) {
-        deleted.push(
-          ...(await tx
-            .delete(blobs)
-            .where(and(inArray(blobs.id, ids.slice(i, i + 5000)), blobUnused))
-            .returning({ id: blobs.id, volumeId: blobs.volumeId })),
-        );
-      }
+      const deleted = await deleteUnusedBlobs(
+        tx,
+        fileRows.map((f) => f.blobId),
+      );
       const total = fileRows.reduce((sum, f) => sum + Number(f.size), 0);
       if (total > 0) {
         await tx
@@ -470,7 +463,7 @@ export async function purgeTrashRoots(
  * Stored bytes can back several files (instant uploads of a file someone already has) and older
  * versions of files, so they are only deleted once nothing points at them any more.
  */
-export const blobUnused = sql`(NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})
+const blobUnused = sql`(NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})
   AND NOT EXISTS (SELECT 1 FROM file_versions WHERE file_versions.blob_id = ${blobs.id}))`;
 
 /**
@@ -480,7 +473,7 @@ export const blobUnused = sql`(NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_
  * leaving its bytes on disk for good. The second now waits for the first to commit and sees it
  * gone. In id order, so deletions can't deadlock on each other; before the owner's usage row.
  */
-export async function lockBlobs(tx: Executor, ids: string[]): Promise<void> {
+async function lockBlobs(tx: Executor, ids: string[]): Promise<void> {
   const sorted = [...new Set(ids)].sort();
   for (let i = 0; i < sorted.length; i += 5000) {
     await tx
@@ -490,6 +483,28 @@ export async function lockBlobs(tx: Executor, ids: string[]): Promise<void> {
       .orderBy(blobs.id)
       .for('update');
   }
+}
+
+/**
+ * Deletes the blob rows among `ids` that no file or version points at any more. Call it after
+ * removing the references and before updating usage counters (see lockBlobs).
+ */
+export async function deleteUnusedBlobs(
+  tx: Executor,
+  ids: string[],
+): Promise<{ id: string; volumeId: string }[]> {
+  const unique = [...new Set(ids)];
+  await lockBlobs(tx, unique);
+  const out: { id: string; volumeId: string }[] = [];
+  for (let i = 0; i < unique.length; i += 5000) {
+    out.push(
+      ...(await tx
+        .delete(blobs)
+        .where(sql`${inArray(blobs.id, unique.slice(i, i + 5000))} AND ${blobUnused}`)
+        .returning({ id: blobs.id, volumeId: blobs.volumeId })),
+    );
+  }
+  return out;
 }
 
 export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {

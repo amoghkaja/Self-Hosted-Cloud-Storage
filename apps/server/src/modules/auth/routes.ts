@@ -45,6 +45,7 @@ import { clearSessionCookie, requestMeta, requireUser, setSessionCookie } from '
 import { strictLimit } from '../../plugins/security';
 import { loadBranding, publicBranding } from '../admin/branding';
 import {
+  auditFailure,
   checkTotp,
   claimAttempt,
   confirmPassword,
@@ -69,20 +70,6 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
   async function startSession(req: FastifyRequest, reply: FastifyReply, user: UserRow) {
     const s = await ctx.sessions.create(db, user.id, requestMeta(req));
     setSessionCookie(ctx, reply, s.token, s.absoluteExpiresAt);
-  }
-
-  async function auditFailure(
-    userId: string,
-    req: FastifyRequest,
-    reason: string,
-    attempts: number,
-  ) {
-    await audit(db, {
-      actorId: userId,
-      action: 'auth.login_failed',
-      ip: req.clientIp,
-      meta: { reason, attempts },
-    });
   }
 
   // ── first-run setup ───────────────────────────────────────────────────────
@@ -151,7 +138,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!user || !ok || user.disabledAt || !allowed) {
         if (user) {
           const reason = !ok ? 'password' : user.disabledAt ? 'disabled' : 'email_domain';
-          await auditFailure(user.id, req, reason, attempts);
+          await auditFailure(db, user.id, req.clientIp, reason, attempts);
         }
         throw invalidCredentials();
       }
@@ -197,7 +184,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       const attempts = await claimAttempt(db, user.id);
       const step = checkTotp(ctx, user.totpSecretEnc, req.body.code, user.totpLastStep);
       if (step === null) {
-        await auditFailure(user.id, req, 'totp', attempts);
+        await auditFailure(db, user.id, req.clientIp, 'totp', attempts);
         throw new AppError(401, ErrorCode.MFA_INVALID, 'That code is not valid');
       }
       // Consume the time-step atomically: two parallel requests with the same code can't both win.
@@ -212,7 +199,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         )
         .returning({ id: users.id });
       if (consumed.length === 0) {
-        await auditFailure(user.id, req, 'totp_replay', attempts);
+        await auditFailure(db, user.id, req.clientIp, 'totp_replay', attempts);
         throw new AppError(401, ErrorCode.MFA_INVALID, 'That code was already used');
       }
       await startSession(req, reply, user);
@@ -250,7 +237,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       // Counts toward the lockout like a wrong code from the app.
       const attempts = await claimAttempt(db, user.id);
       if (!(await useRecoveryCode(db, user.id, req.body.code))) {
-        await auditFailure(user.id, req, 'recovery_code', attempts);
+        await auditFailure(db, user.id, req.clientIp, 'recovery_code', attempts);
         throw new AppError(
           401,
           ErrorCode.MFA_INVALID,

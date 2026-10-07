@@ -2,13 +2,13 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { lockWriteAccess } from '../src/modules/files/access';
 import {
+  deleteUnusedBlobs,
   insertNode,
   moveNode,
   purgeTrashRoots,
   QUOTA_LOCK,
   trashSubtree,
 } from '../src/modules/files/tree';
-import { deleteUnusedBlobs } from '../src/modules/versions/service';
 import {
   addMember,
   bytes,

@@ -176,11 +176,10 @@ export async function confirmPassword(
   ip: string | null,
 ) {
   // One at a time per account: a burst of parallel guesses can't all be checked before the first
-  // failures are counted (sign-in gets this by counting first), and a right password never
-  // counts, however many arrive at once.
-  const attempts = await exec.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`confirm-password:${userId}`}))`);
-    const [row] = await tx
+  // failures are counted (sign-in gets this by counting first), a right password never counts,
+  // and no database connection waits on the (deliberately slow) hash.
+  const attempts = await oneAtATime(userId, async () => {
+    const [row] = await exec
       .select({
         hash: users.passwordHash,
         lockedUntil: users.lockedUntil,
@@ -190,16 +189,43 @@ export async function confirmPassword(
       .where(eq(users.id, userId));
     if (row?.isLocked) throw locked(row.lockedUntil);
     if (await verifyPassword(row?.hash ?? null, password)) return null;
-    return claimAttempt(tx, userId);
+    return claimAttempt(exec, userId);
   });
   if (attempts === null) return;
+  await auditFailure(exec, userId, ip, 'password_confirm', attempts);
+  throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
+}
+
+/** Password confirmations in flight, per account (the API runs as one process). */
+const confirming = new Map<string, Promise<void>>();
+
+/** Runs `fn` once every earlier call for the same key has settled. */
+function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const run = (confirming.get(key) ?? Promise.resolve()).then(fn);
+  const settled = run.then(
+    () => {},
+    () => {},
+  );
+  confirming.set(key, settled);
+  void settled.then(() => {
+    if (confirming.get(key) === settled) confirming.delete(key);
+  });
+  return run;
+}
+
+export async function auditFailure(
+  exec: Executor,
+  userId: string,
+  ip: string | null,
+  reason: string,
+  attempts: number,
+) {
   await audit(exec, {
     actorId: userId,
     action: 'auth.login_failed',
     ip,
-    meta: { reason: 'password_confirm', attempts },
+    meta: { reason, attempts },
   });
-  throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
 }
 
 const LOCK_AFTER = 5;

@@ -6,30 +6,11 @@ import { type BlobRow, blobs, fileVersions, type NodeRow, nodes, users } from '.
 import { AppError, notFound } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
 import { lockWriteAccess } from '../files/access';
-import { blobUnused, deleteBlobFiles, lockBlobs, QUOTA_LOCK } from '../files/tree';
+import { deleteBlobFiles, deleteUnusedBlobs, QUOTA_LOCK } from '../files/tree';
 
 export interface StoredBlob {
   id: string;
   volumeId: string;
-}
-
-/**
- * Deletes the blob rows among `ids` that no file or version points at any more. Call it after
- * removing the references and before updating usage counters (see lockBlobs).
- */
-export async function deleteUnusedBlobs(tx: Executor, ids: string[]): Promise<StoredBlob[]> {
-  const unique = [...new Set(ids)];
-  await lockBlobs(tx, unique);
-  const out: StoredBlob[] = [];
-  for (let i = 0; i < unique.length; i += 5000) {
-    out.push(
-      ...(await tx
-        .delete(blobs)
-        .where(sql`${inArray(blobs.id, unique.slice(i, i + 5000))} AND ${blobUnused}`)
-        .returning({ id: blobs.id, volumeId: blobs.volumeId })),
-    );
-  }
-  return out;
 }
 
 /**
