@@ -21,6 +21,8 @@ to do yourself when updating is listed under **Before you update**.
   too, not only in its folder; until you reloaded, it stayed missing there.
 - **Family Photos:** going back to an album right after deleting, renaming or moving one of its
   photos in the trip folder shows the change, instead of the photo as it was.
+- **Rewind:** after rewinding a folder, Recent, Starred, Shared by me and the family albums show
+  what came back straight away.
 - **Passkeys:** when adding a passkey doesn't work (for example after leaving the Face ID prompt
   open for more than five minutes), you're told why instead of being bounced to the sign-in
   page and back.
