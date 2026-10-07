@@ -8,6 +8,12 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Security
+
+- **Uploads:** a second copy of a piece of an upload, still being sent when the upload finished,
+  could change the stored file afterwards (after its virus check, and in every copy of it). It is
+  now stopped before the file is stored.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved
