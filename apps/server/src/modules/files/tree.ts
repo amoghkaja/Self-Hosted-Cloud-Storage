@@ -439,6 +439,7 @@ export async function purgeTrashRoots(
       await tx.delete(nodes).where(eq(nodes.id, rootId));
       const deleted: { id: string; volumeId: string }[] = [];
       const ids = fileRows.map((f) => f.blobId);
+      await lockBlobs(tx, ids);
       for (let i = 0; i < ids.length; i += 5000) {
         deleted.push(
           ...(await tx
@@ -470,6 +471,25 @@ export async function purgeTrashRoots(
  */
 export const blobUnused = sql`(NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})
   AND NOT EXISTS (SELECT 1 FROM file_versions WHERE file_versions.blob_id = ${blobs.id}))`;
+
+/**
+ * Locks blob rows, once the caller has removed its references and before it checks blobUnused.
+ * Two deletions that each drop one of a blob's last references (a file and its copy, say) both
+ * hold the quota lock shared, so each would still see the other's reference and keep the blob,
+ * leaving its bytes on disk for good. The second now waits for the first to commit and sees it
+ * gone. In id order, so deletions can't deadlock on each other; before the owner's usage row.
+ */
+export async function lockBlobs(tx: Executor, ids: string[]): Promise<void> {
+  const sorted = [...new Set(ids)].sort();
+  for (let i = 0; i < sorted.length; i += 5000) {
+    await tx
+      .select({ id: blobs.id })
+      .from(blobs)
+      .where(inArray(blobs.id, sorted.slice(i, i + 5000)))
+      .orderBy(blobs.id)
+      .for('update');
+  }
+}
 
 export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {
   for (const b of list) {

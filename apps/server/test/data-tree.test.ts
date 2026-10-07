@@ -1,7 +1,14 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { lockWriteAccess } from '../src/modules/files/access';
-import { insertNode, moveNode, trashSubtree } from '../src/modules/files/tree';
+import {
+  insertNode,
+  moveNode,
+  purgeTrashRoots,
+  QUOTA_LOCK,
+  trashSubtree,
+} from '../src/modules/files/tree';
+import { deleteUnusedBlobs } from '../src/modules/versions/service';
 import {
   addMember,
   bytes,
@@ -85,6 +92,50 @@ describe('trash', () => {
       sql`select deleted_at IS NOT NULL AS deleted, trash_root_id AS "trashRootId" from nodes where id = ${late.id}`,
     )) as unknown as { deleted: boolean; trashRootId: string | null }[];
     expect(row).toEqual({ deleted: true, trashRootId: target });
+  });
+
+  it('two deletions at once of the last two files using some bytes free those bytes', async () => {
+    const photo = (await uploadFile(c, root, 'twice.jpg', bytes(500, 9))).final!.body.node.id;
+    const copy = (await c.post(`/nodes/${photo}/copy`, { parentId: root })).body.id;
+    await c.del(`/nodes/${copy}`);
+    const blobOf = async (id: string) =>
+      (
+        (await env.ctx.db.execute(
+          sql`select blob_id AS "blobId" from nodes where id = ${id}`,
+        )) as unknown as { blobId: string }[]
+      )[0]!.blobId;
+    const blob = await blobOf(photo);
+    expect(await blobOf(copy)).toBe(blob);
+
+    let commit!: () => void;
+    const held = new Promise<void>((r) => {
+      commit = r;
+    });
+    let ran!: () => void;
+    const firstRan = new Promise<void>((r) => {
+      ran = r;
+    });
+    // One deletion has dropped its file and checked the bytes (the copy still uses them), and
+    // hasn't committed when "delete forever" on the copy runs.
+    const first = env.ctx.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock_shared(${QUOTA_LOCK})`);
+      await tx.execute(sql`delete from nodes where id = ${photo}`);
+      const gone = await deleteUnusedBlobs(tx, [blob]);
+      ran();
+      await held;
+      return gone;
+    });
+    await firstRan;
+    const second = purgeTrashRoots(env.ctx, [copy]);
+    await new Promise((r) => setTimeout(r, 100)); // waiting on the first
+    commit();
+    expect(await first).toEqual([]);
+    expect((await second).files).toBe(1);
+
+    const left = (await env.ctx.db.execute(
+      sql`select id from blobs where id = ${blob}`,
+    )) as unknown as unknown[];
+    expect(left).toHaveLength(0);
   });
 
   /** Trashes a folder in a transaction that stays open until `commit()`. */

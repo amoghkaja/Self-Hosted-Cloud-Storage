@@ -6,16 +6,20 @@ import { type BlobRow, blobs, fileVersions, type NodeRow, nodes, users } from '.
 import { AppError, notFound } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
 import { lockWriteAccess } from '../files/access';
-import { blobUnused, deleteBlobFiles, QUOTA_LOCK } from '../files/tree';
+import { blobUnused, deleteBlobFiles, lockBlobs, QUOTA_LOCK } from '../files/tree';
 
 export interface StoredBlob {
   id: string;
   volumeId: string;
 }
 
-/** Deletes the blob rows among `ids` that no file or version points at any more. */
+/**
+ * Deletes the blob rows among `ids` that no file or version points at any more. Call it after
+ * removing the references and before updating usage counters (see lockBlobs).
+ */
 export async function deleteUnusedBlobs(tx: Executor, ids: string[]): Promise<StoredBlob[]> {
   const unique = [...new Set(ids)];
+  await lockBlobs(tx, unique);
   const out: StoredBlob[] = [];
   for (let i = 0; i < unique.length; i += 5000) {
     out.push(
@@ -225,6 +229,10 @@ export async function deleteVersions(
         )})
         RETURNING v.blob_id AS "blobId", v.size, n.owner_id AS "ownerId"
       `)) as unknown as { blobId: string; size: number; ownerId: string }[];
+      const orphans = await deleteUnusedBlobs(
+        tx,
+        rows.map((r) => r.blobId),
+      );
       const perOwner = new Map<string, number>();
       for (const r of rows)
         perOwner.set(r.ownerId, (perOwner.get(r.ownerId) ?? 0) + Number(r.size));
@@ -234,10 +242,6 @@ export async function deleteVersions(
           .set({ usedBytes: sql`greatest(${users.usedBytes} - ${total}, 0)` })
           .where(eq(users.id, ownerId));
       }
-      const orphans = await deleteUnusedBlobs(
-        tx,
-        rows.map((r) => r.blobId),
-      );
       return { rows, orphans };
     });
     await deleteBlobFiles(ctx, removed.orphans);
