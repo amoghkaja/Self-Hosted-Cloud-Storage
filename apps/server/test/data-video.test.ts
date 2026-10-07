@@ -1,10 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { blobs, nodes } from '../src/db/schema';
+import { readMediaInfo } from '../src/jobs/media-info';
+import { generateThumbnail } from '../src/jobs/thumbnail';
 import { makeVideoStream } from '../src/jobs/video';
 import { type Client, createTestEnv, setupAdmin, type TestEnv, uploadFile } from './helpers';
 
@@ -125,5 +129,38 @@ describe.skipIf(!hasFfmpeg)('video streaming copies', () => {
     await makeVideoStream(env.ctx, blobId);
     expect(await status(blobId)).toBe('failed');
     expect((await c.get(`/nodes/${node.id}/stream`)).status).toBe(200);
+  });
+
+  it('never fetches the addresses in a streaming manifest dressed up as a video', async () => {
+    const fetched: string[] = [];
+    const server = createServer((req, res) => {
+      fetched.push(req.url ?? '');
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      // A DASH manifest: ffmpeg recognises it by its contents, whatever the file is called.
+      const manifest = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"
+     type="static" mediaPresentationDuration="PT10S" minBufferTime="PT1S">
+  <BaseURL>http://127.0.0.1:${port}/</BaseURL>
+  <Period><AdaptationSet mimeType="video/mp4">
+    <Representation id="1" bandwidth="1000" width="64" height="64" codecs="avc1.42c01e">
+      <BaseURL>internal.mp4</BaseURL>
+    </Representation>
+  </AdaptationSet></Period>
+</MPD>
+`;
+      const { blobId } = await upload('trap.mp4', Buffer.from(manifest), 'video/mp4');
+      await makeVideoStream(env.ctx, blobId);
+      await generateThumbnail(env.ctx, blobId);
+      await readMediaInfo(env.ctx, blobId);
+      expect(fetched).toEqual([]);
+      const [row] = await env.ctx.db.select().from(blobs).where(eq(blobs.id, blobId));
+      expect(row).toMatchObject({ streamStatus: 'failed', thumbStatus: 'failed' });
+    } finally {
+      server.close();
+    }
   });
 });

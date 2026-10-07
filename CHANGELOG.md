@@ -15,6 +15,9 @@ to do yourself when updating is listed under **Before you update**.
   now stopped before the file is stored.
 - **Instant uploads:** someone who knew a file's checksum could get a copy of a document (not a
   photo or video) that another person kept in their trip album folder, which only they can see.
+- **Videos:** a streaming playlist uploaded with a video's name made the background worker
+  fetch the web addresses written in it (for example, other services on your home network) while
+  making its thumbnail. Uploaded videos are now only ever read as video files from the disk.
 
 ## v0.5.0 (2026-10-05)
 
