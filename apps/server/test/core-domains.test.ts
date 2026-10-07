@@ -22,8 +22,12 @@ const basic = (email: string, pw: string) =>
 describe('allowed email domains', () => {
   it('limits invites and sign-in to the allowed domains, and signs out everyone else', async () => {
     const outsider = await addMember(env, admin, 'cousin@gmail.test');
-    const devicePw = (await outsider.client.post('/auth/app-passwords', { name: 'iPad' })).body
-      .password as string;
+    const devicePw = (
+      await outsider.client.post('/auth/app-passwords', {
+        name: 'iPad',
+        password: outsider.client.password,
+      })
+    ).body.password as string;
     const dav = () =>
       env.app.inject({
         method: 'PROPFIND' as 'GET',

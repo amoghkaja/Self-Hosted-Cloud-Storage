@@ -29,7 +29,10 @@ beforeAll(async () => {
   owner = a.client;
   ownerEmail = a.me.email;
   root = a.me.rootNodeId;
-  const created = await owner.post('/auth/app-passwords', { name: 'Laptop' });
+  const created = await owner.post('/auth/app-passwords', {
+    name: 'Laptop',
+    password: owner.password,
+  });
   const auth = `Basic ${Buffer.from(`${ownerEmail}:${created.body.password}`).toString('base64')}`;
   davHeader = auth;
   dav = async (method, path, body) => {

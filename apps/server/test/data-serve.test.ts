@@ -24,7 +24,8 @@ beforeAll(async () => {
   const a = await setupAdmin(env);
   c = a.client;
   root = a.me.rootNodeId;
-  const pw = (await c.post('/auth/app-passwords', { name: 'Mac' })).body.password;
+  const pw = (await c.post('/auth/app-passwords', { name: 'Mac', password: c.password })).body
+    .password;
   davAuth = `Basic ${Buffer.from(`${a.me.email}:${pw}`).toString('base64')}`;
 });
 afterAll(async () => {

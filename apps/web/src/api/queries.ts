@@ -666,8 +666,8 @@ export function useAppPasswordMutations() {
   const refresh = () => qc.invalidateQueries({ queryKey: qk.appPasswords });
   return {
     create: useMutation({
-      mutationFn: (name: string) =>
-        api<CreateAppPasswordResponse>('/auth/app-passwords', { json: { name } }),
+      mutationFn: (body: { name: string; password: string }) =>
+        api<CreateAppPasswordResponse>('/auth/app-passwords', { json: body }),
       onSuccess: refresh,
     }),
     revoke: useMutation({

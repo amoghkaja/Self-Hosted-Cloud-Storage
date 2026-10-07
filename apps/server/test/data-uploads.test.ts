@@ -223,7 +223,8 @@ describe('expiry', () => {
 
 describe('WebDAV uploads', () => {
   it('stay reserved while streaming, even across a usage reconciliation', async () => {
-    const pw = (await c.post('/auth/app-passwords', { name: 'Laptop' })).body.password;
+    const pw = (await c.post('/auth/app-passwords', { name: 'Laptop', password: c.password })).body
+      .password;
     const auth = `Basic ${Buffer.from(`${email}:${pw}`).toString('base64')}`;
     await reconcileUsage(env.ctx); // start from exact counters
     const before = await usage();

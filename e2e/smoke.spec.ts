@@ -146,6 +146,7 @@ test.describe
       await page.goto('/settings');
       await page.getByRole('button', { name: 'Connect a device' }).click();
       await page.getByLabel('Device name').fill("Mom's iPad");
+      await page.getByLabel('Your password').fill(ADMIN.password);
       await page.getByRole('button', { name: 'Create password' }).click();
       await page.getByRole('tab', { name: 'iPhone / iPad' }).click();
       await expect(page.getByText('WebDAV', { exact: true })).toBeVisible();

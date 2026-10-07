@@ -82,6 +82,8 @@ export interface Res<T = any> {
 /** A browser-like client: keeps cookies and sends our Origin header. */
 export class Client {
   cookies = new Map<string, string>();
+  /** The account's password, for steps that ask for it again (setupAdmin and addMember set it). */
+  password?: string;
   constructor(private readonly app: FastifyInstance) {}
 
   async req<T = any>(
@@ -143,6 +145,7 @@ export async function setupAdmin(env: TestEnv, email = 'admin@example.com') {
     password: ADMIN_PASSWORD,
   });
   if (res.status !== 200) throw new Error(`setup failed: ${JSON.stringify(res.body)}`);
+  client.password = ADMIN_PASSWORD;
   return { client, me: res.body };
 }
 
@@ -166,6 +169,7 @@ export async function addMember(
     password: MEMBER_PASSWORD,
   });
   if (res.status !== 200) throw new Error(`accept failed: ${JSON.stringify(res.body)}`);
+  client.password = MEMBER_PASSWORD;
   return { client, me: res.body };
 }
 

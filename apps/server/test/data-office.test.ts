@@ -68,7 +68,7 @@ describe('office previews', () => {
   });
 
   it('also queues a preview for documents saved from the network drive', async () => {
-    const created = await c.post('/auth/app-passwords', { name: 'Laptop' });
+    const created = await c.post('/auth/app-passwords', { name: 'Laptop', password: c.password });
     const auth = `Basic ${Buffer.from(`${created.body.username}:${created.body.password}`).toString('base64')}`;
     const put = await env.app.inject({
       method: 'PUT',

@@ -7,7 +7,7 @@ Family Cloud includes a WebDAV server at `https://cloud.example.com/dav/`, so it
 
 ## Device passwords
 
-Network drives sign in with your **email** and a **device password**, never your normal password. Create one per device under **Settings → Network drive → Connect a device**. The dialog shows the server address, username and password, plus instructions for each platform.
+Network drives sign in with your **email** and a **device password**, never your normal password. Create one per device under **Settings → Network drive → Connect a device** (it asks for your normal password first). The dialog shows the server address, username and password, plus instructions for each platform.
 
 Device passwords:
 

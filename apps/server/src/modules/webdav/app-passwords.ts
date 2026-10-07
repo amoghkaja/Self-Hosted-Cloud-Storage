@@ -15,6 +15,7 @@ import { AppError, notFound } from '../../lib/errors';
 import { toIso, toIsoOrNull } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
 import { strictLimit } from '../../plugins/security';
+import { confirmPassword } from '../auth/service';
 import { generateAppPassword, hashAppPassword } from './auth';
 
 const MAX_PER_USER = 25;
@@ -53,6 +54,7 @@ export const appPasswordRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { user } = requireUser(req);
+      await confirmPassword(db, user.id, req.body.password, req.clientIp);
       const password = generateAppPassword();
       // Count and insert under a per-user lock so parallel requests can't exceed the limit.
       const row = await db.transaction(async (tx) => {

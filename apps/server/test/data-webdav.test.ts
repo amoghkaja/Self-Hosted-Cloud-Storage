@@ -34,7 +34,8 @@ function davClient(email: string, password: string): Dav {
 }
 
 async function appPassword(client: Client) {
-  return (await client.post('/auth/app-passwords', { name: 'Device' })).body.password as string;
+  return (await client.post('/auth/app-passwords', { name: 'Device', password: client.password }))
+    .body.password as string;
 }
 
 beforeAll(async () => {

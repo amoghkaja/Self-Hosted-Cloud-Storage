@@ -625,21 +625,31 @@ function DevicesSection() {
   const m = useAppPasswordMutations();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [creds, setCreds] = useState<CreateAppPasswordResponse | null>(null);
   const [remove, setRemove] = useState<{ id: string; name: string } | null>(null);
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
+    setPasswordError(null);
     try {
-      setCreds(await m.create.mutateAsync(name.trim()));
+      setCreds(await m.create.mutateAsync({ name: name.trim(), password }));
+      setPassword('');
     } catch (err) {
-      toast.error(errorMessage(err));
+      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
+        setPasswordError(errorMessage(err));
+      } else {
+        toast.error(errorMessage(err));
+      }
     }
   };
   const close = () => {
     setOpen(false);
     setCreds(null);
     setName('');
+    setPassword('');
+    setPasswordError(null);
   };
 
   return (
@@ -705,11 +715,20 @@ function DevicesSection() {
               autoFocus
               required
             />
+            {/* The device password opens every file, so it's yours to confirm first. */}
+            <PasswordField
+              label="Your password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              error={passwordError}
+              required
+            />
             <Button
               type="submit"
               variant="primary"
               loading={m.create.isPending}
-              disabled={!name.trim()}
+              disabled={!name.trim() || !password}
               className="self-start"
             >
               Create password

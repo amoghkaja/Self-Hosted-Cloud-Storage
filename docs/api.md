@@ -43,7 +43,7 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 | GET / DELETE | `/auth/sessions[/:id]` | List / revoke signed-in devices |
 | POST | `/auth/totp/setup`, `/enable`, `/disable` | Two-factor (TOTP) management. `setup` takes `{password}`; `enable` also returns ten `recoveryCodes` (shown once); `disable` takes `{password, code}` or `{password, recoveryCode}` |
 | GET / POST | `/auth/recovery-codes` | `{remaining}` / `{password}` → `{codes}`: new codes replace the old ones |
-| GET / POST / DELETE | `/auth/app-passwords[/:id]` | Network-drive device passwords |
+| GET / POST / DELETE | `/auth/app-passwords[/:id]` | Network-drive device passwords (`POST` takes `{name, password}`) |
 | GET | `/invites/:token` | Invite details (public) |
 | POST | `/invites/:token/accept` | Create an account from an invite |
 | GET / POST | `/password-resets/:token` | A reset link from an admin: `{email, displayName, expiresAt}` / `{password}` sets the new password (single use; signs out everywhere; doesn't sign in, so two-factor still applies) |

@@ -123,7 +123,10 @@ describe('copy', () => {
   });
 
   it('WebDAV COPY is instant too (the copy shares the bytes)', async () => {
-    const created = await owner.post('/auth/app-passwords', { name: 'Mac' });
+    const created = await owner.post('/auth/app-passwords', {
+      name: 'Mac',
+      password: owner.password,
+    });
     const auth = `Basic ${Buffer.from(`${created.body.username}:${created.body.password}`).toString('base64')}`;
     const put = await env.app.inject({
       method: 'PUT',
@@ -163,7 +166,10 @@ describe('copy', () => {
     expect(res.status).toBe(200);
     expect(await names(res.body.id)).toEqual(['guest.jpg']);
 
-    const created = await owner.post('/auth/app-passwords', { name: 'Laptop' });
+    const created = await owner.post('/auth/app-passwords', {
+      name: 'Laptop',
+      password: owner.password,
+    });
     const auth = `Basic ${Buffer.from(`${created.body.username}:${created.body.password}`).toString('base64')}`;
     const dav = await env.app.inject({
       method: 'COPY' as 'GET',

@@ -151,7 +151,10 @@ export const AppPassword = z.object({
 });
 export type AppPassword = z.infer<typeof AppPassword>;
 
-export const CreateAppPasswordBody = z.object({ name: z.string().trim().min(1).max(60) });
+/** A device password reaches every file and outlasts a password change, so it's confirmed too. */
+export const CreateAppPasswordBody = ConfirmPasswordBody.extend({
+  name: z.string().trim().min(1).max(60),
+});
 
 export const CreateAppPasswordResponse = z.object({
   appPassword: AppPassword,

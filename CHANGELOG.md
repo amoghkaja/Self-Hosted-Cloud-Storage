@@ -10,8 +10,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Security
 
-- **Passkeys and two-factor:** adding a passkey or turning on two-factor sign-in now asks for
-  your password first. Someone who got hold of a signed-in browser (a phone left unlocked, say)
+- **Passkeys, two-factor and network-drive passwords:** adding a passkey, turning on two-factor
+  sign-in or connecting a device to the network drive now asks for your password first. Someone who got hold of a signed-in browser (a phone left unlocked, say)
   could otherwise add their own passkey and keep getting in after you changed your password, or
   turn on two-factor with their own app and lock you out of your account. Wrong passwords there
   (and when changing your password or getting new recovery codes) count toward the same lock as
@@ -19,9 +19,10 @@ to do yourself when updating is listed under **Before you update**.
 - **Passkeys:** a passkey sign-in can no longer be sent a second time. Someone who copied one
   (from a saved browser log, say) within its five minutes could sign in with it again, because
   passkeys synced through iCloud Keychain or Google Password Manager don't count their uses.
-- **Share links with a download limit** now count every download. A download program could ask
-  for a file or a zip "in pieces" in a way that still sent all of it without counting, so the
-  link never ran out.
+- **Share links with a download limit** count every download that starts at the beginning of the
+  file, and every zip. A download program could ask for a file or a zip "in pieces" in a way that
+  still sent all of it without counting, so the link never ran out. (Picking up an interrupted
+  download, which asks for the rest of a file, still doesn't count again.)
 - **Trip folders:** a document kept with a trip's photos (a boarding pass, a booking) isn't in
   the album, and now instant uploads treat it as private too. Before, a family member who had
   the very same file could upload it "instantly" and so find out it was there.

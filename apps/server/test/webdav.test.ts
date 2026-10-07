@@ -39,7 +39,7 @@ function dav(email: string, password: string) {
 }
 
 async function newAppPassword(client: Client, name = 'iPad') {
-  const res = await client.post('/auth/app-passwords', { name });
+  const res = await client.post('/auth/app-passwords', { name, password: client.password });
   expect(res.status).toBe(200);
   return res.body as {
     password: string;
@@ -83,6 +83,19 @@ describe('authentication', () => {
     expect(
       (await dav(aliceEmail, typed)('PROPFIND', '/dav/', { headers: { depth: '0' } })).statusCode,
     ).toBe(207);
+  });
+
+  it('asks for the account password before making a device password', async () => {
+    // A device password reaches every file and outlasts a password change: a stolen session
+    // alone must not be able to make one.
+    const create = (body: { name: string; password?: string }) =>
+      alice.post('/auth/app-passwords', body);
+    expect((await create({ name: 'Thief' })).status).toBe(400);
+    const wrong = await create({ name: 'Thief', password: 'not my password' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.code).toBe('INVALID_CREDENTIALS');
+    expect(wrong.body.password).toBeUndefined();
+    expect((await create({ name: 'Mine', password: alice.password })).status).toBe(200);
   });
 
   it('revoking a device password locks that device out immediately', async () => {
@@ -338,7 +351,7 @@ describe('device password limit', () => {
     const { client } = await addMember(env, admin, 'many-devices@example.com');
     const results = await Promise.all(
       Array.from({ length: 30 }, (_, i) =>
-        client.post('/auth/app-passwords', { name: `Device ${i}` }),
+        client.post('/auth/app-passwords', { name: `Device ${i}`, password: client.password }),
       ),
     );
     expect(results.filter((r) => r.status === 200)).toHaveLength(25);
