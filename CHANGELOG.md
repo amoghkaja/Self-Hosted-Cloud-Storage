@@ -34,6 +34,8 @@ to do yourself when updating is listed under **Before you update**.
   as it was, instead of leaving the next version half set up.
 - **Updating:** the images the previous version used are removed once the new one is running.
   They used to stay on the system disk, a few hundred MB with every update.
+- **Adding a disk:** if `/etc/fstab` didn't end with a line break, `scripts/add-disk.sh` joined
+  the new disk's line onto the last one, so after the next restart neither was mounted.
 
 ### Security
 
