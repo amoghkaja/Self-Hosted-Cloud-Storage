@@ -39,6 +39,9 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Fixed
 
+- **Family Photos:** photos copied into a trip folder from a Mac over the network drive no longer
+  show up twice, once as a broken picture. Those were the hidden "._" files Finder writes beside
+  each file it copies.
 - **File requests:** when the folder owner's storage is full, the person sending files is told
   so, instead of "Not enough storage left in your quota" (they don't have one).
 - **Family Photos:** a trip can be edited again after someone on it has had their account

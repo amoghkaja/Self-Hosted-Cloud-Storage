@@ -63,6 +63,8 @@ describe('trip albums', () => {
     // Anything that isn't a photo or video stays out of the album.
     const { folderId } = (await dad.post(`/albums/${album.id}/folder`, {})).body;
     await uploadFile(dad, folderId, 'notes.txt', bytes(10, 3), { mimeType: 'text/plain' });
+    // Nor do the "._" files Finder writes beside each photo it copies to the network drive.
+    await uploadFile(dad, folderId, '._IMG_1.jpg', bytes(10, 4), { mimeType: 'image/jpeg' });
 
     // The kid wasn't on the trip but is family: they can view, not add.
     const seen = (await kid.get(`/albums/${album.id}`)).body;
