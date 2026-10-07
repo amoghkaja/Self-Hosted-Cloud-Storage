@@ -138,7 +138,7 @@ Errors are announced assertively, everything else politely. Toasts sit at the to
 
 ### Breadcrumbs, Tabs, DropZone, Tooltip
 
-- `Breadcrumbs`: the last crumb is `aria-current="page"`; the trail scrolls sideways on narrow screens.
+- `Breadcrumbs`: the last crumb is `aria-current="page"` and gets two lines; on narrow screens the trail scrolls sideways, starting at its end, instead of shortening every name.
 - `Tabs`: arrow keys move between tabs (roving focus).
 - `DropZone`: drag-and-drop for files and whole folders (`collectDroppedFiles` walks directories). It's a mouse enhancement; there's always a keyboard-accessible Upload button next to it.
 - `Tooltip`: supplementary only, never the sole place for information.

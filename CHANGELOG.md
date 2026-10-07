@@ -17,6 +17,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Tablets:** file names in a folder had only a sliver of room beside the sidebar on an iPad
   held upright ("Docume…"). Until there's room for the date and size columns, they go under the
   name, as on a phone.
+- **Folder path:** on a phone, a folder a few levels down showed "My F… › Docum… › Ta… › 2…".
+  The path now keeps each name and slides sideways, starting at the folder you're in, whose name
+  gets two lines.
 
 ## v0.5.0 (2026-10-05)
 

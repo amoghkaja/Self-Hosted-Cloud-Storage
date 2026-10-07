@@ -52,4 +52,21 @@ test.describe
       await page.getByRole('menuitem', { name: 'Rewind this folder…' }).click();
       await expect(page.getByRole('dialog', { name: `Rewind “${name}”` })).toBeVisible();
     });
+
+    test('a deep folder path scrolls instead of cutting every name short', async ({ page }) => {
+      await login(page);
+      const me = await (await page.request.get('/api/v1/auth/me')).json();
+      let id = me.rootNodeId;
+      for (const name of [`Documents ${RUN}`, 'Taxes', '2024', 'Receipts']) {
+        id = await folder(page, id, name);
+      }
+      await page.goto(`/files/${id}`);
+      const path = page.getByRole('navigation', { name: 'Folder path' });
+      // The end of the trail is shown: where you are.
+      await expect(path.getByText('Receipts', { exact: true })).toBeInViewport({ ratio: 1 });
+      const year = path.getByRole('link', { name: '2024' });
+      await expect(year).toBeInViewport({ ratio: 1 });
+      expect(await year.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+      expect(await sideways(page)).toBeLessThanOrEqual(0);
+    });
   });
