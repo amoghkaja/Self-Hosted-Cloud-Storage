@@ -155,5 +155,7 @@ describe('search', () => {
     );
     const wild = await c.get('/search?q=%25');
     expect(wild.body.items).toHaveLength(0);
+    // Postgres refuses a NUL in text: a bad request, not a server error.
+    expect((await c.get('/search?q=be%00ach')).status).toBe(400);
   });
 });
