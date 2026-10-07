@@ -8,7 +8,7 @@ import {
 } from '@familycloud/shared/all';
 import { and, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm';
 import type { AppContext } from '../../context';
-import type { Executor } from '../../db/client';
+import type { Db, Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { toFileNode } from '../../lib/dto';
 import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../lib/errors';
@@ -153,6 +153,28 @@ export async function findFreeName(
   `)) as unknown as { name: string }[];
   if (!free) throw conflict(`Too many items named "${name}"`, ErrorCode.NAME_CONFLICT);
   return free.name;
+}
+
+/**
+ * Makes a folder, re-checking write access under lock like every other write: a revoked share or
+ * a trash of the parent in the meantime stops it, rather than leaving a live folder inside a
+ * trashed one.
+ */
+export async function createFolder(
+  db: Db,
+  actorId: string,
+  parentId: string,
+  name: string,
+  mode: 'rename' | 'reuse' | 'fail',
+): Promise<NodeRow> {
+  return db.transaction(async (tx) => {
+    const target = await lockWriteAccess(tx, actorId, parentId);
+    return insertNode(
+      tx,
+      { ownerId: target.ownerId, parentId: target.id, type: 'folder', name, createdBy: actorId },
+      mode,
+    );
+  });
 }
 
 /**

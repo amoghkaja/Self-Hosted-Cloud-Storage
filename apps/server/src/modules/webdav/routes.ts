@@ -10,7 +10,7 @@ import { storageFor } from '../../lib/space';
 import { loadAccess, type NodeAccess, satisfies } from '../files/access';
 import { copyNode } from '../files/copy';
 import { etagMatches, sendBlob } from '../files/serve';
-import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
+import { createFolder, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
 import { ingest } from '../uploads/ingest';
 import { moveContentOnto } from '../versions/service';
 import {
@@ -426,17 +426,7 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
         }
         const t = writableTarget(target);
         if (!t.parent) throw davError(405, 'Already exists');
-        await insertNode(
-          ctx.db,
-          {
-            ownerId: t.parent.node.ownerId,
-            parentId: t.parent.node.id,
-            type: 'folder',
-            name: t.name,
-            createdBy: user.id,
-          },
-          'fail',
-        );
+        await createFolder(ctx.db, user.id, t.parent.node.id, t.name, 'fail');
         return reply.status(201).send();
       }
 

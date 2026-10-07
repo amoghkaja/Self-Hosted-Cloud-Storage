@@ -34,7 +34,7 @@ import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
 import { HEADLINE, HEADLINE_CHARS, wordQuery } from '../../lib/search';
 import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
-import { loadAccess, lockWriteAccess, requireAccess, requireFolder, satisfies } from './access';
+import { loadAccess, requireAccess, requireFolder, satisfies } from './access';
 import { copyNode } from './copy';
 import { checkRewindTime, previewRewind, rewindFolder } from './rewind';
 import {
@@ -46,8 +46,8 @@ import {
   type ZipRoot,
 } from './serve';
 import {
+  createFolder,
   findFreeName,
-  insertNode,
   isAncestor,
   listChildren,
   moveNode,
@@ -146,22 +146,13 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       const parent = await requireFolder(db, user.id, req.body.parentId, 'edit');
-      const row = await db.transaction(async (tx) => {
-        // Re-checked under lock, like uploads: a revoked share or a trash of the folder in the
-        // meantime stops it, rather than leaving a live folder inside a trashed one.
-        const target = await lockWriteAccess(tx, user.id, parent.node.id);
-        return insertNode(
-          tx,
-          {
-            ownerId: target.ownerId,
-            parentId: target.id,
-            type: 'folder',
-            name: req.body.name,
-            createdBy: user.id,
-          },
-          req.body.reuseExisting ? 'reuse' : req.body.renameIfTaken ? 'rename' : 'fail',
-        );
-      });
+      const row = await createFolder(
+        db,
+        user.id,
+        parent.node.id,
+        req.body.name,
+        req.body.reuseExisting ? 'reuse' : req.body.renameIfTaken ? 'rename' : 'fail',
+      );
       return toFileNode(row);
     },
   );

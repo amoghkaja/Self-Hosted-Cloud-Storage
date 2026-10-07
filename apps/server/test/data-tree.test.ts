@@ -188,6 +188,28 @@ describe('trash', () => {
     )) as unknown as unknown[];
     expect(live).toHaveLength(0);
   });
+
+  it('so is one made over the network drive (MKCOL)', async () => {
+    const trip = await folder(root, 'Drive trip');
+    const device = (await c.post('/auth/app-passwords', { name: 'Mac', password: c.password })).body
+      .password as string;
+    const auth = `Basic ${Buffer.from(`admin@example.com:${device}`).toString('base64')}`;
+    const trash = await trashUncommitted(trip);
+    const create = env.app.inject({
+      method: 'MKCOL' as 'GET',
+      url: '/dav/My%20Files/Drive%20trip/Day%201',
+      headers: { authorization: auth },
+    });
+    await new Promise((r) => setTimeout(r, 100)); // the new folder is now waiting on its parent
+    trash.commit();
+    await trash.done;
+
+    expect((await create).statusCode).not.toBe(201);
+    const live = (await env.ctx.db.execute(
+      sql`select id from nodes where parent_id = ${trip} and deleted_at is null`,
+    )) as unknown as unknown[];
+    expect(live).toHaveLength(0);
+  });
 });
 
 describe('moves', () => {
