@@ -36,7 +36,7 @@ export async function makeOfficePreview(ctx: AppContext, blobId: string): Promis
       .where(eq(blobs.id, blobId))
       .returning({ id: blobs.id });
 
-  const src = await ctx.volumes.blobFile(row.blob);
+  const src = await ctx.volumes.readableBlobFile(row.blob);
   const ext = splitExtension(row.name)[1].toLowerCase() || '.bin';
   let work: string | null = null;
   try {

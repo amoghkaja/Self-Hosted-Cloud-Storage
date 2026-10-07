@@ -159,7 +159,7 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
     src = pdf;
     rasterKind = 'pdf';
   } else {
-    src = await ctx.volumes.blobFile(row.blob);
+    src = await ctx.volumes.readableBlobFile(row.blob);
   }
   const big = thumbPath(ctx.config.cacheDir, blobId, 1600);
   const small = thumbPath(ctx.config.cacheDir, blobId, 256);

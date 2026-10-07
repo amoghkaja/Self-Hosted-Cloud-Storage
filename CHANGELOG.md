@@ -24,6 +24,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Moving files off a disk:** an upload that finished at the very moment the move ran out of
   files could stay behind on the disk, which was then marked "Safe to unmount". It is now moved
   too before the disk is retired.
+- **A disk unplugged for a while:** photos and videos on it never got thumbnails, dates or
+  streaming copies, and documents were never searchable by their words, even after it was back.
+  That work now waits for the disk and is done once it returns.
 
 ## v0.5.0 (2026-10-05)
 

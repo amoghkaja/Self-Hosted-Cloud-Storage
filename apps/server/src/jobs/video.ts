@@ -86,7 +86,7 @@ export async function makeVideoStream(ctx: AppContext, blobId: string): Promise<
   const setStatus = (streamStatus: 'ready' | 'original' | 'failed') =>
     ctx.db.update(blobs).set({ streamStatus }).where(eq(blobs.id, blobId));
 
-  const src = await ctx.volumes.blobFile(blob);
+  const src = await ctx.volumes.readableBlobFile(blob);
   let info: Probe;
   try {
     info = await probe(src);

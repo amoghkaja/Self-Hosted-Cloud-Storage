@@ -101,7 +101,7 @@ export async function readMediaInfo(ctx: AppContext, blobId: string): Promise<vo
   let info: MediaInfo = { takenAt: null, latitude: null, longitude: null };
   let infoStatus: 'ready' | 'failed' = 'ready';
   // Outside the try: a disk that's offline is retried, not recorded as a bad file.
-  const file = await ctx.volumes.blobFile(row.blob);
+  const file = await ctx.volumes.readableBlobFile(row.blob);
   try {
     if (mime.startsWith('video/')) info = await videoInfo(file);
     else if (mime.startsWith('image/') && mime !== 'image/svg+xml') info = await photoInfo(file);
