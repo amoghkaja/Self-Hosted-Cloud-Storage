@@ -18,6 +18,9 @@ to do yourself when updating is listed under **Before you update**.
   only the system can read). That folder is now skipped.
 - **Server:** the logs Docker keeps for each container are capped at 50 MB. They used to grow
   with every request until the containers were next replaced, and could fill the system disk.
+- **Virus scanning:** the guide to using a scanner on another computer missed a step: the server
+  couldn't reach it, so files waited to be checked forever and those sent through a file request
+  couldn't be opened. See "Using your own scanner" in `docs/virus-scanning.md`.
 
 ### Security
 
