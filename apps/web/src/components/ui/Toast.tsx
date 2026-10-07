@@ -86,16 +86,21 @@ export function Toaster() {
           <T.Description className="flex-1 text-sm">{t.message}</T.Description>
           {t.action && (
             <T.Action altText={t.action.label} asChild>
+              {/* Undo is how a phone gets back what it just trashed: a full 44px to tap, grown
+                  into the toast's padding so the toast stays the same height. */}
               <button
                 type="button"
                 onClick={t.action.onClick}
-                className="rounded-md px-2 py-1 text-sm font-medium text-accent hover:bg-accent-soft"
+                className="rounded-md px-2 py-1 text-sm font-medium text-accent hover:bg-accent-soft pointer-coarse:-my-2.5 pointer-coarse:min-h-11 pointer-coarse:px-3"
               >
                 {t.action.label}
               </button>
             </T.Action>
           )}
-          <T.Close aria-label="Dismiss" className="rounded-md p-1 text-muted hover:bg-surface-2">
+          <T.Close
+            aria-label="Dismiss"
+            className="flex items-center justify-center rounded-md p-1 text-muted hover:bg-surface-2 pointer-coarse:-my-2.5 pointer-coarse:size-11"
+          >
             <X size={16} aria-hidden />
           </T.Close>
         </T.Root>

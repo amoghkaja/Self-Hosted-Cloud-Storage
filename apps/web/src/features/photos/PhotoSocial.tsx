@@ -1,10 +1,10 @@
-import type { AlbumPhotoPage, PhotoSocial } from '@familycloud/shared';
+import type { AlbumPhotoPage, PhotoComment, PhotoSocial } from '@familycloud/shared';
 import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart, MessageCircle, Send, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { api, errorMessage } from '../../api/client';
 import { qk } from '../../api/queries';
-import { Avatar, toast } from '../../components/ui';
+import { Avatar, ConfirmDialog, toast } from '../../components/ui';
 import { formatRelative } from '../../lib/format';
 
 const socialKey = (albumId: string, nodeId: string) =>
@@ -25,6 +25,7 @@ export function PhotoSocialBar({
   const key = socialKey(albumId, photo.id);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [deleting, setDeleting] = useState<PhotoComment | null>(null);
   const social = useQuery({
     queryKey: key,
     queryFn: () => api<PhotoSocial>(`/albums/${albumId}/photos/${photo.id}/social`),
@@ -133,7 +134,7 @@ export function PhotoSocialBar({
                   <button
                     type="button"
                     aria-label={`Delete ${c.author.displayName}’s comment`}
-                    onClick={() => change.mutate({ method: 'DELETE', path: `/comments/${c.id}` })}
+                    onClick={() => setDeleting(c)}
                     className="flex size-9 shrink-0 items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white pointer-coarse:size-11"
                   >
                     <Trash2 size={16} aria-hidden />
@@ -179,6 +180,18 @@ export function PhotoSocialBar({
           </form>
         </div>
       )}
+      {/* A deleted comment can't come back, and the photo's owner can delete anyone's. */}
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        tone="danger"
+        title={`Delete ${deleting?.author.displayName}’s comment?`}
+        description={`“${deleting?.body}” This can't be undone.`}
+        confirmLabel="Delete"
+        onConfirm={() =>
+          deleting && change.mutateAsync({ method: 'DELETE', path: `/comments/${deleting.id}` })
+        }
+      />
     </div>
   );
 }

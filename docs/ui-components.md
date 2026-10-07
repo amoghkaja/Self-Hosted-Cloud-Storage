@@ -121,6 +121,7 @@ Menus stop click and key events at their boundary. React bubbles events from por
 ```
 
 - **Loading:** `aria-busy` plus a screen-reader "Loading…".
+- **Offline:** a first load that is waiting for the network (TanStack Query's `paused`) says "You're offline" instead of showing the skeleton forever; it loads by itself once back online.
 - **Error:** `ErrorState` with the server's message and a **Try again** button.
 - **Empty and data:** rendered as given.
 
@@ -136,12 +137,13 @@ announce('3 items selected');   // screen readers only, no visual toast
 
 Errors are announced assertively, everything else politely. Toasts sit at the top on phones, where the upload panel owns the bottom, and bottom-centre on larger screens.
 
-### Breadcrumbs, Tabs, DropZone, Tooltip
+### Breadcrumbs, Tabs, DropZone, Tooltip, FileName
 
-- `Breadcrumbs`: the last crumb is `aria-current="page"`; the trail scrolls sideways on narrow screens.
+- `Breadcrumbs`: the last crumb is `aria-current="page"` and gets two lines; on narrow screens the trail scrolls sideways, starting at its end, instead of shortening every name.
 - `Tabs`: arrow keys move between tabs (roving focus).
 - `DropZone`: drag-and-drop for files and whole folders (`collectDroppedFiles` walks directories). It's a mouse enhancement; there's always a keyboard-accessible Upload button next to it.
 - `Tooltip`: supplementary only, never the sole place for information.
+- `FileName`: a file name on one line that, cut short, keeps its extension in sight ("Family reunion at the l….pdf"); screen readers get the whole name.
 
 ## The file list
 
@@ -153,7 +155,7 @@ Errors are announced assertively, everything else politely. Toasts sit at the to
   - Space toggles; Ctrl/Cmd+A selects all; Escape clears.
   - Enter opens, Delete trashes, F2 renames.
   - Shift+F10 or the menu key opens the item's actions.
-- **Mouse and touch:** click selects, Ctrl/Shift-click multi-selects, double-click opens. On touch devices a tap opens and a long-press opens the context menu.
+- **Mouse and touch:** click selects, Ctrl/Shift-click multi-selects, double-click opens. On touch devices a tap opens and a long-press opens the context menu; its **Select** and **Select all** start selecting, after which taps toggle items.
 - **Infinite scroll** fetches the next page as you near the end.
 - Selection is keyed by id, so it survives re-sorting and background refreshes.
 

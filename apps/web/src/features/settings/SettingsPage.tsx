@@ -295,9 +295,9 @@ function RecoveryCodesStatus() {
   );
 }
 
-function TwoFactorSection({ me }: { me: Me }) {
+export function TwoFactorSection({ me }: { me: Me }) {
   const qc = useQueryClient();
-  const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
+  const [setup, setSetup] = useState<{ secret: string; url: string; qr: string } | null>(null);
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -312,6 +312,7 @@ function TwoFactorSection({ me }: { me: Me }) {
       });
       setSetup({
         secret: res.secret,
+        url: res.otpauthUrl,
         qr: await QRCode.toDataURL(res.otpauthUrl, { margin: 1, width: 200 }),
       });
     } catch (err) {
@@ -430,9 +431,11 @@ function TwoFactorSection({ me }: { me: Me }) {
           />
           <div className="flex max-w-sm flex-col gap-3">
             <p className="text-sm">Scan the code with your authenticator app, or enter this key:</p>
-            <code className="rounded-lg bg-surface-2 px-2 py-1.5 font-mono text-sm break-all">
-              {setup.secret}
-            </code>
+            <CopyRow label="Key" value={setup.secret} />
+            {/* Setting up on the phone that has the app: there's nothing to scan the code with. */}
+            <Button asChild className="self-start pointer-fine:hidden">
+              <a href={setup.url}>Open in your authenticator app</a>
+            </Button>
             <TextField
               label="6-digit code"
               inputMode="numeric"

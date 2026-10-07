@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { Tabs as T } from 'radix-ui';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { cn } from '../../lib/cn';
 
@@ -15,23 +15,42 @@ export interface Crumb {
 
 /**
  * Path navigation. The last crumb is the current location (aria-current="page"); on narrow
- * screens the trail scrolls horizontally instead of wrapping.
+ * screens the trail scrolls horizontally instead of wrapping, showing its end, and the current
+ * folder's name gets two lines.
  */
 export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: string }) {
+  const trail = useRef<HTMLOListElement>(null);
+  const path = items.map((c) => c.key).join('/');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again only when the path changes
+  useLayoutEffect(() => {
+    const el = trail.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [path]);
   return (
     <nav aria-label="Folder path" className={cn('min-w-0', className)}>
-      <ol className="flex items-center gap-0.5 overflow-x-auto text-sm whitespace-nowrap [scrollbar-width:none]">
+      <ol
+        ref={trail}
+        className="flex items-center gap-0.5 overflow-x-auto text-sm whitespace-nowrap [scrollbar-width:none]"
+      >
         {items.map((c, i) => {
           const last = i === items.length - 1;
           return (
-            <li key={c.key} className="flex min-w-0 items-center gap-0.5">
+            // Folders above keep their names (up to 12rem) and the trail scrolls; squeezing
+            // every crumb left "My F… › Docum… › Ta… › 2…".
+            <li
+              key={c.key}
+              className={cn('flex items-center gap-0.5', last ? 'min-w-24' : 'shrink-0')}
+            >
               {i > 0 && <ChevronRight size={14} className="shrink-0 text-muted" aria-hidden />}
               {last || !c.to ? (
                 <span
                   aria-current={last ? 'page' : undefined}
+                  title={c.label}
                   className={cn(
-                    'truncate rounded-md px-1.5 py-1',
-                    last ? 'font-semibold' : 'text-muted',
+                    'rounded-md px-1.5 py-1',
+                    last
+                      ? 'line-clamp-2 font-semibold whitespace-normal [overflow-wrap:anywhere]'
+                      : 'max-w-[12rem] truncate text-muted',
                   )}
                 >
                   {c.label}
@@ -39,6 +58,7 @@ export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: 
               ) : (
                 <Link
                   to={c.to}
+                  title={c.label}
                   className="max-w-[12rem] truncate rounded-md px-1.5 py-1 pointer-coarse:py-3 text-muted hover:bg-surface-2 hover:text-text"
                 >
                   {c.label}

@@ -11,6 +11,7 @@ import {
   ArrowUpDown,
   Copy,
   Download,
+  EllipsisVertical,
   FolderInput,
   FolderPlus,
   FolderUp,
@@ -257,9 +258,14 @@ function FileBrowser({ folderId }: { folderId: string }) {
       {folderId === me.rootNodeId && !selecting && (
         <SectionLinks label="Files" items={FILES_SECTIONS} />
       )}
-      <div ref={headerRef} hidden={selecting} className="mb-3 flex flex-wrap items-center gap-2">
-        {/* Full width on phones, so the current folder's name isn't squeezed to "Ph…". */}
-        <div className="min-w-0 basis-full sm:flex-1 sm:basis-0">
+      {/* Sized by the room the page has, not the window: on a tablet the sidebar takes a third. */}
+      <div
+        ref={headerRef}
+        hidden={selecting}
+        className="@container mb-3 flex flex-wrap items-center gap-2"
+      >
+        {/* Full width when narrow, so the current folder's name isn't squeezed to "Ph…". */}
+        <div className="min-w-0 basis-full @3xl:flex-1 @3xl:basis-0">
           {detail.data ? <Breadcrumbs items={crumbs} /> : <Skeleton className="h-7 w-48" />}
           {access && access !== 'owner' && (
             <p className="px-1.5 text-xs text-muted">
@@ -282,13 +288,17 @@ function FileBrowser({ folderId }: { folderId: string }) {
                   onClick={() => setNewFolder(true)}
                   aria-label="New folder"
                 >
-                  <span className="hidden sm:inline">New folder</span>
+                  <span className="hidden @xl:inline">New folder</span>
                 </Button>
               </Tooltip>
+              {/* When narrow, these two move into the "More" menu below so the row fits. */}
               {access === 'owner' && !detail.data?.album && (
-                <Button icon={<Inbox size={16} />} onClick={() => setRequesting(true)}>
-                  <span className="sm:hidden">Request</span>
-                  <span className="hidden sm:inline">Request files</span>
+                <Button
+                  icon={<Inbox size={16} />}
+                  onClick={() => setRequesting(true)}
+                  className="@max-xl:hidden"
+                >
+                  Request files
                 </Button>
               )}
               <DropdownMenu
@@ -320,6 +330,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
               label="Rewind this folder"
               icon={<History />}
               onClick={() => setRewinding(true)}
+              className="@max-xl:hidden"
             />
           )}
           <DropdownMenu
@@ -345,6 +356,37 @@ function FileBrowser({ folderId }: { folderId: string }) {
             icon={view === 'list' ? <LayoutGrid /> : <List />}
             onClick={() => setView(view === 'list' ? 'grid' : 'list')}
           />
+          {access === 'owner' && (
+            <DropdownMenu
+              label="More folder actions"
+              trigger={
+                <IconButton
+                  label="More folder actions"
+                  icon={<EllipsisVertical />}
+                  noTooltip
+                  className="@xl:hidden"
+                />
+              }
+              actions={[
+                ...(detail.data?.album
+                  ? []
+                  : [
+                      {
+                        id: 'request',
+                        label: 'Request files…',
+                        icon: <Inbox />,
+                        onSelect: () => setRequesting(true),
+                      },
+                    ]),
+                {
+                  id: 'rewind',
+                  label: 'Rewind this folder…',
+                  icon: <History />,
+                  onSelect: () => setRewinding(true),
+                },
+              ]}
+            />
+          )}
         </div>
       </div>
 
@@ -369,8 +411,10 @@ function FileBrowser({ folderId }: { folderId: string }) {
           role="toolbar"
           aria-label="Selection actions"
           // Phones wrap the header onto two lines; there's no double-click to protect there.
-          style={{ '--header-h': `${headerHeight}px` } as CSSProperties}
-          className="sticky top-16 z-20 mb-3 flex items-center gap-1 rounded-xl border border-accent/30 bg-accent-soft px-2 py-1 animate-fade-in sm:min-h-[var(--header-h)]"
+          // It sticks below the app header's real height (--header-h), which grows by the notch
+          // in an iPhone home-screen app: a fixed 4rem left the toolbar half under it.
+          style={{ '--folder-header-h': `${headerHeight}px` } as CSSProperties}
+          className="sticky top-(--header-h,4rem) z-20 mb-3 flex items-center gap-1 rounded-xl border border-accent/30 bg-accent-soft px-2 py-1 animate-fade-in sm:min-h-(--folder-header-h)"
         >
           <IconButton
             size="sm"

@@ -1,5 +1,5 @@
 import { formatBytes, percent } from '@familycloud/shared';
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, WifiOff } from 'lucide-react';
 import { Progress as P } from 'radix-ui';
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
@@ -236,6 +236,8 @@ interface QueryLike<T> {
   isPending: boolean;
   isError: boolean;
   error: unknown;
+  /** "paused": TanStack Query is waiting for the network to come back. */
+  fetchStatus?: 'fetching' | 'paused' | 'idle';
   refetch: () => unknown;
 }
 
@@ -262,6 +264,19 @@ export function QueryState<T>({
   errorTitle,
   children,
 }: QueryStateProps<T>) {
+  // Offline, a first load waits for the connection instead of failing: say so rather than
+  // showing the skeleton forever. It loads by itself once the phone is back online.
+  if (query.isPending && query.fetchStatus === 'paused') {
+    return (
+      <div aria-live="polite">
+        <EmptyState
+          icon={<WifiOff />}
+          title="You're offline"
+          description="This will load as soon as you're connected again."
+        />
+      </div>
+    );
+  }
   if (query.isPending) {
     return (
       <div aria-busy="true" aria-live="polite">

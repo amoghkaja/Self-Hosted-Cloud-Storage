@@ -37,6 +37,47 @@ to do yourself when updating is listed under **Before you update**.
   signed out from another device), the page forgets your files, as signing out does. Whoever
   signed in next in that tab could briefly see your folders, recent files and search results.
 
+### Improved
+
+- **Phones and tablets:** the buttons above a folder fit on the screen. On a phone the last ones
+  ran off its edge, which made the page slide sideways and could push the tab bar and the close
+  buttons of previews and dialogs out of sight. Where there isn't room, Request files and Rewind
+  are under the ⋮ button next to them.
+- **Tablets:** file names in a folder had only a sliver of room beside the sidebar on an iPad
+  held upright ("Docume…"). Until there's room for the date and size columns, they go under the
+  name, as on a phone.
+- **Folder path:** on a phone, a folder a few levels down showed "My F… › Docum… › Ta… › 2…".
+  The path now keeps each name and slides sideways, starting at the folder you're in, whose name
+  gets two lines.
+- **Long file names:** when a name is too long for the list, the end of it (".pdf", ".jpg")
+  stays in sight, so you can still tell what kind of file it is. The viewer shows the whole name
+  on two lines, which on a phone is where you can read it.
+- **Trash on phones:** names and where things were deleted from can be read in full (the Restore
+  button sits under them), and Restore shows it's working, so a second tap doesn't try again.
+- **Selecting on a phone or tablet:** a file's menu (⋮, or press and hold) now has **Select all**
+  next to Select, so moving or downloading a whole folder's photos no longer takes a tap on each.
+- **Two-factor sign-in on a phone:** setting it up on the phone that has your authenticator app
+  no longer needs a second device to scan the code: tap **Open in your authenticator app**, or
+  copy the key with one tap instead of typing 32 letters.
+- **Free up space → Versions on a phone:** the explanation is no longer squeezed into a narrow
+  column beside the "Delete all older versions" button.
+- **Admin → Activity on a phone:** every entry is laid out the same way (the time, then who did
+  what), instead of breaking onto a second line in a different place each time.
+- **Uploading on a small phone:** the upload list takes at most a quarter of the screen, so the
+  folder and its buttons stay in view while a batch of photos goes up.
+- **Rename:** the name is selected without its ending, as intended, so you can type the new name
+  straight away and keep ".jpg". The cursor used to sit at the end of the name.
+- **Deleting a link or file request** asks first. It used to go with one tap on the bin right
+  next to Copy, and a deleted link can't be brought back (a new one has a different address).
+- **iPhone home-screen app:** the bar that appears when you select files no longer slides half
+  under the top bar while you scroll; its Clear button and the count were hidden there.
+- **Undo on a phone:** the Undo and close buttons on messages like "Moved … to trash" are
+  easier to hit with a thumb.
+- **Offline:** opening a folder or page with no connection says "You're offline" instead of
+  showing grey placeholders forever, and loads by itself when the connection is back.
+- **Deleting a comment on a photo** asks first, showing the comment. The bins of stacked
+  comments sit right under each other, and the photo's owner can delete anyone's comment.
+
 ### Fixed
 
 - **Disaster-recovery export** (`cli export`) now includes files still waiting for their virus

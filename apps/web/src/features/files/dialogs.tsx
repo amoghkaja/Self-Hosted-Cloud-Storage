@@ -1,6 +1,6 @@
 import { type FileNode, nameProblem, normalizeName, splitExtension } from '@familycloud/shared';
 import { ChevronRight, Folder } from 'lucide-react';
-import { type FormEvent, Fragment, useEffect, useRef, useState } from 'react';
+import { type FormEvent, Fragment, useCallback, useState } from 'react';
 import { errorMessage } from '../../api/client';
 import {
   useChildren,
@@ -104,14 +104,15 @@ export function RenameDialog({
 }) {
   const update = useUpdateNode();
   const name = useNameField(node.name);
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    // Select just the base name so typing keeps the extension ("photo|.jpg").
-    const el = input.current;
-    if (!el) return;
-    const base = node.type === 'file' ? splitExtension(node.name)[0].length : node.name.length;
-    requestAnimationFrame(() => el.setSelectionRange(0, base));
-  }, [node]);
+  // Select just the base name so typing keeps the extension ("photo|.jpg"). A ref callback, not
+  // an effect: the dialog's portal mounts the field after this component's first effects run.
+  const base = node.type === 'file' ? splitExtension(node.name)[0].length : node.name.length;
+  const selectBase = useCallback(
+    (el: HTMLInputElement | null) => {
+      if (el) requestAnimationFrame(() => el.setSelectionRange(0, base));
+    },
+    [base],
+  );
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -142,7 +143,7 @@ export function RenameDialog({
     >
       <form id="rename" onSubmit={submit}>
         <TextField
-          ref={input}
+          ref={selectBase}
           label="Name"
           value={name.value}
           onChange={(e) => name.setValue(e.target.value)}

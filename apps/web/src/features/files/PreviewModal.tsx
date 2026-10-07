@@ -460,9 +460,12 @@ export default function PreviewModal({
           className="fixed inset-0 z-50 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none"
           onCloseAutoFocus={onCloseAutoFocus}
         >
-          <header className="flex h-14 shrink-0 items-center gap-3 px-3 text-white">
+          <header className="flex min-h-14 shrink-0 items-center gap-3 px-3 py-1 text-white">
             <div className="min-w-0 flex-1">
-              <D.Title className="truncate text-sm font-medium">{item.name}</D.Title>
+              {/* Two lines: on a phone this is where a name cut short in the list can be read. */}
+              <D.Title className="line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]">
+                {item.name}
+              </D.Title>
               <D.Description className="text-xs text-white/60">
                 {items.length > 1 ? `${index + 1} of ${items.length} · ` : ''}
                 {item.takenAt ? `${formatTaken(item.takenAt)} · ` : ''}

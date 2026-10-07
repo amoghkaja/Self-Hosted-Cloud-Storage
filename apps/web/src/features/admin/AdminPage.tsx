@@ -1246,7 +1246,9 @@ function Activity() {
             <ul className="divide-y divide-border text-sm">
               {items.map((e) => (
                 <li key={e.id} className="flex flex-wrap gap-x-3 gap-y-0.5 py-2">
-                  <span className="w-40 shrink-0 text-xs text-muted tabular-nums">
+                  {/* On a phone the time gets its own line; otherwise each entry wrapped
+                      differently depending on how long the name and action were. */}
+                  <span className="w-40 shrink-0 text-xs text-muted tabular-nums max-sm:w-full">
                     {formatDateTime(e.createdAt)}
                   </span>
                   <span className="font-medium">{e.actor?.displayName ?? 'System'}</span>

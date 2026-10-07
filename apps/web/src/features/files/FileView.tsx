@@ -4,7 +4,7 @@
 // this file only (see biome.json overrides); keyboard + axe behaviour is covered by tests.
 import { formatBytes, type SortDir, type SortKey } from '@familycloud/shared';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowUp, Check, CircleCheck, EllipsisVertical } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CircleCheck, EllipsisVertical, ListChecks } from 'lucide-react';
 import {
   Fragment,
   type ReactNode,
@@ -14,7 +14,14 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ContextMenu, DropdownMenu, type MenuAction, Skeleton, Spinner } from '../../components/ui';
+import {
+  ContextMenu,
+  DropdownMenu,
+  FileName,
+  type MenuAction,
+  Skeleton,
+  Spinner,
+} from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { formatRelative } from '../../lib/format';
 import { FileIcon, type NodeVisual } from './FileIcon';
@@ -206,6 +213,17 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
               separatorBefore: true,
               onSelect: () => nav.toggle(index),
             },
+            // Touch screens have no Ctrl+A: without this, taking 200 photos elsewhere meant 200 taps.
+            ...(nav.selected.size < p.items.length
+              ? [
+                  {
+                    id: 'select-all',
+                    label: 'Select all',
+                    icon: <ListChecks />,
+                    onSelect: nav.selectAll,
+                  },
+                ]
+              : []),
           ]
         : own;
     const common = {
@@ -283,7 +301,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
           aria-rowindex={index + 2}
           {...common}
           className={cn(
-            'group grid min-h-14 cursor-default grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl px-2 outline-none select-none [-webkit-touch-callout:none] sm:grid-cols-[auto_1fr_8rem_6rem_auto]',
+            'group grid min-h-14 cursor-default grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl px-2 outline-none select-none [-webkit-touch-callout:none] @2xl:grid-cols-[auto_1fr_8rem_6rem_auto]',
             selected ? 'bg-accent-soft' : 'hover:bg-surface-2',
             'focus-visible:ring-2 focus-visible:ring-accent',
           )}
@@ -294,25 +312,26 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
           </div>
           <div role="gridcell" className="min-w-0">
             <p className="flex items-center gap-1.5 text-sm font-medium" title={item.name}>
-              <span className="truncate">{item.name}</span>
+              <FileName name={item.name} />
               {p.badge?.(item)}
             </p>
-            {/* Phones have room for one line: the subtitle when there is one, else size and date. */}
+            {/* A narrow list (a phone, or a tablet beside the sidebar) has no room for the date and
+                size columns: one line here, the subtitle when there is one, else size and date. */}
             {subtitle ? (
               <p className="truncate text-xs text-muted">{subtitle}</p>
             ) : (
-              <p className="truncate text-xs text-muted sm:hidden">
+              <p className="truncate text-xs text-muted @2xl:hidden">
                 {item.type === 'file' ? `${formatBytes(item.size)} · ` : ''}
                 {formatRelative(item.updatedAt)}
               </p>
             )}
           </div>
-          <div role="gridcell" className="hidden text-sm text-muted sm:block">
+          <div role="gridcell" className="hidden text-sm text-muted @2xl:block">
             {formatRelative(item.updatedAt)}
           </div>
           <div
             role="gridcell"
-            className="hidden text-right text-sm text-muted tabular-nums sm:block"
+            className="hidden text-right text-sm text-muted tabular-nums @2xl:block"
           >
             {item.type === 'file' ? formatBytes(item.size) : ''}
           </div>
@@ -340,7 +359,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
         <div className="flex h-[52px] items-center gap-1 bg-surface pr-1 pl-3">
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-1.5 text-sm font-medium" title={item.name}>
-              <span className="truncate">{item.name}</span>
+              <FileName name={item.name} />
               {p.badge?.(item)}
             </p>
             <p className="truncate text-xs text-muted">
@@ -364,14 +383,15 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
       onBlur={nav.onContainerBlur}
       // Dialogs opened from an item return focus here if that item is gone by the time they close.
       data-focus-fallback=""
-      className="relative"
+      // Columns follow the list's own width: beside a tablet's sidebar it is phone-narrow.
+      className="@container relative"
     >
       {p.view === 'list' && (
         <div
           role="row"
           aria-rowindex={1}
-          // Phones sort with the toolbar button; the header row stays for screen readers only.
-          className="grid h-9 grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border px-2 max-sm:sr-only sm:grid-cols-[auto_1fr_8rem_6rem_auto]"
+          // Narrow lists sort with the toolbar button; the header row stays for screen readers only.
+          className="grid h-9 grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border px-2 @max-2xl:sr-only @2xl:grid-cols-[auto_1fr_8rem_6rem_auto]"
         >
           <div
             role="columnheader"
@@ -384,13 +404,13 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
             label="Modified"
             k="updated"
             sort={p.sort as FileViewProps<ViewItem>['sort']}
-            className="hidden sm:block"
+            className="hidden @2xl:block"
           />
           <SortHeader
             label="Size"
             k="size"
             sort={p.sort as FileViewProps<ViewItem>['sort']}
-            className="hidden text-right sm:block"
+            className="hidden text-right @2xl:block"
           />
           <div role="columnheader" className="w-9 pointer-coarse:w-11">
             <span className="sr-only">Actions</span>

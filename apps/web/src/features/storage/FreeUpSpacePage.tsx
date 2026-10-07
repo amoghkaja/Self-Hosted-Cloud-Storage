@@ -9,6 +9,7 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
+  FileName,
   IconButton,
   QueryState,
   Skeleton,
@@ -39,9 +40,10 @@ function FileRow({
       <div className="min-w-0 flex-1">
         <Link
           to={`/files/${file.parentId}`}
-          className="block truncate text-sm font-medium hover:underline"
+          title={file.name}
+          className="flex text-sm font-medium hover:underline"
         >
-          {file.name}
+          <FileName name={file.name} />
         </Link>
         <p className="truncate text-xs text-muted">
           {file.folder ? `In ${file.folder}` : 'In My Files'} · {detail}
@@ -141,7 +143,7 @@ function Versions({ versions }: { versions: CleanupReport['versions'] }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="flex-1 text-sm text-muted">
+        <p className="flex-1 basis-64 text-sm text-muted">
           {versions.count} older {versions.count === 1 ? 'version' : 'versions'} of files you saved
           over take {formatBytes(versions.bytes)}. They're deleted on their own after a while, and
           make way by themselves when your space runs out.

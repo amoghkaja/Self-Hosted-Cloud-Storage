@@ -18,6 +18,7 @@ import {
   Avatar,
   Badge,
   Button,
+  ConfirmDialog,
   Dialog,
   EmptyState,
   IconButton,
@@ -62,6 +63,7 @@ export function LinkRow({
   onDelete: () => void;
 }) {
   const soon = l.expiresAt && new Date(l.expiresAt).getTime() - Date.now() < 86_400_000;
+  const [confirming, setConfirming] = useState(false);
   return (
     <li
       className={cn(
@@ -108,7 +110,26 @@ export function LinkRow({
       </div>
       {l.url && <ShareButton url={l.url} title={title} />}
       {l.url && <CopyButton text={l.url} label="Copy link" />}
-      <IconButton label="Delete link" icon={<Trash2 />} disabled={deleting} onClick={onDelete} />
+      {/* It can't be brought back (a new link has a new address), and it sits next to Copy. */}
+      <IconButton
+        label="Delete link"
+        icon={<Trash2 />}
+        disabled={deleting}
+        onClick={() => setConfirming(true)}
+      />
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        tone="danger"
+        title={l.kind === 'upload' ? 'Delete this file request?' : 'Delete this link?'}
+        description={
+          l.kind === 'upload'
+            ? 'People with the link can no longer send files. Files already sent stay in the folder. A new request would have a different address.'
+            : 'It stops working right away for everyone who has it. A new link would have a different address.'
+        }
+        confirmLabel="Delete link"
+        onConfirm={onDelete}
+      />
     </li>
   );
 }
