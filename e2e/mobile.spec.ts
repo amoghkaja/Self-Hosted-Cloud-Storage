@@ -69,4 +69,36 @@ test.describe
       expect(await year.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
       expect(await sideways(page)).toBeLessThanOrEqual(0);
     });
+
+    test('as an iPhone home-screen app, the selection bar stays below the notch-high header', async ({
+      page,
+    }) => {
+      // The status bar area (safe-area-inset-top) makes the header taller than 4rem.
+      const cdp = await page.context().newCDPSession(page);
+      const emulated = await cdp
+        .send('Emulation.setSafeAreaInsetsOverride', {
+          insets: { top: 47, bottom: 34, left: 0, right: 0 },
+        })
+        .then(
+          () => true,
+          () => false,
+        );
+      test.skip(!emulated, 'this Chromium cannot emulate safe-area insets');
+      await login(page);
+      const me = await (await page.request.get('/api/v1/auth/me')).json();
+      const id = await folder(page, me.rootNodeId, `Notch ${RUN}`);
+      for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l']) {
+        await folder(page, id, `Folder ${name}`);
+      }
+      await page.goto(`/files/${id}`);
+      await page
+        .getByRole('row', { name: /Folder a/ })
+        .getByRole('button', { name: /More actions/ })
+        .click();
+      await page.getByRole('menuitem', { name: 'Select', exact: true }).click();
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      const header = await page.locator('header').first().boundingBox();
+      const bar = await page.getByRole('toolbar', { name: 'Selection actions' }).boundingBox();
+      expect(bar!.y).toBeGreaterThanOrEqual(header!.y + header!.height - 1);
+    });
   });

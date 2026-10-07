@@ -403,8 +403,10 @@ function FileBrowser({ folderId }: { folderId: string }) {
           role="toolbar"
           aria-label="Selection actions"
           // Phones wrap the header onto two lines; there's no double-click to protect there.
-          style={{ '--header-h': `${headerHeight}px` } as CSSProperties}
-          className="sticky top-16 z-20 mb-3 flex items-center gap-1 rounded-xl border border-accent/30 bg-accent-soft px-2 py-1 animate-fade-in sm:min-h-[var(--header-h)]"
+          // It sticks below the app header's real height (--header-h), which grows by the notch
+          // in an iPhone home-screen app: a fixed 4rem left the toolbar half under it.
+          style={{ '--folder-header-h': `${headerHeight}px` } as CSSProperties}
+          className="sticky top-(--header-h,4rem) z-20 mb-3 flex items-center gap-1 rounded-xl border border-accent/30 bg-accent-soft px-2 py-1 animate-fade-in sm:min-h-(--folder-header-h)"
         >
           <IconButton
             size="sm"

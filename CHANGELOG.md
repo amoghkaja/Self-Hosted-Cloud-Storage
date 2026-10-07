@@ -38,6 +38,8 @@ to do yourself when updating is listed under **Before you update**.
   straight away and keep ".jpg". The cursor used to sit at the end of the name.
 - **Deleting a link or file request** asks first. It used to go with one tap on the bin right
   next to Copy, and a deleted link can't be brought back (a new one has a different address).
+- **iPhone home-screen app:** the bar that appears when you select files no longer slides half
+  under the top bar while you scroll; its Clear button and the count were hidden there.
 - **Deleting a comment on a photo** asks first, showing the comment. The bins of stacked
   comments sit right under each other, and the photo's owner can delete anyone's comment.
 
