@@ -31,7 +31,9 @@ export async function exportFiles(
     if (!person.rootNodeId) continue;
     const base = path.join(out, person.email);
     await mkdir(base, { recursive: true });
-    for (const entry of await listTree(ctx.db, person.rootNodeId, 10_000_000)) {
+    // Files still waiting for their virus check are theirs too (the scanner may be the thing
+    // that's down); only infected ones stay out.
+    for (const entry of await listTree(ctx.db, person.rootNodeId, 10_000_000, ['infected'])) {
       const dest = path.join(base, entry.path);
       if (!dest.startsWith(base + path.sep)) continue; // defensive: names never contain separators
       try {

@@ -39,6 +39,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Fixed
 
+- **Disaster-recovery export** (`cli export`) now includes files still waiting for their virus
+  check. If the virus scanner was down, every recent upload was left out of the rebuilt folders.
 - **Names with an invisible "NUL" character** (pasted from some apps) are refused with a
   message instead of an error page, everywhere you type text.
 - **Family Photos:** photos copied into a trip folder from a Mac over the network drive no longer

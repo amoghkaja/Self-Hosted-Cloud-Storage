@@ -55,4 +55,24 @@ describe('cli export (disaster recovery)', () => {
     expect(res.files).toBe(2);
     expect(res.failed.map((f) => f.path)).toEqual([path.join('admin@example.com', 'lost.txt')]);
   });
+
+  it('includes files still waiting for their virus check, but not infected ones', async () => {
+    const blobOf = async (id: string) =>
+      (await env.ctx.db.select().from(nodes).where(eq(nodes.id, id)))[0]!.blobId!;
+    const waiting = await upload('waiting.txt', 'scanner was down');
+    const bad = await upload('bad.txt', 'infected');
+    await env.ctx.db
+      .update(blobs)
+      .set({ scanStatus: 'held' })
+      .where(eq(blobs.id, await blobOf(waiting.id)));
+    await env.ctx.db
+      .update(blobs)
+      .set({ scanStatus: 'infected' })
+      .where(eq(blobs.id, await blobOf(bad.id)));
+    const out = path.join(env.dataDir, 'export3');
+    await exportFiles(env.ctx, out);
+    const dir = path.join(out, 'admin@example.com');
+    expect(await readFile(path.join(dir, 'waiting.txt'), 'utf8')).toBe('scanner was down');
+    await expect(readFile(path.join(dir, 'bad.txt'))).rejects.toThrow();
+  });
 });
