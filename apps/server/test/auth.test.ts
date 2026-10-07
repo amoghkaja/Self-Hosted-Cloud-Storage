@@ -99,6 +99,15 @@ describe('login', () => {
   });
 });
 
+describe('text the database cannot store', () => {
+  it('answers a NUL in any text with 400, not a server error', async () => {
+    const { client } = await loginAdmin();
+    const res = await client.patch('/auth/me', { displayName: 'Mo\u0000m' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+  });
+});
+
 describe('CSRF protection', () => {
   it('rejects state-changing requests from other origins', async () => {
     const { client } = await loginAdmin();

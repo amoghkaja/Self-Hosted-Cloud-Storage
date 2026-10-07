@@ -39,6 +39,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Fixed
 
+- **Names with an invisible "NUL" character** (pasted from some apps) are refused with a
+  message instead of an error page, everywhere you type text.
 - **Family Photos:** photos copied into a trip folder from a Mac over the network drive no longer
   show up twice, once as a broken picture. Those were the hidden "._" files Finder writes beside
   each file it copies.

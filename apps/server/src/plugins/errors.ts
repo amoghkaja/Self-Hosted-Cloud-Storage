@@ -76,6 +76,12 @@ export function registerErrorHandling(app: FastifyInstance) {
       req.log.error({ err, issues: err.cause?.issues }, 'response failed schema validation');
       return sendProblem(reply, 500, ErrorCode.INTERNAL, 'Something went wrong');
     }
+    // Text Postgres can't store (a NUL, in text or JSON) can only have come from the request.
+    // Drizzle wraps the driver's error; a query run on postgres-js directly throws it as is.
+    const pgCode = (err as { cause?: { code?: unknown } }).cause?.code ?? err.code;
+    if (pgCode === '22021' || pgCode === '22P05') {
+      return sendProblem(reply, 400, ErrorCode.VALIDATION, 'Text cannot contain a NUL character');
+    }
     const status = err.statusCode ?? 500;
     if (status === 429) {
       return sendProblem(reply, 429, ErrorCode.RATE_LIMITED, err.message || 'Too many requests');
