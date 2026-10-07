@@ -30,6 +30,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Two-factor sign-in on a phone:** setting it up on the phone that has your authenticator app
   no longer needs a second device to scan the code: tap **Open in your authenticator app**, or
   copy the key with one tap instead of typing 32 letters.
+- **Admin → Activity on a phone:** every entry is laid out the same way (the time, then who did
+  what), instead of breaking onto a second line in a different place each time.
 
 ## v0.5.0 (2026-10-05)
 
