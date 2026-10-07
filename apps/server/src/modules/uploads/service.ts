@@ -31,7 +31,7 @@ import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { loadAccess, lockWriteAccess, requireFolder } from '../files/access';
 import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
-import { MEDIA } from '../photos/routes';
+import { MEDIA } from '../photos/media';
 import {
   lockFileNamed,
   replaceContent,
