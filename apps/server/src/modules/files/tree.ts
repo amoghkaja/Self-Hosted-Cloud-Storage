@@ -133,15 +133,20 @@ export async function findFreeName(
     ...Array.from({ length: 50 }, (_, i) => withCopySuffix(name, i + 1, label)),
   ];
   // Compared with Postgres's lower(), like the unique index: JS toLowerCase() differs for some
-  // letters ("ΔΙΑΚΟΠΕΣ" ends in ς, "İ" gains a dot), which would pick a name that's taken.
+  // letters ("ΔΙΑΚΟΠΕΣ" ends in ς, "İ" gains a dot), which would pick a name that's taken. The
+  // taken names come from one scan of that index for all candidates at once, whatever the plan.
   const [free] = (await exec.execute(sql`
     SELECT c.name FROM (VALUES ${sql.join(
       candidates.map((c, i) => sql`(${c}::text, ${i}::int)`),
       sql`, `,
     )}) AS c(name, i)
-    WHERE NOT EXISTS (
-      SELECT 1 FROM nodes n
-      WHERE n.parent_id = ${parentId} AND n.deleted_at IS NULL AND lower(n.name) = lower(c.name)
+    WHERE lower(c.name) NOT IN (
+      SELECT lower(n.name) FROM nodes n
+      WHERE n.parent_id = ${parentId} AND n.deleted_at IS NULL
+        AND lower(n.name) = ANY(ARRAY[${sql.join(
+          candidates.map((c) => sql`lower(${c}::text)`),
+          sql`, `,
+        )}])
     )
     ORDER BY c.i
     LIMIT 1
