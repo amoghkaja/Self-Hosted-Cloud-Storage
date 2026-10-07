@@ -145,6 +145,59 @@ describe('UploadManager', () => {
     ).toEqual(['root/Trip/Day 1', 'root/Trip/Day 1', 'root/Trip/Day 2']);
   });
 
+  it('retries creating a folder of a folder upload when the connection drops', async () => {
+    const { t, folders } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('x'),
+      status: 'completed',
+    });
+    const ensure = vi.mocked(t.ensureFolder);
+    const real = ensure.getMockImplementation()!;
+    ensure.mockImplementationOnce(async () => {
+      throw new ApiError(0, 'NETWORK_ERROR', "Can't reach the server. Check your connection.");
+    });
+    ensure.mockImplementation(real);
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('root', [
+      { file: new File(['1'], '1.jpg'), relativeDir: 'Trip' },
+      { file: new File(['2'], '2.jpg'), relativeDir: 'Trip' },
+    ]);
+    await waitIdle(m);
+    expect(m.getSnapshot().map((i) => i.status)).toEqual(['done', 'done']);
+    expect(folders).toEqual(['root/Trip']);
+  });
+
+  it('cancels a file waiting for its folder at once, so Retry runs it only once', async () => {
+    const { t } = fakeTransport();
+    let folderReady!: () => void;
+    const ready = new Promise<void>((r) => (folderReady = r));
+    vi.mocked(t.ensureFolder).mockImplementation(async (parentId, name) => {
+      await ready; // e.g. offline: waiting for the connection to come back
+      return { id: `${parentId}/${name}` };
+    });
+    const signals: AbortSignal[] = [];
+    vi.mocked(t.putChunk).mockImplementation((_s, _i, _d, _p, signal) => {
+      signals.push(signal);
+      return new Promise((_res, rej) =>
+        signal.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError'))),
+      );
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('root', [{ file: new File(['abc'], 'a.jpg'), relativeDir: 'Trip' }]);
+    await settle();
+    const id = m.getSnapshot()[0]!.id;
+    m.cancel(id);
+    await settle(); // the panel re-renders before Retry can be pressed
+    m.retry(id);
+    folderReady();
+    for (let i = 0; i < 10; i++) await settle();
+    expect(m.getSnapshot()[0]!.status).toBe('uploading');
+    expect(t.createUpload).toHaveBeenCalledTimes(1);
+    m.cancel(id);
+    await settle();
+    expect(signals.map((s) => s.aborted)).toEqual([true]);
+  });
+
   it('cancel aborts the server session and marks the item', async () => {
     const { t } = fakeTransport();
     (t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(
@@ -213,6 +266,71 @@ describe('UploadManager', () => {
     expect(m.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'r' });
   });
 
+  it('stops sending a file’s other pieces once one of them fails', async () => {
+    const { t, put } = fakeTransport();
+    const chunk = vi.mocked(t.putChunk);
+    const real = chunk.getMockImplementation()!;
+    let slowAborted = false;
+    chunk.mockImplementation(async (sessionId, index, data, onProgress, signal) => {
+      if (index === 0) throw new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected');
+      if (index === 1) {
+        // Still sending when chunk 0 fails.
+        await new Promise<void>((resolve, reject) => {
+          const done = setTimeout(resolve, 30);
+          signal.addEventListener('abort', () => {
+            clearTimeout(done);
+            slowAborted = true;
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+      }
+      return real(sessionId, index, data, onProgress, signal);
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, chunkConcurrency: 2 });
+    m.add('p', [{ file: new File(['abcdefghijklmnop'], 'four.bin'), relativeDir: '' }]); // 4 chunks
+    await waitIdle(m);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'error', error: 'Chunk rejected' });
+    await new Promise((r) => setTimeout(r, 80));
+    // The failed upload sends nothing more in the background (a retry resumes it instead).
+    expect(slowAborted).toBe(true);
+    expect(put).toEqual([]);
+  });
+
+  it('keeps what was sent when the connection drops while checking where to carry on', async () => {
+    const { t, put } = fakeTransport();
+    const chunk = vi.mocked(t.putChunk);
+    const real = chunk.getMockImplementation()!;
+    chunk.mockImplementationOnce(async () => {
+      throw new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected');
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, chunkConcurrency: 1 });
+    m.add('p', [{ file: new File(['abcdefgh'], 'big.mov'), relativeDir: '' }]); // 2 chunks
+    await waitIdle(m);
+    expect(m.getSnapshot()[0]!.status).toBe('error');
+
+    chunk.mockImplementation(real);
+    const get = vi.mocked(t.getUpload);
+    get.mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Connection lost'));
+    get.mockImplementation(async (id: string) =>
+      put.length === 0
+        ? ({
+            id,
+            chunkSize: 4,
+            totalChunks: 2,
+            receivedChunks: [1],
+            status: 'uploading',
+            node: null,
+          } as unknown as UploadSession)
+        : ({ id, status: 'completed', node: node('big') } as unknown as UploadSession),
+    );
+    m.retry(m.getSnapshot()[0]!.id);
+    await waitIdle(m);
+    // Same session, only the missing piece: not a fresh upload from the start.
+    expect(t.createUpload).toHaveBeenCalledTimes(1);
+    expect(put).toEqual([0]);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'big' });
+  });
+
   it('closing the panel dismisses failures and releases their reserved space', async () => {
     const { t } = fakeTransport();
     (t.putChunk as ReturnType<typeof vi.fn>).mockRejectedValue(
@@ -225,6 +343,29 @@ describe('UploadManager', () => {
     m.clearFinished();
     expect(m.getSnapshot()).toEqual([]);
     expect(t.abortUpload).toHaveBeenCalledWith('s-f.bin');
+  });
+
+  it('makes the empty folders of a dropped folder, once each, alongside its files', async () => {
+    const { t, folders } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('x'),
+      status: 'completed',
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    const changed: string[] = [];
+    m.onFolderChanged = (id) => changed.push(id);
+    const made = m.addFolders('root', ['Trip/Day 2', 'Trip/Plans/Ideas']);
+    m.add('root', [{ file: new File(['1'], '1.jpg'), relativeDir: 'Trip/Day 1' }]);
+    await made;
+    await waitIdle(m);
+    expect(folders.sort()).toEqual([
+      'root/Trip',
+      'root/Trip/Day 1',
+      'root/Trip/Day 2',
+      'root/Trip/Plans',
+      'root/Trip/Plans/Ideas',
+    ]);
+    expect(changed).toContain('root');
   });
 
   it('refreshes the folder a folder upload creates its first folder in', async () => {
@@ -339,6 +480,53 @@ describe('UploadManager: instant uploads and resuming', () => {
     expect(m.getSnapshot().every((i) => i.status === 'done' && !i.instant)).toBe(true);
   });
 
+  it('forgets an unfinished upload only when the server says it is gone, not when offline', async () => {
+    const pending = memoryPendingStore();
+    const saved = { name: 'movie.mov', size: 12, lastModified: 42, folderId: 'f', savedAt: 1 };
+    pending.save({ ...saved, sessionId: 'flaky' });
+    pending.save({ ...saved, sessionId: 'gone' });
+    const { t } = fakeTransport();
+    vi.mocked(t.getUpload).mockImplementation(async (id) => {
+      throw id === 'flaky'
+        ? new ApiError(0, 'NETWORK_ERROR', "Can't reach the server. Check your connection.")
+        : new ApiError(404, 'NOT_FOUND', 'Upload not found');
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, pending });
+    expect(await m.interrupted()).toEqual([]);
+    // Still there to offer (and resume) on the next visit.
+    expect(pending.list().map((p) => p.sessionId)).toEqual(['flaky']);
+  });
+
+  it('does not offer another tab’s running upload as unfinished', async () => {
+    const pending = memoryPendingStore(); // localStorage: shared by every tab
+    const first = fakeTransport();
+    let fail!: (err: unknown) => void;
+    (first.t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise((_res, rej) => (fail = rej)),
+    );
+    const tab1 = new UploadManager(first.t, { retryBaseMs: 1, chunkConcurrency: 1, pending });
+    tab1.add('folder', [{ file: new File(['0123'], 'movie.mov'), relativeDir: '' }]);
+    await settle();
+    await settle();
+    expect(pending.list()).toHaveLength(1);
+
+    // A second tab opens while the first is still sending.
+    const second = fakeTransport();
+    (second.t.getUpload as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => ({
+      id,
+      status: 'uploading',
+      node: null,
+    }));
+    const tab2 = new UploadManager(second.t, { retryBaseMs: 1, pending });
+    // Offering it there would let "Discard" cancel the upload the first tab is still sending.
+    expect(await tab2.interrupted()).toEqual([]);
+
+    // Once the first tab stops sending it (here it fails; or the tab is closed), it is offered.
+    fail(new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected'));
+    await waitIdle(tab1);
+    expect((await tab2.interrupted()).map((p) => p.name)).toEqual(['movie.mov']);
+  });
+
   it('remembers unfinished uploads and resumes them with only the missing pieces', async () => {
     const pending = memoryPendingStore();
     const file = new File(['0123456789ab'], 'movie.mov', { lastModified: 42 });
@@ -354,7 +542,10 @@ describe('UploadManager: instant uploads and resuming', () => {
       { name: 'movie.mov', size: 12, lastModified: 42, folderId: 'folder' },
     ]);
 
-    // Next page load: the server still has the session with chunk 0.
+    // Next page load: what was saved is still there, but the closed tab sends nothing any more.
+    const reloaded = memoryPendingStore();
+    for (const p of pending.list()) reloaded.save(p);
+    // The server still has the session with chunk 0.
     const second = fakeTransport({ received: [0] });
     (second.t.getUpload as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => ({
       id,
@@ -367,7 +558,7 @@ describe('UploadManager: instant uploads and resuming', () => {
       expiresAt: new Date().toISOString(),
       node: null,
     }));
-    const m2 = new UploadManager(second.t, { retryBaseMs: 1, pending });
+    const m2 = new UploadManager(second.t, { retryBaseMs: 1, pending: reloaded });
     const list = await m2.interrupted();
     expect(list).toHaveLength(1);
     // A different file with the same name isn't accepted.
@@ -380,6 +571,6 @@ describe('UploadManager: instant uploads and resuming', () => {
     expect(second.t.createUpload).not.toHaveBeenCalled();
     expect(second.put.sort()).toEqual([1, 2]);
     expect(m2.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'movie' });
-    expect(pending.list()).toEqual([]);
+    expect(reloaded.list()).toEqual([]);
   });
 });

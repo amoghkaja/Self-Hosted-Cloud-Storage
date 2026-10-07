@@ -6,6 +6,7 @@ import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils'
 import { WhatsNewPage } from './about/WhatsNewPage';
 import { LoginPage } from './auth/LoginPage';
 import { ResetPasswordPage } from './auth/ResetPasswordPage';
+import { AcceptInvitePage } from './auth/SetupPage';
 import { ConnectGuide } from './settings/SettingsPage';
 
 describe('Password reset page', () => {
@@ -55,6 +56,71 @@ describe('Password reset page', () => {
     });
     renderWithProviders(page, { route: `/reset/${token}` });
     expect(await screen.findByText(/Ask your admin for a new one/)).toBeInTheDocument();
+  });
+
+  it('offers to try again instead of calling the link used up when the server is unreachable', async () => {
+    let down = true;
+    mockFetch({
+      [`GET /password-resets/${token}`]: () =>
+        down
+          ? { status: 502, json: { code: 'INTERNAL_ERROR', detail: 'Request failed (502)' } }
+          : {
+              json: {
+                email: 'mum@example.com',
+                displayName: 'Mum',
+                expiresAt: '2026-10-01T00:00:00Z',
+              },
+            },
+    });
+    renderWithProviders(page, { route: `/reset/${token}` });
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    expect(screen.queryByText(/Ask your admin for a new one/)).toBeNull();
+    down = false;
+    await userEvent.click(retry);
+    expect(await screen.findByText(/For Mum \(mum@example.com\)/)).toBeInTheDocument();
+  });
+});
+
+describe('Invite page', () => {
+  const token = 'inv_0123456789abcdefghijklmnop';
+  const page = (
+    <Routes>
+      <Route path="/invite/:token" element={<AcceptInvitePage />} />
+    </Routes>
+  );
+
+  it('offers to try again instead of calling the invite used up when the server is unreachable', async () => {
+    let down = true;
+    mockFetch({
+      [`GET /invites/${token}`]: () =>
+        down
+          ? { status: 503, json: { code: 'INTERNAL_ERROR', detail: 'Request failed (503)' } }
+          : {
+              json: {
+                email: null,
+                role: 'member',
+                invitedBy: 'Dad',
+                expiresAt: '2026-10-01T00:00:00Z',
+              },
+            },
+    });
+    renderWithProviders(page, { route: `/invite/${token}` });
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    expect(screen.queryByText(/already been used/)).toBeNull();
+    down = false;
+    await userEvent.click(retry);
+    expect(await screen.findByText(/Dad invited you/)).toBeInTheDocument();
+  });
+
+  it('still says a used or expired invite can’t be used', async () => {
+    mockFetch({
+      [`GET /invites/${token}`]: () => ({
+        status: 404,
+        json: { code: 'NOT_FOUND', detail: 'Invite not found' },
+      }),
+    });
+    renderWithProviders(page, { route: `/invite/${token}` });
+    expect(await screen.findByText(/already been used/)).toBeInTheDocument();
   });
 });
 

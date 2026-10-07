@@ -9,6 +9,7 @@ import {
   Breadcrumbs,
   Button,
   ConfirmDialog,
+  collectDroppedFiles,
   Dialog,
   DropdownMenu,
   EmptyState,
@@ -311,5 +312,52 @@ describe('copyText', () => {
       if (original) Object.defineProperty(navigator, 'clipboard', original);
       else Reflect.deleteProperty(navigator, 'clipboard');
     }
+  });
+});
+
+describe('collectDroppedFiles', () => {
+  const file = (name: string) =>
+    ({
+      isFile: true,
+      isDirectory: false,
+      name,
+      file: (ok: (f: File) => void) => ok(new File(['x'], name)),
+    }) as unknown as FileSystemEntry;
+  const folder = (name: string, children: FileSystemEntry[]) =>
+    ({
+      isFile: false,
+      isDirectory: true,
+      name,
+      createReader: () => {
+        let read = false;
+        return {
+          readEntries: (ok: (e: FileSystemEntry[]) => void) => {
+            ok(read ? [] : children);
+            read = true;
+          },
+        };
+      },
+    }) as unknown as FileSystemEntry;
+  const drop = (...entries: FileSystemEntry[]) =>
+    ({
+      items: entries.map((e) => ({ kind: 'file', webkitGetAsEntry: () => e })),
+      files: [],
+    }) as unknown as DataTransfer;
+
+  it('keeps the empty folders of a dropped folder, not just the files', async () => {
+    const dropped = await collectDroppedFiles(
+      drop(
+        folder('Trip', [
+          folder('Day 1', [file('beach.jpg')]),
+          folder('Day 2', []),
+          folder('Plans', [folder('Ideas', [])]),
+        ]),
+        folder('Empty', []),
+      ),
+    );
+    expect(dropped.files.map((p) => `${p.relativeDir}/${p.file.name}`)).toEqual([
+      'Trip/Day 1/beach.jpg',
+    ]);
+    expect(dropped.emptyFolders).toEqual(['Trip/Day 2', 'Trip/Plans/Ideas', 'Empty']);
   });
 });

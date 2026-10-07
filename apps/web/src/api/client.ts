@@ -66,7 +66,10 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   } catch {
     // non-JSON error (proxy page); fall through with a generic message
   }
-  if (res.status === 401 && !opts.quiet401) {
+  // Only a missing or ended session means signed out. Other 401s are a wrong code, a passkey that
+  // didn't verify or a locked link, and must not send someone who is signed in to /login.
+  const sessionGone = (problem.code ?? 'UNAUTHENTICATED') === 'UNAUTHENTICATED';
+  if (res.status === 401 && sessionGone && !opts.quiet401) {
     for (const l of unauthorizedListeners) l();
   }
   throw new ApiError(
@@ -74,6 +77,20 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
     (problem.code ?? 'INTERNAL_ERROR') as ErrorCode,
     problem.detail ?? `Request failed (${res.status})`,
     problem.issues,
+  );
+}
+
+/**
+ * Whether a link's token itself is no good (removed, expired, used, or cut off when copied: a
+ * 4xx), rather than the server being unreachable or busy, when trying again may well work.
+ */
+export function isUnusableLink(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    err.status !== 408 &&
+    err.status !== 429
   );
 }
 
@@ -88,8 +105,13 @@ export const contentUrl = (nodeId: string, inline = false) =>
 /** A video's streaming version (720p when ready, else the original). */
 export const streamUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/stream`);
 export const previewUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/preview`);
-export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256) =>
-  apiUrl(`/nodes/${nodeId}/thumbnail`, { size });
+/**
+ * Browsers keep a thumbnail for good (it's served as immutable), so the address carries the
+ * file's `updatedAt`: saving over a file (Replace, a restored version, Rewind) gives its new
+ * picture a new address instead of showing the old one.
+ */
+export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256, version?: string) =>
+  apiUrl(`/nodes/${nodeId}/thumbnail`, { size, v: version });
 export const zipUrl = (ids: string[]) => apiUrl('/zip', { ids: ids.join(',') });
 export const versionUrl = (nodeId: string, versionId: string) =>
   apiUrl(`/nodes/${nodeId}/versions/${versionId}/content`);

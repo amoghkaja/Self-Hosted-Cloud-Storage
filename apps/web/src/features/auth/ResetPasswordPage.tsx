@@ -2,7 +2,7 @@ import { PASSWORD_MIN_LENGTH, type PasswordResetInfo } from '@familycloud/shared
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { api, errorMessage } from '../../api/client';
+import { api, errorMessage, isUnusableLink } from '../../api/client';
 import { qk } from '../../api/queries';
 import { Button, ErrorState, PasswordField, Skeleton } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -36,6 +36,17 @@ export function ResetPasswordPage() {
           <Skeleton className="h-10" />
           <Skeleton className="h-10" />
         </div>
+      </AuthLayout>
+    );
+  }
+  if (info.isError && !isUnusableLink(info.error)) {
+    return (
+      <AuthLayout title="Choose a new password">
+        <ErrorState
+          title="Couldn't open this link"
+          error={info.error}
+          onRetry={() => void info.refetch()}
+        />
       </AuthLayout>
     );
   }

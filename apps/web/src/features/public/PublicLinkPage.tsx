@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Download, FolderOpen, Lock } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { ApiError, api, apiUrl, errorMessage } from '../../api/client';
+import { ApiError, api, apiUrl, errorMessage, isUnusableLink } from '../../api/client';
 import { Logo } from '../../app/Logo';
 import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -87,7 +87,9 @@ export function PublicLinkPage() {
     () => ({
       content: (id: string, inline: boolean) =>
         apiUrl(`${base}/content/${id}`, inline ? { inline: 1 } : undefined),
-      thumb: (id: string, size: 256 | 1600) => apiUrl(`${base}/thumbnail/${id}`, { size }),
+      // Versioned like thumbUrl: the file may have been saved over since it was last viewed.
+      thumb: (id: string, size: 256 | 1600, version?: string) =>
+        apiUrl(`${base}/thumbnail/${id}`, { size, v: version }),
       stream: (id: string) => apiUrl(`${base}/stream/${id}`),
       preview: (id: string) => apiUrl(`${base}/preview/${id}`),
       canDownload: !!info.data?.allowDownload,
@@ -103,17 +105,23 @@ export function PublicLinkPage() {
     );
   }
   if (info.isError) {
-    const expired = info.error instanceof ApiError && info.error.status === 410;
     return (
       <Frame>
-        <ErrorState
-          title={expired ? 'This link has expired' : 'Link not found'}
-          error={
-            expired
-              ? 'Ask the person who shared it for a new link.'
-              : 'It may have been removed or mistyped.'
-          }
-        />
+        {info.error instanceof ApiError && info.error.status === 410 ? (
+          <ErrorState
+            title="This link has expired"
+            error="Ask the person who shared it for a new link."
+          />
+        ) : isUnusableLink(info.error) ? (
+          <ErrorState title="Link not found" error="It may have been removed or mistyped." />
+        ) : (
+          // No connection, the server restarting, too many tries: the link itself may be fine.
+          <ErrorState
+            title="Couldn't open this link"
+            error={info.error}
+            onRetry={() => void info.refetch()}
+          />
+        )}
       </Frame>
     );
   }
@@ -262,7 +270,7 @@ export function PublicLinkPage() {
           view="list"
           label={`Contents of ${listing?.folder.name ?? root.name}`}
           onOpen={(n) => (n.type === 'folder' ? setParams({ folder: n.id }) : setPreviewId(n.id))}
-          thumbSrc={(n) => (n.thumb === 'ready' ? source.thumb(n.id, 256) : undefined)}
+          thumbSrc={(n) => (n.thumb === 'ready' ? source.thumb(n.id, 256, n.updatedAt) : undefined)}
           actionsFor={(n) =>
             data.allowDownload
               ? [

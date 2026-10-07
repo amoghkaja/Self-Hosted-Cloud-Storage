@@ -33,6 +33,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Videos:** a streaming playlist uploaded with a video's name made the background worker
   fetch the web addresses written in it (for example, other services on your home network) while
   making its thumbnail. Uploaded videos are now only ever read as video files from the disk.
+- **Shared computers:** when your session ends while Family Cloud is open (it expired, or you were
+  signed out from another device), the page forgets your files, as signing out does. Whoever
+  signed in next in that tab could briefly see your folders, recent files and search results.
 
 ### Fixed
 
@@ -71,6 +74,36 @@ to do yourself when updating is listed under **Before you update**.
 - **Network drive:** names containing one of two invisible "non-characters" (U+FFFE, U+FFFF)
   are refused. A file named that way, even one sent through a file request, could stop Finder
   and Windows from listing its folder.
+- **Uploads:** when a file failed to upload, the rest of it no longer carries on sending in the
+  background, using up your connection (and doubling up if you pressed Retry).
+- **Uploads:** a moment without a connection no longer fails every file of a folder upload at
+  once, and retrying or resuming a big upload no longer starts it again from the beginning if
+  the connection drops just then.
+- **Unfinished uploads:** opening Family Cloud on a poor connection no longer forgets uploads that
+  were cut off earlier; they're still offered to continue once the server can be reached.
+- **Unfinished uploads:** opening Family Cloud in a second tab while the first is still uploading
+  no longer lists those uploads as "didn't finish", where **Discard** would have cancelled them.
+- **Folder uploads:** empty folders inside a folder you drag in are made too, and dragging in an
+  empty folder makes it. They used to be left out without a word.
+- **Uploads:** cancelling a file of a folder upload works at once, even while its folder is still
+  being made; pressing Retry straight after no longer shows it as cancelled while it uploads.
+- **Thumbnails and photo previews** show the new picture after a photo is saved over (Replace on
+  upload, restoring an older version, Rewind), in your files and on shared links. The browser
+  kept showing the old one.
+- **Keyboard:** the Name, Modified and Size column headers sort a folder with Enter or Space, as
+  they do with a click. Enter used to open the first item in the folder instead.
+- **Undo** after moving something to the trash brings it back on the Recent and Starred pages
+  too, not only in its folder; until you reloaded, it stayed missing there.
+- **Family Photos:** going back to an album right after deleting, renaming or moving one of its
+  photos in the trip folder shows the change, instead of the photo as it was.
+- **Rewind:** after rewinding a folder, Recent, Starred, Shared by me and the family albums show
+  what came back straight away.
+- **Passkeys:** when adding a passkey doesn't work (for example after leaving the Face ID prompt
+  open for more than five minutes), you're told why instead of being bounced to the sign-in
+  page and back.
+- **Shared links, invites and password-reset links:** opening one while the server can't be
+  reached (a phone between networks, the server restarting) says so and offers **Try again**,
+  instead of claiming the link was removed or used up.
 
 ## v0.5.0 (2026-10-05)
 

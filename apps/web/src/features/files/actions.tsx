@@ -18,7 +18,14 @@ import {
 import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, contentUrl, errorMessage, zipUrl } from '../../api/client';
-import { type BatchResult, qk, useStarred, useToggleStar, useTrashNodes } from '../../api/queries';
+import {
+  type BatchResult,
+  invalidateRestored,
+  qk,
+  useStarred,
+  useToggleStar,
+  useTrashNodes,
+} from '../../api/queries';
 import { type MenuAction, toast } from '../../components/ui';
 import { MoveDialog, RenameDialog } from './dialogs';
 
@@ -135,11 +142,10 @@ export function useFileActions(o: FileActionOptions) {
                   failed++;
                 });
               }
-              for (const parentId of new Set(trashed.map((n) => n.parentId))) {
-                if (parentId) void qc.invalidateQueries({ queryKey: qk.children(parentId) });
-              }
-              void qc.invalidateQueries({ queryKey: qk.trash });
-              void qc.invalidateQueries({ queryKey: qk.searches });
+              invalidateRestored(
+                qc,
+                trashed.map((n) => n.parentId),
+              );
               if (failed)
                 toast.error(`${failed} item${failed === 1 ? '' : 's'} couldn't be restored`);
             },

@@ -93,7 +93,7 @@ function FlatList({
         onOpen={actions.open}
         actionsFor={actions.actionsFor}
         badge={actions.badge}
-        thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id) : undefined)}
+        thumbSrc={(n) => (n.thumb === 'ready' ? thumbUrl(n.id, 256, n.updatedAt) : undefined)}
         subtitle={subtitle}
         // Same keyboard shortcuts as a folder for the items the menus let you change.
         onDelete={(ids) => {

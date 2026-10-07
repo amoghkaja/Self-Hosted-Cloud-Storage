@@ -74,6 +74,55 @@ describe('file request page', () => {
   });
 });
 
+describe('public link page', () => {
+  it('says the link is fine but unreachable when the server is, and can try again', async () => {
+    let down = true;
+    mockFetch({
+      'GET /auth/setup-status': () => ({ json: setupStatus }),
+      [`GET /public/links/${token}`]: () =>
+        down
+          ? { status: 503, json: { code: 'INTERNAL_ERROR', detail: 'Request failed (503)' } }
+          : {
+              json: {
+                kind: 'upload',
+                title: 'Photos from the wedding',
+                locked: false,
+                allowDownload: false,
+                expiresAt: null,
+                sharedBy: 'Mum',
+                node: null,
+              },
+            },
+    });
+    renderWithProviders(
+      <Routes>
+        <Route path="/s/:token" element={<PublicLinkPage />} />
+      </Routes>,
+      { route: `/s/${token}` },
+    );
+    // A server restarting (or a phone between networks) isn't a link that was removed.
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    expect(screen.queryByText('Link not found')).toBeNull();
+    down = false;
+    await userEvent.click(retry);
+    expect(
+      await screen.findByRole('heading', { name: 'Photos from the wedding' }),
+    ).toBeInTheDocument();
+  });
+
+  it('still says a removed link is not found', async () => {
+    mockFetch({ 'GET /auth/setup-status': () => ({ json: setupStatus }) });
+    renderWithProviders(
+      <Routes>
+        <Route path="/s/:token" element={<PublicLinkPage />} />
+      </Routes>,
+      { route: `/s/${token}` },
+    );
+    expect(await screen.findByText('Link not found')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+});
+
 describe('share dialog', () => {
   const links = () => ({ json: { items: [] } });
   it('offers "Request files" for folders only', async () => {

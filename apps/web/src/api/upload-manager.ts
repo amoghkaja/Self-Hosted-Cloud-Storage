@@ -39,16 +39,24 @@ export interface PendingUpload {
   savedAt: number;
 }
 
-/** Where pending uploads are remembered across page loads (localStorage in the browser). */
+/**
+ * Where pending uploads are remembered across page loads (localStorage in the browser). Every
+ * tab shares it, so an upload a tab is still sending is claimed, and not offered elsewhere.
+ */
 export interface PendingStore {
   list(): PendingUpload[];
   save(p: PendingUpload): void;
   remove(sessionId: string): void;
   clear(): void;
+  /** Marks a session as being sent until the returned function is called (or the tab closes). */
+  claim(sessionId: string): () => void;
+  /** Sessions being sent right now, by any tab. */
+  claimed(): Promise<Set<string>>;
 }
 
 export const memoryPendingStore = (): PendingStore => {
   let items: PendingUpload[] = [];
+  const sending = new Set<string>();
   return {
     list: () => items,
     save: (p) => {
@@ -60,10 +68,16 @@ export const memoryPendingStore = (): PendingStore => {
     clear: () => {
       items = [];
     },
+    claim: (id) => {
+      sending.add(id);
+      return () => sending.delete(id);
+    },
+    claimed: async () => new Set(sending),
   };
 };
 
 const PENDING_KEY = 'fc-pending-uploads';
+const SENDING_LOCK = 'fc-upload-';
 
 export const localPendingStore = (): PendingStore => {
   const read = (): PendingUpload[] => {
@@ -85,6 +99,25 @@ export const localPendingStore = (): PendingStore => {
     save: (p) => write([...read().filter((i) => i.sessionId !== p.sessionId), p]),
     remove: (id) => write(read().filter((i) => i.sessionId !== id)),
     clear: () => write([]),
+    // A Web Lock: the browser lets go of it by itself when the tab is closed or crashes.
+    claim: (id) => {
+      let release!: () => void;
+      const done = new Promise<void>((r) => (release = r));
+      navigator.locks?.request(`${SENDING_LOCK}${id}`, () => done).catch(() => {});
+      return release;
+    },
+    claimed: async () => {
+      try {
+        const held = (await navigator.locks?.query())?.held ?? [];
+        return new Set(
+          held.flatMap((l) =>
+            l.name?.startsWith(SENDING_LOCK) ? [l.name.slice(SENDING_LOCK.length)] : [],
+          ),
+        );
+      } catch {
+        return new Set();
+      }
+    },
   };
 };
 
@@ -146,6 +179,7 @@ const RETRYABLE = new Set([0, 408, 429, 500, 502, 503, 504]);
 const isRetryable = (err: unknown) => err instanceof ApiError && RETRYABLE.has(err.status);
 
 const aborted = () => new DOMException('Aborted', 'AbortError');
+const NEVER_ABORTED = new AbortController().signal;
 
 // Both remove their listeners when done: one signal lives for a whole upload, which can be
 // thousands of chunks, and each retry would otherwise leave a listener behind.
@@ -161,6 +195,15 @@ const sleep = (ms: number, signal: AbortSignal) =>
       resolve();
     }, ms);
     signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+/** Settles like `promise`, or rejects as soon as `signal` aborts. */
+const untilAborted = <T>(promise: Promise<T>, signal: AbortSignal) =>
+  new Promise<T>((resolve, reject) => {
+    if (signal.aborted) return reject(aborted());
+    const onAbort = () => reject(aborted());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
   });
 
 const waitForOnline = (signal: AbortSignal) =>
@@ -252,6 +295,16 @@ export class UploadManager {
     this.pump();
   }
 
+  /** Makes the empty folders of a dropped folder ("Trip/Day 3"); the others come with files. */
+  async addFolders(parentId: string, dirs: string[]): Promise<void> {
+    try {
+      await Promise.all(dirs.map((dir) => this.ensurePath(parentId, dir)));
+    } finally {
+      // As when uploads go idle (see pump): don't keep reusing folders that may be deleted later.
+      if (this.active === 0 && !this.items.some((i) => i.status === 'queued')) this.folders.clear();
+    }
+  }
+
   cancel(id: string): void {
     const item = this.find(id);
     if (!item || item.status === 'done') return;
@@ -300,9 +353,16 @@ export class UploadManager {
    */
   async interrupted(): Promise<PendingUpload[]> {
     const live: PendingUpload[] = [];
+    const sending = await this.opts.pending.claimed();
     for (const p of this.opts.pending.list()) {
+      // Ours, or still being sent by another tab (where "Discard" here would cancel it).
+      if (sending.has(p.sessionId)) continue;
       if (this.items.some((i) => this.sessions.get(i.id) === p.sessionId)) continue;
-      const s = await this.transport.getUpload(p.sessionId).catch(() => null);
+      // Couldn't ask (offline, server restarting): keep it for next time rather than forget it.
+      const s = await this.transport
+        .getUpload(p.sessionId)
+        .catch((err: unknown) => (isRetryable(err) ? undefined : null));
+      if (s === undefined) continue;
       if (s?.status === 'uploading') live.push(p);
       else this.opts.pending.remove(p.sessionId);
     }
@@ -417,7 +477,12 @@ export class UploadManager {
       if (!cached) {
         const prev = chain;
         cached = prev.then(async (pid) => {
-          const folder = await this.transport.ensureFolder(pid, name);
+          // Every file in the folder waits on this, so a dropped connection must not fail them
+          // all; and no single file's cancel may stop it, hence a signal that never aborts.
+          const folder = await this.withRetry(
+            () => this.transport.ensureFolder(pid, name),
+            NEVER_ABORTED,
+          );
           // The new folder shows up in its parent's listing right away, not only its files.
           this.onFolderChanged?.(pid);
           return folder.id;
@@ -450,12 +515,14 @@ export class UploadManager {
     const controller = new AbortController();
     this.controllers.set(item.id, controller);
     const { signal } = controller;
+    let unclaim: (() => void) | undefined;
     try {
       this.patch(item.id, { status: 'uploading', loaded: 0 }, true);
+      // The folder is shared with other files and carries on regardless; this file stops waiting
+      // the moment it's cancelled, so a Retry can't start while it still runs.
       const folderId = item.relativeDir
-        ? await this.ensurePath(item.parentId, item.relativeDir)
+        ? await untilAborted(this.ensurePath(item.parentId, item.relativeDir), signal)
         : item.parentId;
-      signal.throwIfAborted();
 
       // Already on the server (the same photo sent twice, a re-upload)? Then there's nothing to send.
       if (
@@ -499,6 +566,7 @@ export class UploadManager {
       }
 
       const session = await this.openSession(item, folderId, file, signal);
+      unclaim = this.opts.pending.claim(session.id);
 
       const { chunkSize, totalChunks } = session;
       const have = new Set(session.receivedChunks);
@@ -576,7 +644,11 @@ export class UploadManager {
         );
       }
     } finally {
+      // One piece failing leaves the file's other pieces still sending: stop them too, or they
+      // carry on unseen (and alongside a Retry's own) after the file is shown as failed.
+      controller.abort();
       this.controllers.delete(item.id);
+      unclaim?.();
     }
   }
 
@@ -593,7 +665,13 @@ export class UploadManager {
     const { id } = item;
     const previous = this.sessions.get(id);
     if (previous) {
-      const s = await this.transport.getUpload(previous).catch(() => null);
+      // A dropped connection mustn't make it start over, throwing away what was already sent.
+      const s = await this.withRetry(() => this.transport.getUpload(previous), signal).catch(
+        (err) => {
+          if (signal.aborted) throw err;
+          return null;
+        },
+      );
       if (s && (s.status === 'uploading' || s.status === 'finalizing' || s.node)) return s;
       this.sessions.delete(id);
     }

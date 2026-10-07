@@ -151,6 +151,34 @@ describe('FileView', () => {
     await userEvent.click(within(name).getByRole('button'));
     expect(onChange).toHaveBeenCalledWith('name', 'desc');
   });
+
+  it('sort headers work from the keyboard instead of opening or selecting an item', async () => {
+    const onChange = vi.fn();
+    const onOpen = vi.fn();
+    const onSelection = vi.fn();
+    renderWithProviders(
+      <FileView
+        items={items}
+        view="list"
+        label="Files"
+        onOpen={onOpen}
+        onSelectionChange={onSelection}
+        actionsFor={() => []}
+        sort={{ key: 'name', dir: 'asc', onChange }}
+      />,
+    );
+    const size = within(await screen.findByRole('columnheader', { name: /Size/ })).getByRole(
+      'button',
+    );
+    size.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onChange).toHaveBeenLastCalledWith('size', 'asc');
+    await userEvent.keyboard(' ');
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onOpen).not.toHaveBeenCalled();
+    const rows = within(screen.getByRole('grid')).getAllByRole('row').slice(1);
+    expect(rows.every((r) => r.getAttribute('aria-selected') === 'false')).toBe(true);
+  });
 });
 
 describe('LoginPage', () => {
