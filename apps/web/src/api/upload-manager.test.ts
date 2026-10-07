@@ -167,6 +167,37 @@ describe('UploadManager', () => {
     expect(folders).toEqual(['root/Trip']);
   });
 
+  it('cancels a file waiting for its folder at once, so Retry runs it only once', async () => {
+    const { t } = fakeTransport();
+    let folderReady!: () => void;
+    const ready = new Promise<void>((r) => (folderReady = r));
+    vi.mocked(t.ensureFolder).mockImplementation(async (parentId, name) => {
+      await ready; // e.g. offline: waiting for the connection to come back
+      return { id: `${parentId}/${name}` };
+    });
+    const signals: AbortSignal[] = [];
+    vi.mocked(t.putChunk).mockImplementation((_s, _i, _d, _p, signal) => {
+      signals.push(signal);
+      return new Promise((_res, rej) =>
+        signal.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError'))),
+      );
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('root', [{ file: new File(['abc'], 'a.jpg'), relativeDir: 'Trip' }]);
+    await settle();
+    const id = m.getSnapshot()[0]!.id;
+    m.cancel(id);
+    await settle(); // the panel re-renders before Retry can be pressed
+    m.retry(id);
+    folderReady();
+    for (let i = 0; i < 10; i++) await settle();
+    expect(m.getSnapshot()[0]!.status).toBe('uploading');
+    expect(t.createUpload).toHaveBeenCalledTimes(1);
+    m.cancel(id);
+    await settle();
+    expect(signals.map((s) => s.aborted)).toEqual([true]);
+  });
+
   it('cancel aborts the server session and marks the item', async () => {
     const { t } = fakeTransport();
     (t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(

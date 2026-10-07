@@ -164,6 +164,15 @@ const sleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener('abort', onAbort, { once: true });
   });
 
+/** Settles like `promise`, or rejects as soon as `signal` aborts. */
+const untilAborted = <T>(promise: Promise<T>, signal: AbortSignal) =>
+  new Promise<T>((resolve, reject) => {
+    if (signal.aborted) return reject(aborted());
+    const onAbort = () => reject(aborted());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+
 const waitForOnline = (signal: AbortSignal) =>
   typeof navigator === 'undefined' || navigator.onLine
     ? Promise.resolve()
@@ -458,10 +467,11 @@ export class UploadManager {
     const { signal } = controller;
     try {
       this.patch(item.id, { status: 'uploading', loaded: 0 }, true);
+      // The folder is shared with other files and carries on regardless; this file stops waiting
+      // the moment it's cancelled, so a Retry can't start while it still runs.
       const folderId = item.relativeDir
-        ? await this.ensurePath(item.parentId, item.relativeDir)
+        ? await untilAborted(this.ensurePath(item.parentId, item.relativeDir), signal)
         : item.parentId;
-      signal.throwIfAborted();
 
       // Already on the server (the same photo sent twice, a re-upload)? Then there's nothing to send.
       if (

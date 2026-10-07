@@ -15,6 +15,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Uploads:** a moment without a connection no longer fails every file of a folder upload at
   once, and retrying or resuming a big upload no longer starts it again from the beginning if
   the connection drops just then.
+- **Uploads:** cancelling a file of a folder upload works at once, even while its folder is still
+  being made; pressing Retry straight after no longer shows it as cancelled while it uploads.
 - **Keyboard:** the Name, Modified and Size column headers sort a folder with Enter or Space, as
   they do with a click. Enter used to open the first item in the folder instead.
 - **Undo** after moving something to the trash brings it back on the Recent and Starred pages
