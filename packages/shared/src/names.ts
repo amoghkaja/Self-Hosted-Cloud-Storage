@@ -1,9 +1,10 @@
 import { NAME_MAX_LENGTH } from './constants';
 
 // Control characters, path separators and NUL are never valid in a node name, nor are
-// bidirectional-override characters, which can disguise "photo<RLO>gpj.exe" as "photoexe.jpg".
+// bidirectional-override characters, which can disguise "photo<RLO>gpj.exe" as "photoexe.jpg",
+// nor U+FFFE/U+FFFF, which XML forbids: one in a name breaks the network drive's folder listing.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
-const FORBIDDEN = /[/\\\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
+const FORBIDDEN = /[/\\\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069\ufffe\uffff]/;
 
 /** Normalizes a user-supplied name (NFC so macOS NFD names compare equal, trimmed). */
 export function normalizeName(name: string): string {

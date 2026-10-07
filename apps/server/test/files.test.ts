@@ -42,7 +42,7 @@ describe('folders', () => {
   });
 
   it('validates names', async () => {
-    for (const name of ['', '..', 'a/b', 'bad\u0000name']) {
+    for (const name of ['', '..', 'a/b', 'bad\u0000name', 'bad￿name']) {
       expect((await c.post('/folders', { parentId: root, name })).status).toBe(400);
     }
   });

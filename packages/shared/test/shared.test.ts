@@ -32,6 +32,9 @@ describe('names', () => {
     expect(nameProblem('ok name.txt')).toBeNull();
     // Right-to-left override would display "invoice\u202efdp.exe" as "invoiceexe.pdf".
     expect(nameProblem('invoice\u202efdp.exe')).toMatch(/cannot contain/);
+    // Not allowed in XML, so a network-drive listing with this name in it can't be read.
+    expect(nameProblem('photo\uffff.jpg')).toMatch(/cannot contain/);
+    expect(nameProblem('photo\ufffe.jpg')).toMatch(/cannot contain/);
   });
 
   it('normalizes to NFC so macOS names compare equal', () => {

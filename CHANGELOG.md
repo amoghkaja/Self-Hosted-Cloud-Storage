@@ -16,6 +16,9 @@ to do yourself when updating is listed under **Before you update**.
   name failed, and uploads didn't ask whether to replace the existing file.
 - **Rewind a folder:** files and folders added after the moment you go back to, and deleted
   since, no longer come back out of the trash. They weren't there at that moment.
+- **Network drive:** names containing one of two invisible "non-characters" (U+FFFE, U+FFFF)
+  are refused. A file named that way, even one sent through a file request, could stop Finder
+  and Windows from listing its folder.
 
 ## v0.5.0 (2026-10-05)
 
