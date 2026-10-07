@@ -273,6 +273,18 @@ describe('LOCK and PROPPATCH', () => {
   });
 });
 
+describe('malformed requests', () => {
+  it('answers a NUL in a path or a Destination with 400, not 500', async () => {
+    expect((await aliceDav('GET', '/dav/My%20Files/%00')).statusCode).toBe(400);
+    expect((await aliceDav('PROPFIND', '/dav/My%20Files/a%00b/')).statusCode).toBe(400);
+    const mv = await aliceDav('MOVE', '/dav/My%20Files/doc.txt', {
+      headers: { destination: '/dav/My%20Files/%00/doc.txt' },
+    });
+    expect(mv.statusCode).toBe(400);
+    expect((await aliceDav('GET', '/dav/My%20Files/doc.txt')).statusCode).toBe(200);
+  });
+});
+
 describe('device password throttle', () => {
   it('counts failures per IPv6 /64, so rotating addresses does not reset it', async () => {
     const wrong = davClient('alice@example.com', 'wrong-wrong-wrong-wrong');
