@@ -8,3 +8,7 @@ import { nodes } from '../../db/schema';
  */
 export const MEDIA = sql`((${nodes.mimeType} LIKE 'image/%' OR ${nodes.mimeType} LIKE 'video/%')
   AND NOT starts_with(${nodes.name}::text, '._'))`;
+
+/** Shown in some family album, so the whole family can see it (instant uploads match only these). */
+export const IN_SOME_ALBUM = sql`${MEDIA} AND EXISTS (
+  SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`;

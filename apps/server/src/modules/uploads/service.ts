@@ -31,7 +31,7 @@ import { AppError, conflict, notFound } from '../../lib/errors';
 import { DAY_MS, toIso } from '../../lib/time';
 import { loadAccess, lockWriteAccess, requireFolder } from '../files/access';
 import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
-import { MEDIA } from '../photos/media';
+import { IN_SOME_ALBUM } from '../photos/media';
 import {
   lockFileNamed,
   replaceContent,
@@ -285,8 +285,7 @@ export async function instantUpload(
       scan: blobs.scanStatus,
       nodeId: nodes.id,
       ownerId: nodes.ownerId,
-      // The whole family sees what a trip album shows, not everything in its folders.
-      inAlbum: sql<boolean>`${MEDIA} AND EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
+      inAlbum: sql<boolean>`${IN_SOME_ALBUM}`,
     })
     .from(blobs)
     .innerJoin(nodes, eq(nodes.blobId, blobs.id))

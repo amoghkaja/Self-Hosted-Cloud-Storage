@@ -10,6 +10,7 @@ import {
   ContentQuery,
   CreateAlbumBody,
   ErrorCode,
+  Id,
   IdParams,
   Ok,
   PhotoSocial,
@@ -55,6 +56,15 @@ const inAlbum = (albumId: string | SQL) => sql`${nodes.parentId} IN (
   SELECT folder_id FROM album_folders WHERE album_id = ${albumId}
 ) AND ${nodes.deletedAt} IS NULL AND ${nodes.type} = 'file' AND ${MEDIA}`;
 
+/** Per album: its photo count and its cover. */
+type AlbumStat = {
+  album_id: string;
+  count: number;
+  cover_id: string | null;
+  thumb: string | null;
+  cover_updated_at: string | null;
+};
+
 async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
@@ -67,13 +77,7 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
       .orderBy(users.displayName),
     // Per album: the photo count and the cover (the chosen one if it's still there, else the
     // earliest photo), in one pass.
-    exec.execute<{
-      album_id: string;
-      count: number;
-      cover_id: string | null;
-      thumb: string | null;
-      cover_updated_at: string | null;
-    }>(
+    exec.execute<AlbumStat>(
       sql`
         SELECT a.id AS album_id, coalesce(s.count, 0)::int AS count,
                c.id AS cover_id, c.thumb, c.updated_at AS cover_updated_at
@@ -107,17 +111,7 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
       ),
   ]);
   const statRows = Array.isArray(stats) ? stats : (stats as { rows: typeof stats }).rows;
-  const byAlbum = new Map(
-    (
-      statRows as {
-        album_id: string;
-        count: number;
-        cover_id: string | null;
-        thumb: string | null;
-        cover_updated_at: string | null;
-      }[]
-    ).map((s) => [s.album_id, s]),
-  );
+  const byAlbum = new Map((statRows as AlbumStat[]).map((s) => [s.album_id, s]));
   return rows.map((r) => {
     const s = byAlbum.get(r.id);
     return {
@@ -696,7 +690,7 @@ function decodeCursor(raw: string): [string, string] {
       typeof c[0] === 'string' &&
       realShotAt(c[0]) &&
       typeof c[1] === 'string' &&
-      z.uuid().safeParse(c[1]).success
+      Id.safeParse(c[1]).success
     ) {
       return c as [string, string];
     }
