@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Db } from '../src/db/client';
 import type { SettingsStore } from '../src/lib/settings';
 import { DavAuthenticator } from '../src/modules/webdav/auth';
-import { proppatchNames } from '../src/modules/webdav/xml';
+import { proppatchNames, xmlEscape } from '../src/modules/webdav/xml';
 
 describe('device password cache', () => {
   it('does not cache a lookup that raced with removing the device', async () => {
@@ -61,5 +61,15 @@ describe('PROPPATCH body scanner', () => {
       '<!-- <D:set><D:prop><D:hidden/></D:prop></D:set> -->' +
       '<D:set><D:prop><D:displayname/></D:prop></D:set></D:propertyupdate>';
     expect(proppatchNames(body)).toEqual([{ ns: 'DAV:', name: 'displayname' }]);
+  });
+});
+
+describe('XML escaping', () => {
+  it("replaces what XML can't hold, so one odd name can't break a whole listing", () => {
+    // A display name (shown for shared folders) or a name stored before names refused these.
+    expect(xmlEscape('a\uFFFFb\u0001c\uD800d')).toBe('a\uFFFDb\uFFFDc\uFFFDd');
+    expect(xmlEscape('Trip 😀 <&> "x" \'y\'\tz')).toBe(
+      'Trip 😀 &lt;&amp;&gt; &quot;x&quot; &apos;y&apos;\tz',
+    );
   });
 });

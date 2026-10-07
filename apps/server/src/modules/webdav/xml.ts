@@ -1,9 +1,26 @@
 /** Minimal WebDAV (RFC 4918) XML rendering. We only ever emit XML; request bodies are ignored. */
 
+/**
+ * Characters XML 1.0 can't hold (controls, lone surrogates, U+FFFE/U+FFFF). One in a display name
+ * (shared folders show their owner's) or in a name stored before names refused them would make a
+ * client reject the whole listing. Hrefs are percent-encoded, so the file can still be reached.
+ */
+const NOT_IN_XML = /[^\t\n\r\x20-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
 export function xmlEscape(s: string): string {
-  return s.replace(/[<>&"']/g, (c) =>
-    c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : c === '"' ? '&quot;' : '&apos;',
-  );
+  return s
+    .replace(NOT_IN_XML, '\uFFFD')
+    .replace(/[<>&"']/g, (c) =>
+      c === '<'
+        ? '&lt;'
+        : c === '>'
+          ? '&gt;'
+          : c === '&'
+            ? '&amp;'
+            : c === '"'
+              ? '&quot;'
+              : '&apos;',
+    );
 }
 
 export interface DavEntry {

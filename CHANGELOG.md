@@ -140,7 +140,8 @@ to do yourself when updating is listed under **Before you update**.
   copied now, and open once the check is done, like the originals.
 - **Network drive:** names containing one of two invisible "non-characters" (U+FFFE, U+FFFF)
   are refused. A file named that way, even one sent through a file request, could stop Finder
-  and Windows from listing its folder.
+  and Windows from listing its folder; files already named so (and family members' names shown
+  for shared folders) are now listed with a replacement character instead.
 - **Uploads:** when a file failed to upload, the rest of it no longer carries on sending in the
   background, using up your connection (and doubling up if you pressed Retry).
 - **Uploads:** a moment without a connection no longer fails every file of a folder upload at
