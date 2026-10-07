@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { blobs, nodes } from '../src/db/schema';
-import { makeOfficePreview } from '../src/jobs/office';
+import { makeOfficePreview, runSoffice } from '../src/jobs/office';
 import {
   addMember,
   type Client,
@@ -119,6 +121,36 @@ describe('office previews', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('application/pdf');
     expect(Buffer.from(res.raw.rawPayload).subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it.skipIf(!hasSoffice)('stops all of LibreOffice when a document takes too long', async () => {
+    const work = await mkdtemp(path.join(env.dataDir, 'slow-'));
+    const input = path.join(work, 'huge.csv');
+    await writeFile(
+      input,
+      Array.from({ length: 400_000 }, (_, i) => `${i},row ${i},some words,${i * 7}\n`).join(''),
+    );
+    const args = [
+      '--headless',
+      '--norestore',
+      '--nolockcheck',
+      `-env:UserInstallation=file://${path.join(work, 'profile')}`,
+      '--convert-to',
+      'pdf',
+      '--outdir',
+      work,
+      input,
+    ];
+    await expect(runSoffice(args, 1500)).rejects.toThrow();
+    // The converter is a child of LibreOffice's launcher: it must not go on running on its own.
+    const running = () => {
+      try {
+        return execFileSync('pgrep', ['-f', work]).toString().trim();
+      } catch {
+        return '';
+      }
+    };
+    await vi.waitFor(() => expect(running()).toBe(''), { timeout: 3000 });
   });
 });
 

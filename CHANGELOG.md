@@ -27,6 +27,9 @@ to do yourself when updating is listed under **Before you update**.
 - **A disk unplugged for a while:** photos and videos on it never got thumbnails, dates or
   streaming copies, and documents were never searchable by their words, even after it was back.
   That work now waits for the disk and is done once it returns.
+- **Previews of very large documents:** when LibreOffice took longer than 3 minutes, the preview
+  was given up but LibreOffice went on running in the background, slowing the server down. It is
+  now stopped.
 
 ## v0.5.0 (2026-10-05)
 
