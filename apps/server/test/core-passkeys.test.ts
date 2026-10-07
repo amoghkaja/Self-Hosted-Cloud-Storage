@@ -29,6 +29,8 @@ class Authenticator {
   constructor(
     private readonly origin = ORIGIN,
     private readonly rpId = RP_ID,
+    /** Synced passkeys (iCloud Keychain, Google Password Manager) always report 0. */
+    private readonly counts = true,
   ) {
     const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     this.key = privateKey;
@@ -86,7 +88,7 @@ class Authenticator {
   }
 
   assert(options: { challenge: string }) {
-    this.counter++;
+    if (this.counts) this.counter++;
     const authData = this.authData(false);
     const clientData = this.clientData('webauthn.get', options.challenge);
     const signature = sign('sha256', Buffer.concat([authData, sha256(clientData)]), this.key);
@@ -117,11 +119,9 @@ async function addPasskey(client: Client, device = new Authenticator()) {
 async function passkeySignIn(device: Authenticator) {
   const guest = new Client(env.app);
   const opts = (await guest.post('/auth/passkeys/login/options', {})).body;
-  const res = await guest.post('/auth/passkeys/login', {
-    token: opts.token,
-    response: device.assert(opts.options),
-  });
-  return { guest, res, token: opts.token, options: opts.options };
+  const response = device.assert(opts.options);
+  const res = await guest.post('/auth/passkeys/login', { token: opts.token, response });
+  return { guest, res, token: opts.token, options: opts.options, response };
 }
 
 describe('passkeys', () => {
@@ -158,6 +158,18 @@ describe('passkeys', () => {
     const list = (await admin.get('/auth/passkeys')).body as { id: string }[];
     for (const p of list) expect((await admin.del(`/auth/passkeys/${p.id}`)).status).toBe(200);
     expect((await passkeySignIn(device)).res.status).toBe(401);
+  });
+
+  it('accepts a challenge once, however its token is written', async () => {
+    // A synced passkey's counter stays 0, so only the single-use challenge stops a replay.
+    const { device } = await addPasskey(admin, new Authenticator(ORIGIN, RP_ID, false));
+    const first = await passkeySignIn(device);
+    expect(first.res.status).toBe(200);
+    const replay = await new Client(env.app).post('/auth/passkeys/login', {
+      token: `${first.token}.x`,
+      response: first.response,
+    });
+    expect(replay.status).toBe(401);
   });
 
   it('keeps passkeys private to their owner and needs a session to add one', async () => {

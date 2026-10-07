@@ -8,6 +8,12 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Security
+
+- **Passkeys:** a passkey sign-in can no longer be sent a second time. Someone who copied one
+  (from a saved browser log, say) within its five minutes could sign in with it again, because
+  passkeys synced through iCloud Keychain or Google Password Manager don't count their uses.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

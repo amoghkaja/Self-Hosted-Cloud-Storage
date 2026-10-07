@@ -71,11 +71,15 @@ export const passkeyRoutes: FastifyPluginAsyncZod = async (app) => {
   const origin = ctx.config.publicOrigin;
   const used = new LRUCache<string, true>({ max: 10_000, ttl: CHALLENGE_TTL * 1000 });
 
-  /** Returns the challenge in a token once; a replayed token is refused. */
+  /**
+   * Returns the challenge in a token once; a replayed challenge is refused. Keyed by the
+   * challenge, not the token text: "<token>.x" verifies too, and synced passkeys always report a
+   * signature counter of 0, so nothing else would stop a captured sign-in being sent again.
+   */
   function takeChallenge(purpose: string, token: string) {
     const claims = ctx.keys.verify<{ c: string; uid?: string }>(purpose, token);
-    if (!claims || used.has(token)) throw invalid('This sign-in request expired. Try again.');
-    used.set(token, true);
+    if (!claims || used.has(claims.c)) throw invalid('This sign-in request expired. Try again.');
+    used.set(claims.c, true);
     return claims;
   }
 
