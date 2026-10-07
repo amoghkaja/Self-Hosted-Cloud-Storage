@@ -1,14 +1,14 @@
 import { ErrorCode } from '@familycloud/shared/all';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { reserveSpace } from '../uploads/service';
-import { withRoomFromVersions } from '../versions/service';
+import { replaceContent, type StoredBlob, withRoomFromVersions } from '../versions/service';
 import { lockWriteAccess } from './access';
 import { listTree } from './serve';
-import { insertNode } from './tree';
+import { deleteBlobFiles, insertNode, trashSubtree } from './tree';
 
 export const MAX_COPY_ENTRIES = 10_000;
 
@@ -21,20 +21,21 @@ export interface CopyInput {
   onConflict: 'fail' | 'rename';
   /** Copy only the folder itself, not what's in it (WebDAV Depth: 0). */
   shallow?: boolean;
-  /** The source folder's contents, when the caller already listed them (listTree). */
-  tree?: Awaited<ReturnType<typeof listTree>>;
+  /** The item in the destination this copy replaces (WebDAV Overwrite: T). */
+  replace?: Pick<NodeRow, 'id' | 'type'>;
 }
 
 /**
  * Copies a file or a folder tree. The copies point at the same stored bytes (as an instant
  * upload does), so copying is immediate and uses no extra disk; each copy counts toward the
  * destination owner's storage like any other file of theirs, and the bytes are only deleted
- * once nothing points at them. Checks and the write happen in one transaction.
+ * once nothing points at them. Checks and the write happen in one transaction, with the item it
+ * replaces, so a copy that fails leaves that item where it was.
  */
 export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeRow> {
   const tree =
     input.source.type === 'folder' && !input.shallow
-      ? (input.tree ?? (await listTree(ctx.db, input.source.id, MAX_COPY_ENTRIES + 1)))
+      ? await listTree(ctx.db, input.source.id, MAX_COPY_ENTRIES + 1)
       : [];
   if (tree.length > MAX_COPY_ENTRIES) {
     throw new AppError(
@@ -53,7 +54,8 @@ export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeR
   const total = files.reduce((s, f) => s + f.size, 0);
   const settings = await ctx.settings.get();
 
-  return withRoomFromVersions(ctx, { owner: input.dest.ownerId, actor: input.userId }, total, () =>
+  const who = { owner: input.dest.ownerId, actor: input.userId };
+  const done = await withRoomFromVersions(ctx, who, total, () =>
     ctx.db.transaction(async (tx) => {
       // The exclusive quota lock also keeps "empty trash" and version clean-ups (which take it
       // shared) from deleting the bytes we're about to point at until this commits.
@@ -76,20 +78,46 @@ export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeR
       }
 
       const isFile = input.source.type === 'file';
-      const root = await insertNode(
-        tx,
-        {
-          ownerId: target.ownerId,
-          parentId: target.id,
-          type: input.source.type,
-          name: input.name,
-          blobId: isFile ? input.source.blobId : null,
-          size: isFile ? input.source.size : 0,
-          mimeType: isFile ? input.source.mimeType : null,
-          createdBy: input.userId,
-        },
-        input.onConflict,
-      );
+      let root: NodeRow;
+      let usageDelta = total;
+      let orphans: StoredBlob[] = [];
+      if (isFile && input.replace?.type === 'file') {
+        // A file copied over a file is a save: the file keeps its identity (links, sharing) and
+        // what it held becomes a version.
+        const [file] = await tx
+          .select()
+          .from(nodes)
+          .where(and(eq(nodes.id, input.replace.id), isNull(nodes.deletedAt)))
+          .for('update');
+        if (file?.type !== 'file' || file.parentId !== target.id) {
+          throw conflict('The file changed meanwhile. Try again.');
+        }
+        const { blobId, size, mimeType } = input.source;
+        const replaced = await replaceContent(
+          tx,
+          file,
+          { blobId: blobId!, size, mimeType },
+          { actorId: input.userId, keepVersion: settings.versionRetentionDays > 0 },
+        );
+        ({ node: root, usageDelta, orphans } = replaced);
+      } else {
+        // With the actor: if it moved meanwhile, edit access where it is now is re-checked.
+        if (input.replace) await trashSubtree(tx, input.replace.id, { actorId: input.userId });
+        root = await insertNode(
+          tx,
+          {
+            ownerId: target.ownerId,
+            parentId: target.id,
+            type: input.source.type,
+            name: input.name,
+            blobId: isFile ? input.source.blobId : null,
+            size: isFile ? input.source.size : 0,
+            mimeType: isFile ? input.source.mimeType : null,
+            createdBy: input.userId,
+          },
+          input.onConflict,
+        );
+      }
       // Everything below goes into brand-new folders, so names can't clash: insert in bulk.
       // listTree returns parents before their children (paths sort that way).
       const folderIds = new Map<string, string>([['', root.id]]);
@@ -118,12 +146,14 @@ export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeR
       await tx
         .update(users)
         .set({
-          usedBytes: sql`${users.usedBytes} + ${total}`,
+          usedBytes: sql`greatest(${users.usedBytes} + ${usageDelta}, 0)`,
           reservedBytes: sql`greatest(${users.reservedBytes} - ${total}, 0)`,
         })
         .where(eq(users.id, target.ownerId));
       await tx.update(nodes).set({ updatedAt: new Date() }).where(eq(nodes.id, target.id));
-      return root;
+      return { root, orphans };
     }),
   );
+  await deleteBlobFiles(ctx, done.orphans);
+  return done.root;
 }

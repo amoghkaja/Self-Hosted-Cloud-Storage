@@ -8,8 +8,8 @@ import { type NodeRow, nodes, shares, type UserRow, users } from '../../db/schem
 import { AppError } from '../../lib/errors';
 import { storageFor } from '../../lib/space';
 import { loadAccess, type NodeAccess, satisfies } from '../files/access';
-import { copyNode, MAX_COPY_ENTRIES } from '../files/copy';
-import { etagMatches, listTree, sendBlob } from '../files/serve';
+import { copyNode } from '../files/copy';
+import { etagMatches, sendBlob } from '../files/serve';
 import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
 import { ingest } from '../uploads/ingest';
 import { moveContentOnto } from '../versions/service';
@@ -55,7 +55,12 @@ export function parseDavPath(url: string): string[] {
   const pathOnly = url.split('?')[0]!.replace(/^\/dav\/?/, '');
   const parts = pathOnly.split('/').filter(Boolean);
   try {
-    return parts.map((p) => normalizeName(decodeURIComponent(p)));
+    return parts.map((p) => {
+      const name = normalizeName(decodeURIComponent(p));
+      // No name holds a NUL, and Postgres refuses one in a query (a 500).
+      if (name.includes('\0')) throw new Error('NUL in path');
+      return name;
+    });
   } catch {
     throw new AppError(400, ErrorCode.VALIDATION, 'Malformed path');
   }
@@ -201,8 +206,10 @@ function sendXml(reply: FastifyReply, status: number, body: string) {
 function declaredLength(req: FastifyRequest): number | null {
   // macOS Finder streams with chunked encoding and announces the size in this header.
   const raw = req.headers['content-length'] ?? req.headers['x-expected-entity-length'];
-  const n = Number(Array.isArray(raw) ? raw[0] : raw);
-  return raw !== undefined && Number.isInteger(n) && n >= 0 ? n : null;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  // Digits only: Number() also reads "1e300" and "0x10", and a size past 2^53 isn't exact.
+  const n = Number(value);
+  return value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(n) ? n : null;
 }
 
 function destinationSegments(req: FastifyRequest): string[] {
@@ -365,6 +372,11 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
       }
 
       case 'PUT': {
+        // A partial PUT (how `curl -C -` resumes an upload) would replace the whole file with
+        // just the part it sends. RFC 9110 says to refuse it.
+        if (req.headers['content-range'] !== undefined) {
+          throw new AppError(400, ErrorCode.VALIDATION, 'Partial uploads are not supported');
+        }
         const length = declaredLength(req);
         if (length === null)
           throw new AppError(411, ErrorCode.VALIDATION, 'Content-Length required');
@@ -499,23 +511,14 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
           return reply.status(d.existing ? 204 : 201).send();
         }
 
-        // Checked before anything changes, so a refused copy leaves the destination alone.
-        const shallow = req.headers.depth === '0';
-        const tree =
-          src.node.type === 'folder' && !shallow
-            ? await listTree(ctx.db, src.node.id, MAX_COPY_ENTRIES + 1)
-            : [];
-        if (tree.length > MAX_COPY_ENTRIES)
-          throw new AppError(413, ErrorCode.VALIDATION, 'Folder is too large to copy in one go');
-        if (d.existing) await trashSubtree(ctx.db, d.existing.node.id, { actorId: user.id });
         await copyNode(ctx, {
           userId: user.id,
           source: src.node,
           dest: { id: destParent.node.id, ownerId: destParent.node.ownerId },
           name: d.name,
           onConflict: 'fail',
-          shallow,
-          tree,
+          shallow: req.headers.depth === '0',
+          replace: d.existing?.node,
         });
         return reply.status(d.existing ? 204 : 201).send();
       }

@@ -269,7 +269,8 @@ export async function moveNode(
       if (grantee) await lockWriteAccess(tx, grantee, target.id);
     }
     if (grantee && node.parentId) await lockWriteAccess(tx, grantee, node.parentId);
-    if (opts.replaceId) await trashSubtree(tx, opts.replaceId);
+    // With the actor: if it moved meanwhile, edit access where it is now is re-checked.
+    if (opts.replaceId) await trashSubtree(tx, opts.replaceId, { actorId: opts.actorId });
     return updateNode(tx, node.id, patch);
   });
 }

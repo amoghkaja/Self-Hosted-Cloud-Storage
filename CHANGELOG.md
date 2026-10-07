@@ -23,6 +23,10 @@ to do yourself when updating is listed under **Before you update**.
   be downloaded through the link's video player, even with downloads turned off, until its
   streaming copy was ready (or for good, if one couldn't be made). The player now waits for the
   streaming copy, and downloading the original follows the link's download settings.
+- **Network drive:** a device removed in Settings (or an account disabled) at the moment that
+  device was signing in could keep working for up to a minute. It's now locked out at once.
+- **Network drive:** a signed-in device could stall the server for about a second with each
+  specially made request.
 
 ### Fixed
 
@@ -31,6 +35,15 @@ to do yourself when updating is listed under **Before you update**.
 - **Family Photos:** a trip can be edited again after someone on it has had their account
   disabled. Saving said "Someone in the list is not in the family", and there was no way round
   it; they now stay on the trip.
+- **Network drive:** a partial upload (such as resuming one with `curl -C -`) is refused instead of
+  replacing the whole file with just the part that was sent.
+- **Network drive:** copying a file over another one (from apps like Cyberduck, Dolphin or
+  rclone) saves over it like any other save: it keeps its sharing and links, and what it held
+  goes to Version history. A copy over an item that fails (for example, not enough space) leaves
+  that item as it was instead of moving it to the trash.
+- **Version history:** files copied to the network drive from Finder or Windows no longer get an
+  empty "older version" (both write an empty file before its contents). Empty files are never
+  kept as versions.
 
 ## v0.5.0 (2026-10-05)
 

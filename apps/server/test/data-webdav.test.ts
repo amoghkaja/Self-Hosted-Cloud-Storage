@@ -1,9 +1,14 @@
-import { sql } from 'drizzle-orm';
+import { Readable } from 'node:stream';
+import { eq, sql } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { nodes } from '../src/db/schema';
+import { copyNode } from '../src/modules/files/copy';
+import { moveNode } from '../src/modules/files/tree';
 import { addMember, type Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
 
 let env: TestEnv;
+let admin: Client;
 let alice: Client;
 let aliceRoot: string;
 let bobId: string;
@@ -13,7 +18,7 @@ let bobDav: Dav;
 type Dav = (
   method: string,
   path: string,
-  opts?: { body?: string; headers?: Record<string, string>; remoteAddress?: string },
+  opts?: { body?: string | Readable; headers?: Record<string, string>; remoteAddress?: string },
 ) => Promise<LightMyRequestResponse>;
 
 function davClient(email: string, password: string): Dav {
@@ -34,7 +39,7 @@ async function appPassword(client: Client) {
 
 beforeAll(async () => {
   env = await createTestEnv();
-  const admin = (await setupAdmin(env)).client;
+  admin = (await setupAdmin(env)).client;
   const a = await addMember(env, admin, 'alice@example.com', { quotaBytes: 100_000 });
   const b = await addMember(env, admin, 'bob@example.com', { quotaBytes: 100_000 });
   alice = a.client;
@@ -81,6 +86,90 @@ describe('MOVE and COPY', () => {
     });
     expect(cp.statusCode).toBe(403);
     expect((await aliceDav('GET', '/dav/My%20Files/Holder/inside.txt')).body).toBe('keep me');
+    expect((await alice.get('/trash')).body.items).toHaveLength(0);
+  });
+
+  it('COPY over an item leaves it in place when the copy fails', async () => {
+    const carol = await addMember(env, admin, 'carol@example.com', { quotaBytes: 10_000 });
+    const carolDav = davClient(carol.me.email, await appPassword(carol.client));
+    await carolDav('PUT', '/dav/My%20Files/big.txt', { body: 'x'.repeat(6000) });
+    await carolDav('PUT', '/dav/My%20Files/keep.txt', { body: 'keep me' });
+    await carolDav('MKCOL', '/dav/My%20Files/Keep');
+    await carolDav('PUT', '/dav/My%20Files/Keep/a.txt', { body: 'a' });
+    await carolDav('MKCOL', '/dav/My%20Files/Holder');
+    await carolDav('MOVE', '/dav/My%20Files/big.txt', {
+      headers: { destination: '/dav/My%20Files/Holder/big.txt' },
+    });
+
+    // Neither copy fits in Carol's quota.
+    const file = await carolDav('COPY', '/dav/My%20Files/Holder/big.txt', {
+      headers: { destination: '/dav/My%20Files/keep.txt', overwrite: 'T' },
+    });
+    expect(file.statusCode).toBe(507);
+    const folder = await carolDav('COPY', '/dav/My%20Files/Holder/', {
+      headers: { destination: '/dav/My%20Files/Keep/', overwrite: 'T' },
+    });
+    expect(folder.statusCode).toBe(507);
+
+    expect((await carolDav('GET', '/dav/My%20Files/keep.txt')).body).toBe('keep me');
+    expect((await carolDav('GET', '/dav/My%20Files/Keep/a.txt')).body).toBe('a');
+    expect((await carol.client.get('/trash')).body.items).toHaveLength(0);
+  });
+
+  it('COPY of a file over a file saves over it: sharing stays, the old text is a version', async () => {
+    await aliceDav('PUT', '/dav/My%20Files/report-draft.txt', { body: 'new text' });
+    await aliceDav('PUT', '/dav/My%20Files/report.txt', { body: 'old text' });
+    const children = await alice.get(`/nodes/${aliceRoot}/children`);
+    const report = children.body.items.find((n: { name: string }) => n.name === 'report.txt');
+    await alice.post(`/nodes/${report.id}/shares`, { userId: bobId, permission: 'view' });
+    const before = (await alice.get('/auth/me')).body.usedBytes;
+
+    const cp = await aliceDav('COPY', '/dav/My%20Files/report-draft.txt', {
+      headers: { destination: '/dav/My%20Files/report.txt' },
+    });
+    expect(cp.statusCode).toBe(204);
+    // The same file (not a new one in its place), so Bob still has it.
+    expect((await alice.get(`/nodes/${report.id}`)).status).toBe(200);
+    expect((await bobDav('GET', '/dav/Shared%20with%20me/report.txt')).body).toBe('new text');
+    const versions = await alice.get(`/nodes/${report.id}/versions`);
+    expect(versions.body.items.map((v: { size: number }) => v.size)).toEqual([8]);
+    expect((await alice.get('/auth/me')).body.usedBytes).toBe(before + 8);
+    expect((await aliceDav('GET', '/dav/My%20Files/report-draft.txt')).body).toBe('new text');
+    expect((await alice.get('/trash')).body.items).toHaveLength(0);
+  });
+
+  it('COPY and MOVE never trash an item they replace once it moved out of reach', async () => {
+    const team = (await alice.post('/folders', { parentId: aliceRoot, name: 'Team' })).body.id;
+    const plan = (await alice.post('/folders', { parentId: team, name: 'plan' })).body.id;
+    const hidden = (await alice.post('/folders', { parentId: aliceRoot, name: 'Hidden' })).body.id;
+    await alice.post(`/nodes/${team}/shares`, { userId: bobId, permission: 'edit' });
+    await bobDav('PUT', '/dav/Shared%20with%20me/Team/memo.txt', { body: 'memo' });
+    const [memo] = await env.ctx.db.select().from(nodes).where(eq(nodes.name, 'memo.txt'));
+    // Bob's COPY found "plan" in the shared folder; before it commits, Alice moves "plan" into a
+    // folder Bob can't see.
+    await alice.patch(`/nodes/${plan}`, { parentId: hidden });
+    const copy = copyNode(env.ctx, {
+      userId: bobId,
+      source: memo!,
+      dest: { id: team, ownerId: memo!.ownerId },
+      name: 'plan',
+      onConflict: 'fail',
+      replace: { id: plan, type: 'folder' },
+    });
+    await expect(copy).rejects.toMatchObject({ status: 403 });
+    expect((await alice.get(`/nodes/${plan}`)).status).toBe(200);
+
+    // The same race with MOVE over "plan 2".
+    const plan2 = (await alice.post('/folders', { parentId: team, name: 'plan 2' })).body.id;
+    await alice.patch(`/nodes/${plan2}`, { parentId: hidden });
+    const move = moveNode(
+      env.ctx.db,
+      memo!,
+      { name: 'plan 2', parentId: team },
+      { replaceId: plan2, actorId: bobId },
+    );
+    await expect(move).rejects.toMatchObject({ status: 403 });
+    expect((await alice.get(`/nodes/${plan2}`)).status).toBe(200);
     expect((await alice.get('/trash')).body.items).toHaveLength(0);
   });
 
@@ -165,6 +254,30 @@ describe('PUT', () => {
     });
     expect(missing.statusCode).toBe(412);
   });
+
+  it('does not keep the empty file Finder and Windows write first as a version', async () => {
+    const placeholder = await aliceDav('PUT', '/dav/My%20Files/copied.txt', {
+      headers: { 'content-length': '0' },
+    });
+    expect(placeholder.statusCode).toBe(201);
+    const contents = await aliceDav('PUT', '/dav/My%20Files/copied.txt', { body: 'the contents' });
+    expect(contents.statusCode).toBe(204);
+    const children = await alice.get(`/nodes/${aliceRoot}/children`);
+    const file = children.body.items.find((n: { name: string }) => n.name === 'copied.txt');
+    expect((await alice.get(`/nodes/${file.id}/versions`)).body.items).toEqual([]);
+    expect((await aliceDav('GET', '/dav/My%20Files/copied.txt')).body).toBe('the contents');
+  });
+
+  it('refuses a partial PUT instead of replacing the file with the part sent', async () => {
+    await aliceDav('PUT', '/dav/My%20Files/resume.txt', { body: 'helloworld' });
+    // What `curl -T file -C -` sends to resume an upload: only the bytes after the first five.
+    const partial = await aliceDav('PUT', '/dav/My%20Files/resume.txt', {
+      body: 'WORLD',
+      headers: { 'content-range': 'bytes 5-9/10' },
+    });
+    expect(partial.statusCode).toBe(400);
+    expect((await aliceDav('GET', '/dav/My%20Files/resume.txt')).body).toBe('helloworld');
+  });
 });
 
 describe('LOCK and PROPPATCH', () => {
@@ -196,6 +309,29 @@ describe('LOCK and PROPPATCH', () => {
     expect(res.body).toContain('HTTP/1.1 200 OK');
     const folder = await aliceDav('PROPPATCH', '/dav/My%20Files/Holder', { body: '' });
     expect(folder.body).toContain('<D:href>/dav/My%20Files/Holder/</D:href>');
+  });
+});
+
+describe('malformed requests', () => {
+  it('answers a NUL in a path or a Destination with 400, not 500', async () => {
+    expect((await aliceDav('GET', '/dav/My%20Files/%00')).statusCode).toBe(400);
+    expect((await aliceDav('PROPFIND', '/dav/My%20Files/a%00b/')).statusCode).toBe(400);
+    const mv = await aliceDav('MOVE', '/dav/My%20Files/doc.txt', {
+      headers: { destination: '/dav/My%20Files/%00/doc.txt' },
+    });
+    expect(mv.statusCode).toBe(400);
+    expect((await aliceDav('GET', '/dav/My%20Files/doc.txt')).statusCode).toBe(200);
+  });
+
+  it('answers a size that is not a plain number of bytes with 411, not 500', async () => {
+    for (const size of ['1e300', '18446744073709551615']) {
+      const res = await aliceDav('PUT', '/dav/My%20Files/odd-size.bin', {
+        // Finder's chunked upload: no Content-Length, the size in its own header.
+        body: Readable.from([Buffer.from('abc')]),
+        headers: { 'transfer-encoding': 'chunked', 'x-expected-entity-length': size },
+      });
+      expect(res.statusCode).toBe(411);
+    }
   });
 });
 
