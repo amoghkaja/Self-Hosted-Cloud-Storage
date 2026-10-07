@@ -34,13 +34,13 @@ export default async function setup(project: TestProject) {
   let base = process.env.TEST_DATABASE_URL?.replace(/\/[^/]*$/, '');
   let stop = async () => {};
   if (!base) {
-    const known = new Set(process.listeners('beforeExit'));
+    const known = new Set([...process.listeners('beforeExit'), ...process.listeners('exit')]);
     const { default: EmbeddedPostgres } = await import('embedded-postgres');
-    // Its exit hook calls process.exit(0) on `beforeExit`, which turns a failing run green. The
-    // teardown below stops the cluster instead.
-    for (const listener of process.listeners('beforeExit')) {
-      if (!known.has(listener)) process.off('beforeExit', listener);
-    }
+    // Its exit hook calls process.exit(0) on `beforeExit`, which turns a failing run green (and on
+    // `exit` it throws). The teardown below stops the cluster instead.
+    for (const l of process.listeners('beforeExit'))
+      if (!known.has(l)) process.off('beforeExit', l);
+    for (const l of process.listeners('exit')) if (!known.has(l)) process.off('exit', l);
     const dir = await mkdtemp(path.join(tmpdir(), 'fc-pg-'));
     const port = await freePort();
     const pg = new EmbeddedPostgres({
