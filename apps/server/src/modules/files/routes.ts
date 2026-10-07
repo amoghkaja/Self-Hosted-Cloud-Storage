@@ -117,7 +117,11 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       await requireFolder(db, user.id, req.params.id, 'view');
-      const wanted = [...new Set(req.body.names.map((n) => n.toLowerCase()))];
+      // Lowercased by Postgres, as the folder's unique names are (see findFreeName).
+      const wanted = sql.join(
+        [...new Set(req.body.names)].map((n) => sql`lower(${n})`),
+        sql`, `,
+      );
       const rows = await db
         .select({ name: nodes.name, type: nodes.type })
         .from(nodes)
@@ -125,7 +129,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
           and(
             eq(nodes.parentId, req.params.id),
             isNull(nodes.deletedAt),
-            inArray(sql`lower(${nodes.name})`, wanted),
+            sql`lower(${nodes.name}) IN (${wanted})`,
           ),
         );
       return {

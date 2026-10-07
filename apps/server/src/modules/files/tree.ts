@@ -124,26 +124,22 @@ export async function findFreeName(
     name,
     ...Array.from({ length: 50 }, (_, i) => withCopySuffix(name, i + 1, label)),
   ];
-  const taken = new Set(
-    (
-      await exec
-        .select({ n: sql<string>`lower(${nodes.name})` })
-        .from(nodes)
-        .where(
-          and(
-            eq(nodes.parentId, parentId),
-            isNull(nodes.deletedAt),
-            inArray(
-              sql`lower(${nodes.name})`,
-              candidates.map((c) => c.toLowerCase()),
-            ),
-          ),
-        )
-    ).map((r) => r.n),
-  );
-  const free = candidates.find((c) => !taken.has(c.toLowerCase()));
+  // Compared with Postgres's lower(), like the unique index: JS toLowerCase() differs for some
+  // letters ("ΔΙΑΚΟΠΕΣ" ends in ς, "İ" gains a dot), which would pick a name that's taken.
+  const [free] = (await exec.execute(sql`
+    SELECT c.name FROM (VALUES ${sql.join(
+      candidates.map((c, i) => sql`(${c}::text, ${i}::int)`),
+      sql`, `,
+    )}) AS c(name, i)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM nodes n
+      WHERE n.parent_id = ${parentId} AND n.deleted_at IS NULL AND lower(n.name) = lower(c.name)
+    )
+    ORDER BY c.i
+    LIMIT 1
+  `)) as unknown as { name: string }[];
   if (!free) throw conflict(`Too many items named "${name}"`, ErrorCode.NAME_CONFLICT);
-  return free;
+  return free.name;
 }
 
 /**

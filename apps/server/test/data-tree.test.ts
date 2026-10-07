@@ -126,6 +126,38 @@ describe('listing order', () => {
   });
 });
 
+describe('names Postgres lowercases differently from JavaScript', () => {
+  // lower() gives "διακοπεσ" and "izmir"; toLowerCase() gives "διακοπες" (final sigma) and "i̇zmir".
+  it('still finds a free name, and sees the name is taken', async () => {
+    const dir = await folder(root, 'Ταξίδια');
+    const trip = await folder(dir, 'ΔΙΑΚΟΠΕΣ');
+    const again = await c.post('/folders', {
+      parentId: dir,
+      name: 'ΔΙΑΚΟΠΕΣ',
+      renameIfTaken: true,
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.name).toBe('ΔΙΑΚΟΠΕΣ (1)');
+    const copy = await c.post(`/nodes/${trip}/copy`, { parentId: dir });
+    expect(copy.status).toBe(200);
+    expect(copy.body.name).toBe('ΔΙΑΚΟΠΕΣ (copy)');
+
+    await uploadFile(c, dir, 'İzmir.jpg', Buffer.from('1'));
+    const check = await c.post(`/nodes/${dir}/name-check`, { names: ['İzmir.jpg', 'ΔΙΑΚΟΠΕΣ'] });
+    expect(check.body).toMatchObject({ files: ['İzmir.jpg'], folders: ['ΔΙΑΚΟΠΕΣ'] });
+    const second = await uploadFile(c, dir, 'İzmir.jpg', Buffer.from('2'));
+    expect(second.final!.status).toBe(200);
+    expect(second.final!.body.node.name).toBe('İzmir (1).jpg');
+
+    // Restoring next to a newer item of the same name.
+    await c.del(`/nodes/${trip}`);
+    await folder(dir, 'ΔΙΑΚΟΠΕΣ');
+    const restored = await c.post(`/trash/${trip}/restore`);
+    expect(restored.status).toBe(200);
+    expect(restored.body.node.name).toBe('ΔΙΑΚΟΠΕΣ (restored)');
+  });
+});
+
 describe('changes through a share', () => {
   it('re-checks the edit share under lock, so a revoke that lands first stops them', async () => {
     const cousin = await addMember(env, c, 'cousin-tree@example.com');

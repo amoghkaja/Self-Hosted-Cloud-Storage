@@ -8,6 +8,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Fixed
+
+- **Names in Greek, Turkish and some other alphabets:** adding a file or folder whose name was
+  already taken (a second "ΔΙΑΚΟΠΕΣ" folder, a second "İzmir.jpg", or "Make a copy" of one)
+  failed instead of naming it "(1)", restoring one from the trash next to an item of the same
+  name failed, and uploads didn't ask whether to replace the existing file.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved
