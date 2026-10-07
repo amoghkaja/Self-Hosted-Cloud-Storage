@@ -81,7 +81,13 @@ export const RecentQuery = z.object({
 });
 
 export const SearchQuery = z.object({
-  q: z.string().trim().min(1).max(100),
+  // Postgres can't take a NUL in text; no name or document word holds one anyway.
+  q: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .refine((q) => !q.includes('\u0000'), 'Search cannot contain NUL'),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

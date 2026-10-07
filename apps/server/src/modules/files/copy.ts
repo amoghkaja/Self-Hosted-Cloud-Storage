@@ -2,6 +2,7 @@ import { ErrorCode } from '@familycloud/shared/all';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
+import type { Executor } from '../../db/client';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { reserveSpace } from '../uploads/service';
@@ -11,6 +12,14 @@ import { listTree } from './serve';
 import { deleteBlobFiles, insertNode, trashSubtree } from './tree';
 
 export const MAX_COPY_ENTRIES = 10_000;
+
+/**
+ * What copying a folder takes along. Files still waiting for their virus check come too (the
+ * copies share their bytes, so they wait just as long); infected ones are left behind.
+ */
+function listCopyTree(exec: Executor, folderId: string) {
+  return listTree(exec, folderId, MAX_COPY_ENTRIES + 1, ['infected']);
+}
 
 export interface CopyInput {
   userId: string;
@@ -35,7 +44,7 @@ export interface CopyInput {
 export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeRow> {
   const tree =
     input.source.type === 'folder' && !input.shallow
-      ? await listTree(ctx.db, input.source.id, MAX_COPY_ENTRIES + 1)
+      ? await listCopyTree(ctx.db, input.source.id)
       : [];
   if (tree.length > MAX_COPY_ENTRIES) {
     throw new AppError(

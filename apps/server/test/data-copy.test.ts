@@ -144,4 +144,34 @@ describe('copy', () => {
     expect(await env.ctx.db.select().from(blobs).where(eq(blobs.id, a!.blobId!))).toHaveLength(1);
     expect(await reconcileUsage(env.ctx)).toEqual([]);
   });
+
+  it('takes along files still waiting for their virus check, not infected ones', async () => {
+    const inbox = await folder(owner, root, 'From guests');
+    const waiting = (await uploadFile(owner, inbox, 'guest.jpg', bytes(100, 7))).final!.body.node;
+    const bad = (await uploadFile(owner, inbox, 'bad.jpg', bytes(100, 8))).final!.body.node;
+    const scan = async (id: string, status: 'held' | 'infected') =>
+      env.ctx.db
+        .update(blobs)
+        .set({ scanStatus: status })
+        .where(eq(blobs.id, (await row(id)).blobId!));
+    await scan(waiting.id, 'held');
+    await scan(bad.id, 'infected');
+    const names = async (id: string) =>
+      (await owner.get(`/nodes/${id}/children`)).body.items.map((n: { name: string }) => n.name);
+
+    const res = await owner.post(`/nodes/${inbox}/copy`, { parentId: root });
+    expect(res.status).toBe(200);
+    expect(await names(res.body.id)).toEqual(['guest.jpg']);
+
+    const created = await owner.post('/auth/app-passwords', { name: 'Laptop' });
+    const auth = `Basic ${Buffer.from(`${created.body.username}:${created.body.password}`).toString('base64')}`;
+    const dav = await env.app.inject({
+      method: 'COPY' as 'GET',
+      url: '/dav/My%20Files/From%20guests',
+      headers: { authorization: auth, destination: '/dav/My%20Files/Guests%20copy' },
+    });
+    expect(dav.statusCode).toBe(201);
+    const [copy] = await env.ctx.db.select().from(nodes).where(eq(nodes.name, 'Guests copy'));
+    expect(await names(copy!.id)).toEqual(['guest.jpg']);
+  });
 });

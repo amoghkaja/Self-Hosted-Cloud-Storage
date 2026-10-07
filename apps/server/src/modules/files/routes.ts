@@ -34,7 +34,7 @@ import { AppError, badRequest, forbidden, notFound } from '../../lib/errors';
 import { HEADLINE, HEADLINE_CHARS, wordQuery } from '../../lib/search';
 import { toIso } from '../../lib/time';
 import { requireUser } from '../../plugins/auth';
-import { loadAccess, requireAccess, requireFolder, satisfies } from './access';
+import { loadAccess, lockWriteAccess, requireAccess, requireFolder, satisfies } from './access';
 import { copyNode } from './copy';
 import { checkRewindTime, previewRewind, rewindFolder } from './rewind';
 import {
@@ -117,7 +117,11 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       await requireFolder(db, user.id, req.params.id, 'view');
-      const wanted = [...new Set(req.body.names.map((n) => n.toLowerCase()))];
+      // Lowercased by Postgres, as the folder's unique names are (see findFreeName).
+      const wanted = sql.join(
+        [...new Set(req.body.names)].map((n) => sql`lower(${n})`),
+        sql`, `,
+      );
       const rows = await db
         .select({ name: nodes.name, type: nodes.type })
         .from(nodes)
@@ -125,7 +129,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
           and(
             eq(nodes.parentId, req.params.id),
             isNull(nodes.deletedAt),
-            inArray(sql`lower(${nodes.name})`, wanted),
+            sql`lower(${nodes.name}) IN (${wanted})`,
           ),
         );
       return {
@@ -142,17 +146,22 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { user } = requireUser(req);
       const parent = await requireFolder(db, user.id, req.body.parentId, 'edit');
-      const row = await insertNode(
-        db,
-        {
-          ownerId: parent.node.ownerId,
-          parentId: parent.node.id,
-          type: 'folder',
-          name: req.body.name,
-          createdBy: user.id,
-        },
-        req.body.reuseExisting ? 'reuse' : req.body.renameIfTaken ? 'rename' : 'fail',
-      );
+      const row = await db.transaction(async (tx) => {
+        // Re-checked under lock, like uploads: a revoked share or a trash of the folder in the
+        // meantime stops it, rather than leaving a live folder inside a trashed one.
+        const target = await lockWriteAccess(tx, user.id, parent.node.id);
+        return insertNode(
+          tx,
+          {
+            ownerId: target.ownerId,
+            parentId: target.id,
+            type: 'folder',
+            name: req.body.name,
+            createdBy: user.id,
+          },
+          req.body.reuseExisting ? 'reuse' : req.body.renameIfTaken ? 'rename' : 'fail',
+        );
+      });
       return toFileNode(row);
     },
   );

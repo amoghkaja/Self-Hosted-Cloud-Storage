@@ -2,6 +2,7 @@ import { unlink } from 'node:fs/promises';
 import {
   type ChildrenQuery,
   ErrorCode,
+  Id,
   type NodePage,
   withCopySuffix,
 } from '@familycloud/shared/all';
@@ -32,15 +33,23 @@ function encodeCursor(c: Cursor): string {
   return Buffer.from(JSON.stringify(c)).toString('base64url');
 }
 
-function decodeCursor(raw: string): Cursor {
+/** Whether a cursor's key is one `sort` produces: anything else would fail in Postgres (500). */
+function keyFits(sort: ChildrenQuery['sort'], k: unknown): boolean {
+  if (sort === 'size') return Number.isSafeInteger(k);
+  if (typeof k !== 'string') return false;
+  if (sort === 'updated') return !Number.isNaN(Date.parse(k)) && new Date(k).toISOString() === k;
+  return !k.includes('\u0000');
+}
+
+function decodeCursor(raw: string, sort: ChildrenQuery['sort']): Cursor {
   try {
     const c = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
     if (
       Array.isArray(c) &&
       c.length === 3 &&
       (c[0] === 'folder' || c[0] === 'file') &&
-      (typeof c[1] === 'string' || typeof c[1] === 'number') &&
-      typeof c[2] === 'string'
+      keyFits(sort, c[1]) &&
+      Id.safeParse(c[2]).success
     ) {
       return c as Cursor;
     }
@@ -68,7 +77,7 @@ export async function listChildren(
 
   const conditions: SQL[] = [eq(nodes.parentId, folderId), isNull(nodes.deletedAt)];
   if (q.cursor) {
-    const [t, k, id] = decodeCursor(q.cursor);
+    const [t, k, id] = decodeCursor(q.cursor, q.sort);
     const kv =
       q.sort === 'updated'
         ? sql`${String(k)}::timestamptz`
@@ -124,26 +133,22 @@ export async function findFreeName(
     name,
     ...Array.from({ length: 50 }, (_, i) => withCopySuffix(name, i + 1, label)),
   ];
-  const taken = new Set(
-    (
-      await exec
-        .select({ n: sql<string>`lower(${nodes.name})` })
-        .from(nodes)
-        .where(
-          and(
-            eq(nodes.parentId, parentId),
-            isNull(nodes.deletedAt),
-            inArray(
-              sql`lower(${nodes.name})`,
-              candidates.map((c) => c.toLowerCase()),
-            ),
-          ),
-        )
-    ).map((r) => r.n),
-  );
-  const free = candidates.find((c) => !taken.has(c.toLowerCase()));
+  // Compared with Postgres's lower(), like the unique index: JS toLowerCase() differs for some
+  // letters ("ΔΙΑΚΟΠΕΣ" ends in ς, "İ" gains a dot), which would pick a name that's taken.
+  const [free] = (await exec.execute(sql`
+    SELECT c.name FROM (VALUES ${sql.join(
+      candidates.map((c, i) => sql`(${c}::text, ${i}::int)`),
+      sql`, `,
+    )}) AS c(name, i)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM nodes n
+      WHERE n.parent_id = ${parentId} AND n.deleted_at IS NULL AND lower(n.name) = lower(c.name)
+    )
+    ORDER BY c.i
+    LIMIT 1
+  `)) as unknown as { name: string }[];
   if (!free) throw conflict(`Too many items named "${name}"`, ErrorCode.NAME_CONFLICT);
-  return free;
+  return free.name;
 }
 
 /**
@@ -204,16 +209,24 @@ export async function isAncestor(
   return rows.length > 0;
 }
 
+/** Renames and/or moves a live node; with `inFolder`, only while it is still in that folder. */
 export async function updateNode(
   exec: Executor,
   nodeId: string,
   patch: { name?: string; parentId?: string },
+  inFolder?: string,
 ): Promise<NodeRow> {
   try {
     const [row] = await exec
       .update(nodes)
       .set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)))
+      .where(
+        and(
+          eq(nodes.id, nodeId),
+          isNull(nodes.deletedAt),
+          inFolder ? eq(nodes.parentId, inFolder) : undefined,
+        ),
+      )
       .returning();
     if (!row) throw notFound();
     return row;
@@ -244,7 +257,10 @@ export async function moveNode(
   return exec.transaction(async (tx) => {
     if (patch.parentId !== undefined) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`move:${node.ownerId}`}))`);
-      const [target] = await tx
+      // The folder it leaves is locked too: a trash of that folder then waits and leaves the
+      // item out, instead of trashing it in its new place. In id order, as trashSubtree locks
+      // folders, and at the strength lockWriteAccess takes below, so it never needs upgrading.
+      const folders = await tx
         .select({
           id: nodes.id,
           ownerId: nodes.ownerId,
@@ -252,9 +268,12 @@ export async function moveNode(
           deletedAt: nodes.deletedAt,
         })
         .from(nodes)
-        .where(eq(nodes.id, patch.parentId))
-        // Locked at the strength lockWriteAccess takes below, so it never needs upgrading.
+        .where(
+          inArray(nodes.id, node.parentId ? [patch.parentId, node.parentId] : [patch.parentId]),
+        )
+        .orderBy(nodes.id)
         .for(grantee ? 'no key update' : 'share');
+      const target = folders.find((f) => f.id === patch.parentId);
       if (!target || target.deletedAt || target.type !== 'folder') throw notFound('Folder');
       if (target.ownerId !== node.ownerId) {
         throw new AppError(
@@ -271,7 +290,9 @@ export async function moveNode(
     if (grantee && node.parentId) await lockWriteAccess(tx, grantee, node.parentId);
     // With the actor: if it moved meanwhile, edit access where it is now is re-checked.
     if (opts.replaceId) await trashSubtree(tx, opts.replaceId, { actorId: opts.actorId });
-    return updateNode(tx, node.id, patch);
+    // The folder just re-checked must still be the item's: if the owner moved it meanwhile
+    // (perhaps somewhere private), the grantee's change must not follow it there.
+    return updateNode(tx, node.id, patch, grantee ? (node.parentId ?? undefined) : undefined);
   });
 }
 
@@ -346,10 +367,13 @@ export async function restoreSubtree(
   if (!root) throw notFound('Trash item');
   let parentId = owner.rootNodeId!;
   if (root.parentId) {
+    // Locked: a trash of that folder under way finishes first (so this goes to the root), or
+    // waits and takes the restored item along. Never a live item in a trashed folder.
     const [parent] = await exec
       .select({ id: nodes.id })
       .from(nodes)
-      .where(and(eq(nodes.id, root.parentId), isNull(nodes.deletedAt)));
+      .where(and(eq(nodes.id, root.parentId), isNull(nodes.deletedAt)))
+      .for('share');
     if (parent) parentId = parent.id;
   }
   const name = await findFreeName(exec, parentId, root.name, 'restored');
@@ -416,6 +440,7 @@ export async function purgeTrashRoots(
       await tx.delete(nodes).where(eq(nodes.id, rootId));
       const deleted: { id: string; volumeId: string }[] = [];
       const ids = fileRows.map((f) => f.blobId);
+      await lockBlobs(tx, ids);
       for (let i = 0; i < ids.length; i += 5000) {
         deleted.push(
           ...(await tx
@@ -447,6 +472,25 @@ export async function purgeTrashRoots(
  */
 export const blobUnused = sql`(NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.blob_id = ${blobs.id})
   AND NOT EXISTS (SELECT 1 FROM file_versions WHERE file_versions.blob_id = ${blobs.id}))`;
+
+/**
+ * Locks blob rows, once the caller has removed its references and before it checks blobUnused.
+ * Two deletions that each drop one of a blob's last references (a file and its copy, say) both
+ * hold the quota lock shared, so each would still see the other's reference and keep the blob,
+ * leaving its bytes on disk for good. The second now waits for the first to commit and sees it
+ * gone. In id order, so deletions can't deadlock on each other; before the owner's usage row.
+ */
+export async function lockBlobs(tx: Executor, ids: string[]): Promise<void> {
+  const sorted = [...new Set(ids)].sort();
+  for (let i = 0; i < sorted.length; i += 5000) {
+    await tx
+      .select({ id: blobs.id })
+      .from(blobs)
+      .where(inArray(blobs.id, sorted.slice(i, i + 5000)))
+      .orderBy(blobs.id)
+      .for('update');
+  }
+}
 
 export async function deleteBlobFiles(ctx: AppContext, list: { id: string; volumeId: string }[]) {
   for (const b of list) {

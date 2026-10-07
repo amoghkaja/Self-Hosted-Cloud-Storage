@@ -59,6 +59,18 @@ to do yourself when updating is listed under **Before you update**.
 - **Previews of very large documents:** when LibreOffice took longer than 3 minutes, the preview
   was given up but LibreOffice went on running in the background, slowing the server down. It is
   now stopped.
+- **Names in Greek, Turkish and some other alphabets:** adding a file or folder whose name was
+  already taken (a second "ΔΙΑΚΟΠΕΣ" folder, a second "İzmir.jpg", or "Make a copy" of one)
+  failed instead of naming it "(1)", restoring one from the trash next to an item of the same
+  name failed, and uploads didn't ask whether to replace the existing file.
+- **Rewind a folder:** files and folders added after the moment you go back to, and deleted
+  since, no longer come back out of the trash. They weren't there at that moment.
+- **Copying a folder** (in the web app or on the network drive) silently left out files still
+  waiting for their virus check, such as photos just sent through a file request. They're
+  copied now, and open once the check is done, like the originals.
+- **Network drive:** names containing one of two invisible "non-characters" (U+FFFE, U+FFFF)
+  are refused. A file named that way, even one sent through a file request, could stop Finder
+  and Windows from listing its folder.
 
 ## v0.5.0 (2026-10-05)
 

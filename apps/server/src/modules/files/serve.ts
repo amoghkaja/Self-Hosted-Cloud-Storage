@@ -7,7 +7,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import yazl from 'yazl';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
-import { blobs } from '../../db/schema';
+import { type BlobRow, blobs } from '../../db/schema';
 import { scanningOn } from '../../jobs/scan';
 import { AppError, badRequest, notFound } from '../../lib/errors';
 import { contentDisposition, isInlineSafe, parseRange, servedContentType } from '../../lib/http';
@@ -310,8 +310,16 @@ interface TreeEntry {
   volumeId: string | null;
 }
 
-/** All live descendants of a folder with their relative paths (recursive CTE, one query). */
-export async function listTree(exec: Executor, folderId: string, limit = MAX_ZIP_ENTRIES + 1) {
+/**
+ * All live descendants of a folder with their relative paths (recursive CTE, one query), leaving
+ * out files whose scan status is in `leaveOut`: by default those that can't be sent.
+ */
+export async function listTree(
+  exec: Executor,
+  folderId: string,
+  limit = MAX_ZIP_ENTRIES + 1,
+  leaveOut: readonly BlobRow['scanStatus'][] = ['infected', 'held'],
+) {
   return (await exec.execute(sql`
     WITH RECURSIVE t AS (
       SELECT n.id, n.type, n.blob_id, n.size, n.updated_at, n.mime_type, n.name::text AS path, 1 AS depth
@@ -324,7 +332,10 @@ export async function listTree(exec: Executor, folderId: string, limit = MAX_ZIP
     SELECT t.id, t.type, t.path, t.size, t.updated_at AS "updatedAt", t.mime_type AS "mimeType",
            b.id AS "blobId", b.volume_id AS "volumeId"
     FROM t LEFT JOIN blobs b ON b.id = t.blob_id
-    WHERE b.scan_status IS NULL OR b.scan_status NOT IN ('infected', 'held')
+    WHERE b.scan_status IS NULL OR b.scan_status <> ALL(ARRAY[${sql.join(
+      leaveOut.map((s) => sql`${s}`),
+      sql`, `,
+    )}]::scan_status[])
     ORDER BY t.path
     LIMIT ${limit}
   `)) as unknown as TreeEntry[];

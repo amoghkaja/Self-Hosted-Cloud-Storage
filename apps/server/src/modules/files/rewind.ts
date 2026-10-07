@@ -10,8 +10,8 @@ import { restoreVersion } from '../versions/service';
 import { deleteBlobFiles, QUOTA_LOCK, restoreSubtree } from './tree';
 
 interface Plan {
-  /** Trash entries deleted since then, newest first, so a folder comes back before the files
-   *  that were deleted from it earlier (and those then land back inside it). */
+  /** Trash entries that were there then and deleted since, newest first, so a folder comes back
+   *  before the files that were deleted from it earlier (and those then land back inside it). */
   restore: { id: string; name: string }[];
   /**
    * Per file, the version that held its contents then: saved by then and replaced since. A
@@ -42,6 +42,7 @@ async function plan(exec: Executor, folderId: string, at: Date): Promise<Plan> {
     ${sub}
     SELECT n.id, n.name FROM nodes n JOIN sub ON sub.id = n.id
     WHERE n.trash_root_id = n.id AND n.deleted_at > ${when}::timestamptz
+      AND n.created_at <= ${when}::timestamptz
     ORDER BY n.deleted_at DESC, n.id
     LIMIT ${MAX_ITEMS}
   `)) as unknown as Plan['restore'];
