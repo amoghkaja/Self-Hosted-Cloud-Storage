@@ -17,6 +17,11 @@ to do yourself when updating is listed under **Before you update**.
   the album, and now instant uploads treat it as private too. Before, a family member who had
   the very same file could upload it "instantly" and so find out it was there.
 
+### Fixed
+
+- **File requests:** when the folder owner's storage is full, the person sending files is told
+  so, instead of "Not enough storage left in your quota" (they don't have one).
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

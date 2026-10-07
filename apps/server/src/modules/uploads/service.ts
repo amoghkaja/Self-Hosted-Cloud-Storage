@@ -102,7 +102,8 @@ export function assertFileSizeAllowed(settings: Settings, size: number): void {
 export async function reserveSpace(
   tx: Tx,
   settings: Settings,
-  input: { chargeUserId: string; uploaderId: string; size: number },
+  // uploaderId: null for a file request's sender, who has no quota of their own.
+  input: { chargeUserId: string; uploaderId: string | null; size: number },
 ): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${QUOTA_LOCK})`);
   if (settings.globalCapacityBytes != null) {
@@ -167,7 +168,7 @@ export async function createUpload(
   const who = { owner: chargeUserId, actor: input.linkId ? null : userId };
   const { session, volume } = await withRoomFromVersions(ctx, who, input.size, () =>
     ctx.db.transaction(async (tx) => {
-      await reserveSpace(tx, settings, { chargeUserId, uploaderId: userId, size: input.size });
+      await reserveSpace(tx, settings, { chargeUserId, uploaderId: who.actor, size: input.size });
       // Counted under the reservation lock so parallel requests can't exceed the limit.
       const [open_] = await tx
         .select({ n: sql<number>`count(*)::int` })

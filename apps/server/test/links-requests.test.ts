@@ -218,9 +218,13 @@ describe('file requests', () => {
     const link = await small.client.post(`/nodes/${box}/links`, { kind: 'upload' });
     const token = tokenOf(link.body.url);
     const guest = new Client(env.app);
-    expect(
-      (await guest.post(`/public/links/${token}/uploads`, { name: 'a', size: 101 })).status,
-    ).toBe(507);
+    const full = await guest.post(`/public/links/${token}/uploads`, { name: 'a', size: 101 });
+    expect(full.status).toBe(507);
+    // The sender has no quota of their own: the message says whose is full.
+    expect(full.body).toMatchObject({
+      code: 'QUOTA_EXCEEDED',
+      detail: "Not enough storage left in the folder owner's quota for this file",
+    });
 
     const { token: busy } = await newRequest();
     for (let i = 0; i < 20; i++) {
