@@ -126,3 +126,14 @@ changelog_section() {
     show { print }
   '
 }
+
+# The mount point that holds a path (or, if it doesn't exist, its nearest existing parent).
+mount_of() {
+  local p=$1
+  while [[ ! -e "$p" ]]; do p=$(dirname "$p"); done
+  findmnt -nro TARGET -T "$p"
+}
+
+# Where backup.sh remembers which mount point a folder repository's disk is on: an unplugged
+# backup disk leaves an empty folder on the system disk, where no new repository may start.
+restic_mount_file() { echo "$1/.restic-mount"; }

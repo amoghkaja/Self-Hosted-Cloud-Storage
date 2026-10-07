@@ -52,6 +52,7 @@ disks_of() {
 [[ -t 0 ]] || die "Run this in a terminal: it asks questions and keys are typed hidden."
 load_env deploy/.env
 STORAGE_ROOT=${STORAGE_ROOT:-/srv/familycloud}
+BACKUP_DIR=${BACKUP_DIR:-$STORAGE_ROOT/backups}
 
 bold "Family Cloud backup setup"
 
@@ -78,6 +79,11 @@ else
       if [[ -n "$shared" ]]; then
         warn "$DEST is on the same disk as your files ($(echo "$shared" | xargs))."
         warn "If that disk fails, the backup is lost with it."
+        yes_no "Use it anyway?" n || die "Nothing was changed."
+      fi
+      if [[ "$(mount_of "$DEST")" == / ]]; then
+        warn "$DEST is on the system disk, not on a disk of its own. If your backup disk is"
+        warn "meant to be mounted there, it isn't right now: plug it in (or mount it) first."
         yes_no "Use it anyway?" n || die "Nothing was changed."
       fi
       RESTIC_REPOSITORY=$DEST
@@ -126,6 +132,12 @@ else
     } > "$BACKUP_ENV.partial"
     chmod 600 "$BACKUP_ENV.partial"
     mv "$BACKUP_ENV.partial" "$BACKUP_ENV"
+    # From the first nightly run on, backup.sh refuses to start a repository anywhere but this
+    # disk (the disk is here now; tonight it may not be).
+    if [[ "$RESTIC_REPOSITORY" == /* ]]; then
+      mkdir -p "$BACKUP_DIR"
+      mount_of "$RESTIC_REPOSITORY" > "$(restic_mount_file "$BACKUP_DIR")"
+    fi
     unset KEY
     export RESTIC_REPOSITORY RESTIC_PASSWORD
     bold "Wrote deploy/backup.env"

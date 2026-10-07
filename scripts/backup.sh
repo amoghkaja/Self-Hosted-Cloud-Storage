@@ -24,12 +24,6 @@ KEEP_DUMPS=${KEEP_DUMPS:-14}
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
-# The mount point that holds a path (or, if it doesn't exist, its nearest existing parent).
-mount_of() {
-  local p=$1
-  while [[ ! -e "$p" ]]; do p=$(dirname "$p"); done
-  findmnt -nro TARGET -T "$p"
-}
 
 mkdir -p "$BACKUP_DIR"
 # A first off-site upload can take longer than a day; don't start a second run on top of it.
@@ -52,7 +46,7 @@ if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
   # where the repository was. A new repository there would quietly fill the system disk with a
   # copy of every file, so a folder repository is only ever created on the disk it was on.
   REPO_DIR=${RESTIC_REPOSITORY#local:}
-  REPO_MOUNT_FILE="$BACKUP_DIR/.restic-mount"
+  REPO_MOUNT_FILE=$(restic_mount_file "$BACKUP_DIR")
   if ! restic cat config >/dev/null 2>&1; then
     if [[ "$REPO_DIR" == /* && -f "$REPO_MOUNT_FILE" \
       && "$(mount_of "$REPO_DIR")" != "$(<"$REPO_MOUNT_FILE")" ]]; then
