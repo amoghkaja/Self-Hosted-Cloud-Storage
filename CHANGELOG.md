@@ -22,6 +22,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Passkeys:** when adding a passkey doesn't work (for example after leaving the Face ID prompt
   open for more than five minutes), you're told why instead of being bounced to the sign-in
   page and back.
+- **Shared links:** opening a link while the server can't be reached (a phone between networks,
+  the server restarting) says so and offers **Try again**, instead of claiming the link was
+  removed.
 
 ### Security
 

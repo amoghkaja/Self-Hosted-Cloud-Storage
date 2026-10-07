@@ -103,17 +103,26 @@ export function PublicLinkPage() {
     );
   }
   if (info.isError) {
-    const expired = info.error instanceof ApiError && info.error.status === 410;
+    const status = info.error instanceof ApiError ? info.error.status : 0;
+    // A cut-off address fails validation (400) rather than lookup (404): it's mistyped too.
+    const gone = status >= 400 && status < 500 && status !== 408 && status !== 429;
     return (
       <Frame>
-        <ErrorState
-          title={expired ? 'This link has expired' : 'Link not found'}
-          error={
-            expired
-              ? 'Ask the person who shared it for a new link.'
-              : 'It may have been removed or mistyped.'
-          }
-        />
+        {status === 410 ? (
+          <ErrorState
+            title="This link has expired"
+            error="Ask the person who shared it for a new link."
+          />
+        ) : gone ? (
+          <ErrorState title="Link not found" error="It may have been removed or mistyped." />
+        ) : (
+          // No connection, the server restarting, too many tries: the link itself may be fine.
+          <ErrorState
+            title="Couldn't open this link"
+            error={info.error}
+            onRetry={() => void info.refetch()}
+          />
+        )}
       </Frame>
     );
   }
