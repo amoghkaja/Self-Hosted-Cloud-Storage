@@ -199,6 +199,24 @@ describe('trip albums', () => {
     expect(added.body.detail).toBe('Someone in the list is not in the family');
   });
 
+  it('refuses a page cursor it never handed out (400, not a server error)', async () => {
+    const album = (
+      await mom.post('/albums', { title: 'Cursors', startDate: '2026-04-01', peopleIds: [momId] })
+    ).body;
+    const cursor = (c: unknown) => Buffer.from(JSON.stringify(c)).toString('base64url');
+    const someId = '00000000-0000-4000-8000-000000000000';
+    for (const c of [
+      ['2020-02-30T00:00:00.000000', someId],
+      ['2020', someId],
+      ['0000-01-01T00:00:00.000000', someId],
+      ['2026-01-01T00:00:00.000000', '-'.repeat(36)],
+    ]) {
+      const res = await kid.get(`/albums/${album.id}/photos?cursor=${cursor(c)}`);
+      expect(res.status, JSON.stringify(c)).toBe(400);
+      expect(res.body).toMatchObject({ code: 'VALIDATION_ERROR', detail: 'Invalid cursor' });
+    }
+  });
+
   it('refuses unknown people and bad dates', async () => {
     const bad = await mom.post('/albums', {
       title: 'X',

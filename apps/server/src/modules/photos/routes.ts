@@ -673,6 +673,14 @@ function encodeCursor(c: [string, string]) {
   return Buffer.from(JSON.stringify(c)).toString('base64url');
 }
 
+/**
+ * Exactly what shotAtText writes, at a real moment: Date.parse also takes "2020", 30 February
+ * or year 0, which PostgreSQL then refuses (a 500).
+ */
+const realShotAt = (s: string) =>
+  /^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}$/.test(s) &&
+  new Date(`${s.slice(0, 19)}Z`).toISOString().slice(0, 19) === s.slice(0, 19);
+
 function decodeCursor(raw: string): [string, string] {
   try {
     const c = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
@@ -680,9 +688,9 @@ function decodeCursor(raw: string): [string, string] {
       Array.isArray(c) &&
       c.length === 2 &&
       typeof c[0] === 'string' &&
-      !Number.isNaN(Date.parse(c[0])) &&
+      realShotAt(c[0]) &&
       typeof c[1] === 'string' &&
-      /^[0-9a-f-]{36}$/i.test(c[1])
+      z.uuid().safeParse(c[1]).success
     ) {
       return c as [string, string];
     }
