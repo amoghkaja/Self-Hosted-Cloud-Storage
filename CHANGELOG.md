@@ -12,6 +12,10 @@ to do yourself when updating is listed under **Before you update**.
 
 - **Network drive:** a partial upload (such as resuming one with `curl -C -`) is refused instead of
   replacing the whole file with just the part that was sent.
+- **Network drive:** copying a file over another one (from apps like Cyberduck, Dolphin or
+  rclone) saves over it like any other save: it keeps its sharing and links, and what it held
+  goes to Version history. A copy over an item that fails (for example, not enough space) leaves
+  that item as it was instead of moving it to the trash.
 - **Version history:** files copied to the network drive from Finder or Windows no longer get an
   empty "older version" (both write an empty file before its contents). Empty files are never
   kept as versions.

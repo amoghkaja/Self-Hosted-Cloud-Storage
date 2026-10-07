@@ -8,8 +8,8 @@ import { type NodeRow, nodes, shares, type UserRow, users } from '../../db/schem
 import { AppError } from '../../lib/errors';
 import { storageFor } from '../../lib/space';
 import { loadAccess, type NodeAccess, satisfies } from '../files/access';
-import { copyNode, MAX_COPY_ENTRIES } from '../files/copy';
-import { etagMatches, listTree, sendBlob } from '../files/serve';
+import { copyNode } from '../files/copy';
+import { etagMatches, sendBlob } from '../files/serve';
 import { insertNode, isAncestor, moveNode, nameSortKey, trashSubtree } from '../files/tree';
 import { ingest } from '../uploads/ingest';
 import { moveContentOnto } from '../versions/service';
@@ -504,23 +504,14 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
           return reply.status(d.existing ? 204 : 201).send();
         }
 
-        // Checked before anything changes, so a refused copy leaves the destination alone.
-        const shallow = req.headers.depth === '0';
-        const tree =
-          src.node.type === 'folder' && !shallow
-            ? await listTree(ctx.db, src.node.id, MAX_COPY_ENTRIES + 1)
-            : [];
-        if (tree.length > MAX_COPY_ENTRIES)
-          throw new AppError(413, ErrorCode.VALIDATION, 'Folder is too large to copy in one go');
-        if (d.existing) await trashSubtree(ctx.db, d.existing.node.id, { actorId: user.id });
         await copyNode(ctx, {
           userId: user.id,
           source: src.node,
           dest: { id: destParent.node.id, ownerId: destParent.node.ownerId },
           name: d.name,
           onConflict: 'fail',
-          shallow,
-          tree,
+          shallow: req.headers.depth === '0',
+          replace: d.existing?.node,
         });
         return reply.status(d.existing ? 204 : 201).send();
       }
