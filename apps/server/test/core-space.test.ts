@@ -106,6 +106,8 @@ describe('branding', () => {
     expect((await admin.patch('/admin/branding', { homeUrl: 'javascript:alert(1)' })).status).toBe(
       400,
     );
+    // The app reads it with new URL() on every page, sign-in included: it must parse.
+    expect((await admin.patch('/admin/branding', { homeUrl: 'https://a:8o80' })).status).toBe(400);
   });
 });
 

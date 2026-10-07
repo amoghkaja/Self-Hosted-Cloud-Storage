@@ -96,6 +96,8 @@ export const Branding = z.object({
     .trim()
     .max(200)
     .regex(/^https?:\/\/[^\s/]+(\/\S*)?$/, 'Must be an http(s) address')
+    // The app shows its host (new URL) on every page, sign-in included.
+    .refine((u) => URL.canParse(u), 'Must be an http(s) address')
     .nullable(),
   /**
    * Shown on the Privacy page: who runs this server and how to reach them, and any terms of
