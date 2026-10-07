@@ -199,6 +199,28 @@ describe('trip albums', () => {
     expect(added.body.detail).toBe('Someone in the list is not in the family');
   });
 
+  it('pages through an album with the cursors it hands out', async () => {
+    const album = (
+      await mom.post('/albums', { title: 'Pages', startDate: '2026-04-02', peopleIds: [momId] })
+    ).body;
+    const ids = new Set<string>();
+    for (const n of [61, 62, 63]) ids.add(await addPhoto(mom, album.id, `p${n}.jpg`, n));
+    const pageAfter = (cursor: string | null) =>
+      kid.get<{ items: { id: string }[]; nextCursor: string | null }>(
+        `/albums/${album.id}/photos?limit=1${cursor ? `&cursor=${cursor}` : ''}`,
+      );
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await pageAfter(cursor);
+      expect(page.status).toBe(200);
+      seen.push(...page.body.items.map((p) => p.id));
+      cursor = page.body.nextCursor;
+    } while (cursor);
+    expect(seen).toHaveLength(3);
+    expect(new Set(seen)).toEqual(ids);
+  });
+
   it('refuses a page cursor it never handed out (400, not a server error)', async () => {
     const album = (
       await mom.post('/albums', { title: 'Cursors', startDate: '2026-04-01', peopleIds: [momId] })
