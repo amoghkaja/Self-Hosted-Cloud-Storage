@@ -72,7 +72,12 @@ const XMLNS = /\s(xmlns(?::([^\s=]+))?)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
  * entities): it only needs element names and the namespaces they resolve to.
  */
 export function proppatchNames(xml: string): PropName[] {
-  const clean = xml.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<[?!][\s\S]*?>/g, '');
+  // An unclosed comment or declaration runs to the end. Searching for its end again from every
+  // "<" after it made a 64 KB body of "<!--<!--…" hold up the server for half a second.
+  const clean = xml.replace(
+    /<!--[\s\S]*?(?:-->|$)|<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<[?!][^>]*>?/g,
+    '',
+  );
   const stack: { ns: string; name: string; scope: Map<string, string> }[] = [];
   const out: PropName[] = [];
   for (const m of clean.matchAll(TAG)) {

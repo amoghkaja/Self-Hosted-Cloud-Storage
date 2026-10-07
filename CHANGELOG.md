@@ -24,6 +24,8 @@ to do yourself when updating is listed under **Before you update**.
 
 - **Network drive:** a device removed in Settings (or an account disabled) at the moment that
   device was signing in could keep working for up to a minute. It's now locked out at once.
+- **Network drive:** a signed-in device could stall the server for about a second with each
+  specially made request.
 
 ## v0.5.0 (2026-10-05)
 
