@@ -40,6 +40,8 @@ to do yourself when updating is listed under **Before you update**.
   next to Copy, and a deleted link can't be brought back (a new one has a different address).
 - **iPhone home-screen app:** the bar that appears when you select files no longer slides half
   under the top bar while you scroll; its Clear button and the count were hidden there.
+- **Undo on a phone:** the Undo and close buttons on messages like "Moved … to trash" are
+  easier to hit with a thumb.
 - **Deleting a comment on a photo** asks first, showing the comment. The bins of stacked
   comments sit right under each other, and the photo's owner can delete anyone's comment.
 
