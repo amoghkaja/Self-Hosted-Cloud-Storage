@@ -66,7 +66,10 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   } catch {
     // non-JSON error (proxy page); fall through with a generic message
   }
-  if (res.status === 401 && !opts.quiet401) {
+  // Only a missing or ended session means signed out. Other 401s are a wrong code, a passkey that
+  // didn't verify or a locked link, and must not send someone who is signed in to /login.
+  const sessionGone = (problem.code ?? 'UNAUTHENTICATED') === 'UNAUTHENTICATED';
+  if (res.status === 401 && sessionGone && !opts.quiet401) {
     for (const l of unauthorizedListeners) l();
   }
   throw new ApiError(
