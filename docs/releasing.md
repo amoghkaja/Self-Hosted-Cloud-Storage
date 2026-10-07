@@ -47,7 +47,8 @@ Every change a family would notice adds a line to the **Unreleased** section of
 - **Database migrations run forwards only, on start**, and every release must update from
   *any* earlier release: people skip versions. Never edit a migration that has shipped.
 - `update.sh` backs up the database first. Going back to an older version means restoring
-  that backup, so a release never needs a "downgrade" path.
+  that backup (it does so itself when a new version crashes on start), so a release never needs
+  a "downgrade" path.
 - Automatic updates (`update.sh -y`) stop before any release with a **Before you update**
   section, so those steps are never skipped.
 - `main` must always be deployable: people on the `main` channel build it as it is.

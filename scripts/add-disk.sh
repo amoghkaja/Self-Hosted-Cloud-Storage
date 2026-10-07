@@ -96,7 +96,9 @@ sudo mkdir -p "$MOUNT"
 # nofail: the machine still boots if the disk is unplugged; the app then shows it as offline.
 LINE="UUID=$UUID $MOUNT $FSTYPE defaults,nofail,noatime 0 2"
 if [[ -z "$FSTAB_MOUNT" ]]; then
-  echo "$LINE" | sudo tee -a /etc/fstab >/dev/null
+  # On a line of its own: if the file doesn't end in a newline, the entry would join its last line
+  # (and break the mount on that line, e.g. /boot/efi, at the next boot).
+  { if [[ -n "$(tail -c1 /etc/fstab)" ]]; then echo; fi; echo "$LINE"; } | sudo tee -a /etc/fstab >/dev/null
   echo "Added to /etc/fstab: $LINE"
   sudo systemctl daemon-reload 2>/dev/null || true   # systemd caches fstab
 fi

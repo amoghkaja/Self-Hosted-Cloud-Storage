@@ -118,9 +118,9 @@ cd familycloud
 
 It shows what's new since your version (from [CHANGELOG.md](../CHANGELOG.md)) and asks before it:
 
-1. backs up the database to `/srv/familycloud/backups/pre-update-*.dump` (the last 3 are kept),
-2. moves the code to the newest release and pulls its image (or builds it),
-3. restarts and waits until the app answers again, then prints the old and new version.
+1. moves the code to the newest release and pulls its image (or builds it), plus the newest builds of the database, tunnel, Caddy and virus scanner images (for their security fixes), while the cloud keeps running,
+2. stops the app and backs up the database to `/srv/familycloud/backups/pre-update-*.dump` (the last 3 are kept),
+3. restarts and waits until the app answers again, removes the images the previous version used, and prints the old and new version.
 
 The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start. **Admin → Overview** shows the version you run, at the bottom.
 
@@ -128,7 +128,7 @@ The family can't use the cloud for a minute or two while it restarts. Database c
 - **Automatic updates:** the installer offers a weekly job (Sundays 04:30). To add it later, run `crontab -e` and add `30 4 * * 0 /path/to/familycloud/scripts/update.sh -y >> /srv/familycloud/backups/update.log 2>&1`.
 - **Releases that need you.** A release that needs you to do something lists it under **Before you update** in the changelog, and raises the first number of the version, e.g. `v1.x` → `v2.0` ([how versions are numbered](releasing.md)). Automatic updates skip these, and the log says why: read the notes, then run `./scripts/update.sh` yourself.
 - **Follow the latest code instead of releases:** set `UPDATE_CHANNEL=main` in `deploy/.env`. Updates then build `main` on your machine.
-- **An update failed?** Your files aren't touched. `update.sh` prints how to go back: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).
+- **An update failed?** Your files aren't touched. If the new version couldn't be built or the database backup failed, nothing was changed and the cloud carries on as before. If the new version crashes on start, `update.sh` goes back to the one you had by itself, with the database as it was just before the update, and the next update tries again. If it's only slow to start (a big database change on a small computer), it's left to finish, and `update.sh` prints how to go back by hand: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).
 - **Changed files in the checkout?** Updating stops rather than overwrite them. Keep changes in a fork (see below), or run `git stash`.
 
 ## Running a modified version

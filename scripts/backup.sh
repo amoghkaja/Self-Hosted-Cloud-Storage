@@ -24,6 +24,12 @@ KEEP_DUMPS=${KEEP_DUMPS:-14}
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
+# The mount point that holds a path (or, if it doesn't exist, its nearest existing parent).
+mount_of() {
+  local p=$1
+  while [[ ! -e "$p" ]]; do p=$(dirname "$p"); done
+  findmnt -nro TARGET -T "$p"
+}
 
 mkdir -p "$BACKUP_DIR"
 # A first off-site upload can take longer than a day; don't start a second run on top of it.
@@ -42,10 +48,27 @@ ls -1t "$BACKUP_DIR"/db-*.dump 2>/dev/null | tail -n +$((KEEP_DUMPS + 1)) | xarg
 
 if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
   command -v restic >/dev/null || { log "restic not installed (sudo apt install restic)"; exit 1; }
-  restic snapshots >/dev/null 2>&1 || { log "Initializing restic repository"; restic init; }
+  # A backup disk that isn't plugged in leaves an empty folder (or none) on the system disk
+  # where the repository was. A new repository there would quietly fill the system disk with a
+  # copy of every file, so a folder repository is only ever created on the disk it was on.
+  REPO_DIR=${RESTIC_REPOSITORY#local:}
+  REPO_MOUNT_FILE="$BACKUP_DIR/.restic-mount"
+  if ! restic cat config >/dev/null 2>&1; then
+    if [[ "$REPO_DIR" == /* && -f "$REPO_MOUNT_FILE" \
+      && "$(mount_of "$REPO_DIR")" != "$(<"$REPO_MOUNT_FILE")" ]]; then
+      log "Backup repository $RESTIC_REPOSITORY not found. Is the backup disk connected and"
+      log "mounted at $(<"$REPO_MOUNT_FILE")? Nothing was backed up off this machine."
+      exit 1
+    fi
+    log "Initializing restic repository"
+    restic init
+  fi
+  if [[ "$REPO_DIR" == /* ]]; then mount_of "$REPO_DIR" > "$REPO_MOUNT_FILE"; fi
   log "restic backup of volumes + database dumps"
-  # Thumbnails (cache/) are derived data and are deliberately skipped.
-  restic backup --tag familycloud --exclude '*/tmp/*' "$STORAGE_ROOT/volumes" "$BACKUP_DIR"
+  # Thumbnails (cache/) are derived data and are deliberately skipped. So is each disk's
+  # lost+found: only root can read it, and an unreadable folder fails the run before pruning.
+  restic backup --tag familycloud --exclude '*/tmp/*' --exclude "$STORAGE_ROOT/volumes/*/lost+found" \
+    "$STORAGE_ROOT/volumes" "$BACKUP_DIR"
   restic forget --tag familycloud --keep-daily 7 --keep-weekly 5 --keep-monthly 12 --prune
   log "restic done"
 else

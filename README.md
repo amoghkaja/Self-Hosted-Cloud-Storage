@@ -60,7 +60,7 @@ The [self-hosting guide](docs/self-hosting.md) walks through each step, includin
 ./scripts/update.sh
 ```
 
-It shows what's new, backs up the database, installs the newest release and checks that everything came back. If you turned on automatic updates, this runs every Sunday morning; releases that need you to do something are left for you to run by hand. What changed in each version is in the [changelog](CHANGELOG.md), and **Admin → Overview** shows the version you run.
+It shows what's new, backs up the database, installs the newest release and checks that everything came back (if the new version doesn't start, it goes back to the one you had). If you turned on automatic updates, this runs every Sunday morning; releases that need you to do something are left for you to run by hand. What changed in each version is in the [changelog](CHANGELOG.md), and **Admin → Overview** shows the version you run.
 
 ### Guides
 

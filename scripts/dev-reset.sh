@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stops local dev processes and wipes local dev data (database + files). Development only.
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 # Bracketed first letters stop pkill from matching this script's own command line.
 pkill -f '[t]sx watch' || true

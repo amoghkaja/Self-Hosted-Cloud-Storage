@@ -40,6 +40,10 @@ to do yourself when updating is listed under **Before you update**.
 - **Shared computers:** when your session ends while Family Cloud is open (it expired, or you were
   signed out from another device), the page forgets your files, as signing out does. Whoever
   signed in next in that tab could briefly see your folders, recent files and search results.
+- **Updating:** `update.sh` also downloads the newest builds of the database (PostgreSQL 18),
+  Cloudflare Tunnel, Caddy and virus scanner images. They used to stay as they were on the day
+  you installed, without their security fixes, and an old virus scanner stops getting new virus
+  lists.
 
 ### Improved
 
@@ -81,6 +85,9 @@ to do yourself when updating is listed under **Before you update**.
   showing grey placeholders forever, and loads by itself when the connection is back.
 - **Deleting a comment on a photo** asks first, showing the comment. The bins of stacked
   comments sit right under each other, and the photo's owner can delete anyone's comment.
+- **Updating:** if a new version crashes on start, the update goes back to the version you had by
+  itself, with the database as it was just before. A bad automatic update on a Sunday morning no
+  longer leaves the cloud down until you notice. The next update tries again.
 
 ### Fixed
 
@@ -161,6 +168,26 @@ to do yourself when updating is listed under **Before you update**.
 - **Shared links, invites and password-reset links:** opening one while the server can't be
   reached (a phone between networks, the server restarting) says so and offers **Try again**,
   instead of claiming the link was removed or used up.
+- **Backups:** when the backup disk isn't plugged in, the nightly backup stops with a message in
+  its log. Before, it started a new backup in the empty folder the disk leaves behind, which is
+  on the system disk, and could fill it with a copy of every file.
+- **Backups:** after adding a disk with `scripts/add-disk.sh`, every off-site backup ended with an
+  error and old backups were never cleaned up, because of the disk's `lost+found` folder (which
+  only the system can read). That folder is now skipped.
+- **Server:** the logs Docker keeps for each container are capped at 50 MB. They used to grow
+  with every request until the containers were next replaced, and could fill the system disk.
+- **Virus scanning:** the guide to using a scanner on another computer missed a step: the server
+  couldn't reach it, so files waited to be checked forever and those sent through a file request
+  couldn't be opened. See "Using your own scanner" in `docs/virus-scanning.md`.
+- **Updating:** the database backup made before an update is now taken once the new version is
+  downloaded or built, with the app stopped. It used to be taken first, so anything saved while
+  the new version downloaded (or built, which takes a while on a Raspberry Pi) was missing from
+  it. If the new version can't be built or the backup fails, the update now puts everything back
+  as it was, instead of leaving the next version half set up.
+- **Updating:** the images the previous version used are removed once the new one is running.
+  They used to stay on the system disk, a few hundred MB with every update.
+- **Adding a disk:** if `/etc/fstab` didn't end with a line break, `scripts/add-disk.sh` joined
+  the new disk's line onto the last one, so after the next restart neither was mounted.
 
 ## v0.5.0 (2026-10-05)
 

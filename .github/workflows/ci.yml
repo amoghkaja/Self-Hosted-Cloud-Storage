@@ -79,9 +79,9 @@ jobs:
   installer:
     name: Installer and updater
     runs-on: ubuntu-24.04
-    # Builds the image on the runner, as a fresh install of main does, and starts it: about 6
-    # minutes.
-    timeout-minutes: 20
+    # Builds the image on the runner, as a fresh install of main does, and starts it (about 6
+    # minutes), then backs it up and updates it to a few newer commits (a few minutes more).
+    timeout-minutes: 30
     env:
       # Test this commit's installer (on stable, a fresh clone switches to the newest release).
       UPDATE_CHANNEL: main
@@ -93,6 +93,11 @@ jobs:
           fetch-depth: 0
       - name: Shell scripts pass shellcheck
         run: shellcheck --severity=warning scripts/*.sh
+      - name: An older PostgreSQL 18 image, as on a machine installed a while ago
+        run: |
+          docker pull -q postgres:18.0-alpine
+          docker tag postgres:18.0-alpine postgres:18-alpine
+          docker image rm postgres:18.0-alpine
       - name: Install on a clean machine
         run: ./scripts/install.sh -y
       - name: The app answers and waits for its first admin
@@ -100,6 +105,14 @@ jobs:
           curl -fsS localhost:3080/healthz
           curl -fsS localhost:3080/api/v1/auth/setup-status | grep -q '"needsSetup":true'
           cd deploy && docker compose exec -T app node dist/cli.js setup-token
+      - name: Every container's log is capped, so logs can't fill the disk
+        working-directory: deploy
+        run: |
+          docker compose --profile '*' config --format json \
+            | jq -e '[.services[].logging.options["max-size"]] | all(. != null)'
+          for id in $(docker compose ps -q); do
+            [[ "$(docker inspect -f '{{index .HostConfig.LogConfig.Config "max-size"}}' "$id")" == 10m ]]
+          done
       - name: Running it again keeps every setting
         run: |
           grep -v '^# Generated' deploy/.env > "$RUNNER_TEMP/before.env"
@@ -107,6 +120,89 @@ jobs:
           grep -v '^# Generated' deploy/.env | diff "$RUNNER_TEMP/before.env" -
       - name: The updater checks for a newer version
         run: ./scripts/update.sh --check
+      - name: Backups go to the backup disk (never the system disk when it's unplugged)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq restic
+          # Like a disk added with add-disk.sh: its lost+found can only be read by root.
+          sudo mkdir -p -m 700 "$STORAGE_ROOT/volumes/disk2/lost+found"
+          export RESTIC_REPOSITORY=$RUNNER_TEMP/backup-disk/familycloud RESTIC_PASSWORD=ci-only
+          mkdir "$RUNNER_TEMP/backup-disk"
+          sudo mount -t tmpfs -o "size=256m,uid=$(id -u)" tmpfs "$RUNNER_TEMP/backup-disk"
+          ./scripts/backup.sh
+          sudo umount "$RUNNER_TEMP/backup-disk"
+          if ./scripts/backup.sh; then echo "backed up into the empty mount point" >&2; exit 1; fi
+          [[ -z "$(ls -A "$RUNNER_TEMP/backup-disk")" ]]
+          # A second, empty disk in its place (two disks taking turns) gets a repository of its own.
+          sudo mount -t tmpfs -o "size=256m,uid=$(id -u)" tmpfs "$RUNNER_TEMP/backup-disk"
+          ./scripts/backup.sh
+          restic snapshots --json | jq -e 'length == 1'
+      - name: Updating backs up the database, moves to the new version and refreshes every image
+        run: |
+          # A newer commit on main, in a local stand-in for GitHub; this machine runs the one before.
+          git -c user.name=CI -c user.email=ci@localhost commit -q --allow-empty -m "A newer version"
+          git init -q --bare "$RUNNER_TEMP/origin.git"
+          git push -q "$RUNNER_TEMP/origin.git" HEAD:refs/heads/main
+          git remote set-url origin "$RUNNER_TEMP/origin.git"
+          git checkout -q --detach HEAD~1
+          SINCE=$(date +%s)
+          LEFTOVERS=$(docker images -q --filter dangling=true | wc -l)
+          ./scripts/update.sh <<<y
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]
+          ls "$STORAGE_ROOT"/backups/pre-update-*.dump
+          # The previous version's image doesn't stay behind, taking up the disk.
+          (( $(docker images -q --filter dangling=true | wc -l) <= LEFTOVERS ))
+          # The database copy was made after the app stopped, so it holds everything it wrote.
+          docker events --since "$SINCE" --until "$(date +%s)" \
+            --format '{{.Action}} {{.Actor.Attributes.name}}' > "$RUNNER_TEMP/events"
+          STOPPED=$(grep -n -m1 '^stop familycloud-app-' "$RUNNER_TEMP/events" | cut -d: -f1)
+          DUMPED=$(grep -n -m1 '^exec_start: pg_dump' "$RUNNER_TEMP/events" | cut -d: -f1)
+          (( STOPPED < DUMPED ))
+          # The database image was refreshed too (it started as 18.0).
+          VERSION=$(cd deploy && docker compose exec -T db postgres --version)
+          echo "$VERSION"
+          [[ "$VERSION" != *" 18.0" ]]
+      - name: An update that can't build or back up changes nothing
+        run: |
+          # A newer version that doesn't build: the update stops, and nothing changes.
+          OLD=$(git rev-parse HEAD)
+          OLD_IMAGE=$(grep '^IMAGE=' deploy/.env)
+          OLD_APP=$(cd deploy && docker compose ps -q app)
+          echo 'RUN false' >> Dockerfile
+          git -c user.name=CI -c user.email=ci@localhost commit -q -am "A version that doesn't build"
+          git push -q origin HEAD:main
+          git reset -q --hard "$OLD"
+          if ./scripts/update.sh <<<y; then exit 1; fi
+          [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
+          [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          # The next version builds, but the database backup fails: the app that was running starts again.
+          git checkout -q --detach origin/main
+          git -c user.name=CI -c user.email=ci@localhost revert --no-edit HEAD >/dev/null
+          git push -q origin HEAD:main
+          git checkout -q -
+          if BACKUP_DIR=/nonexistent ./scripts/update.sh <<<y; then exit 1; fi
+          [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
+          [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          curl -fsS "localhost:${APP_PORT:-3080}/healthz"
+      - name: A new version that crashes on start is rolled back
+        env:
+          WAIT_SECS: '60'
+        run: |
+          OLD=$(git rev-parse HEAD)
+          OLD_IMAGE=$(grep '^IMAGE=' deploy/.env)
+          OLD_IMAGE_ID=$(docker inspect -f '{{.Image}}' "$(cd deploy && docker compose ps -q app)")
+          git checkout -q --detach origin/main
+          echo 'CMD ["node", "-e", "process.exit(1)"]' >> Dockerfile
+          git -c user.name=CI -c user.email=ci@localhost commit -q -am "A version that crashes on start"
+          git push -q origin HEAD:main
+          git checkout -q -
+          if ./scripts/update.sh <<<y; then exit 1; fi
+          [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
+          [[ "$(docker inspect -f '{{.Image}}' "$(cd deploy && docker compose ps -q app)")" == "$OLD_IMAGE_ID" ]]
+          curl -fsS "localhost:${APP_PORT:-3080}/healthz"
+          # The database was put back from the backup; the one the new version had is kept aside.
+          cd deploy
+          docker compose exec -T db psql -U familycloud -d postgres -tAc \
+            "select datname from pg_database where datname = 'familycloud_failed_update'" | grep -q .
       - name: Logs
         if: failure()
         run: cd deploy && docker compose ps && docker compose logs --tail 80

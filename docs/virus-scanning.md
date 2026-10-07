@@ -38,7 +38,18 @@ To pause checking without removing the scanner, use **Admin → Settings → Che
 
 ## Using your own scanner
 
-If you already run `clamd` elsewhere, set `CLAMAV_HOST` (and `CLAMAV_PORT` if it isn't 3310) in `deploy/.env` to point at it, leave `clamav` out of `COMPOSE_PROFILES`, and run `docker compose up -d`. Files are streamed to it over TCP, so it needs no access to the storage disks.
+If you already run `clamd` elsewhere, set `CLAMAV_HOST` (and `CLAMAV_PORT` if it isn't 3310) in `deploy/.env` to point at it, and leave `clamav` out of `COMPOSE_PROFILES`. Files are streamed to it over TCP, so it needs no access to the storage disks.
+
+The checking is done by the `worker` container, which has no network route off this server unless you give it one (it opens the photos, videos and documents people upload). Without one it can't reach your scanner: files wait to be checked forever, and those sent through a file request can't be opened. Create `deploy/docker-compose.override.yml` with:
+
+```yaml
+# Lets the worker reach a virus scanner on another computer.
+services:
+  worker:
+    networks: [internal, updates]
+```
+
+Then run `docker compose up -d` in `deploy/`.
 
 ## Trying it
 

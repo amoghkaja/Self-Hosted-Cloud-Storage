@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Family Cloud updater: backs up the database, moves to the newest version, restarts and checks
-# that it came back. Your files, settings and accounts are kept; database changes apply on start.
+# Family Cloud updater: gets the newest version, backs up the database, restarts and checks
+# that it came back (going back to the old version if the new one crashes). Your files, settings
+# and accounts are kept; database changes apply on start.
 #
 #   ./scripts/update.sh           show what's new, ask, then update
 #   ./scripts/update.sh --check   only show whether an update is available
@@ -99,16 +100,55 @@ if ! $YES; then
   [[ "$ans" =~ ^[Yy] ]] || { info "Not updated."; exit 0; }
 fi
 
-# A database copy from just before the update: database changes on start can't be undone
-# otherwise. Kept separate from the nightly dumps; the last 3 are kept.
-BACKUP_DIR=${BACKUP_DIR:-$STORAGE_ROOT/backups}
-DUMP="$BACKUP_DIR/pre-update-$(date +%Y%m%d-%H%M%S).dump"
-bold "Backing up the database"
-( umask 077; docker compose exec -T db pg_dump -U familycloud -d familycloud -Fc > "$DUMP.partial" ) \
-  || { rm -f "$DUMP.partial"; die "The database backup failed, so nothing was changed."; }
-mv "$DUMP.partial" "$DUMP"
-info "$DUMP ($(du -h "$DUMP" | cut -f1))"
-ls -1t "$BACKUP_DIR"/pre-update-*.dump 2>/dev/null | tail -n +4 | xargs -r rm --
+# What to go back to if the new version can't be used: this checkout, the IMAGE setting, and the
+# image the app runs now, under a name of its own (a local build's name is about to move on, and
+# Docker can then forget the old image).
+OLD_BRANCH=$(git symbolic-ref --quiet --short HEAD || true)
+OLD_IMAGE=${IMAGE:-}
+PREVIOUS_IMAGE=familycloud:before-update
+docker image rm "$PREVIOUS_IMAGE" >/dev/null 2>&1 || true
+APP_ID=$(docker compose ps -q app 2>/dev/null || true)
+if [[ -n "$APP_ID" ]]; then docker tag "$(docker inspect -f '{{.Image}}' "$APP_ID")" "$PREVIOUS_IMAGE" || true; fi
+back_to_previous() {
+  if [[ -n "$OLD_BRANCH" ]]; then
+    git checkout --quiet -B "$OLD_BRANCH" "$OLD_REF"
+  else
+    git -c advice.detachedHead=false checkout --quiet "$OLD_REF"
+  fi || return 1
+  if docker image inspect "$PREVIOUS_IMAGE" >/dev/null 2>&1; then
+    docker tag "$PREVIOUS_IMAGE" "${OLD_IMAGE:-$RELEASE_IMAGE_REPO:latest}" || return 1
+  fi
+  IMAGE=$OLD_IMAGE
+  set_env "$ENV_FILE" IMAGE "$IMAGE" || return 1
+  docker compose up -d --remove-orphans
+}
+# After a new version crashed on start: the database as the backup below holds it, then the
+# previous version. The database the new version had is kept as familycloud_failed_update until
+# this happens again.
+db_sql() {
+  docker compose exec -T -e PGOPTIONS='--client-min-messages=warning' db \
+    psql -U familycloud -d postgres -v ON_ERROR_STOP=1 -qc "$1"
+}
+roll_back() {
+  docker image inspect "$PREVIOUS_IMAGE" >/dev/null 2>&1 || return 1
+  bold "Going back to $FROM"
+  docker compose stop app worker || return 1
+  db_sql 'DROP DATABASE IF EXISTS familycloud_restore' || return 1
+  db_sql 'CREATE DATABASE familycloud_restore' || return 1
+  docker compose exec -T db pg_restore -U familycloud -d familycloud_restore --exit-on-error <"$DUMP" \
+    || return 1
+  db_sql 'DROP DATABASE IF EXISTS familycloud_failed_update' || return 1
+  db_sql 'ALTER DATABASE familycloud RENAME TO familycloud_failed_update' || return 1
+  db_sql 'ALTER DATABASE familycloud_restore RENAME TO familycloud' || return 1
+  back_to_previous && wait_healthy
+}
+# Crashed (restarted or stopped), rather than still busy with a big database change on a slow
+# computer: that one is left to finish.
+app_crashed() {
+  local id
+  id=$(docker compose ps -aq app) && [[ -n "$id" ]] || return 0
+  [[ "$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$id")" != "0 running" ]]
+}
 
 bold "Getting $TARGET"
 if [[ "$CHANNEL" == stable ]]; then
@@ -131,17 +171,51 @@ esac
 export IMAGE
 if [[ "$IMAGE" == "$LOCAL_IMAGE" ]] || ! docker compose pull --quiet app 2>/dev/null; then
   info "Building the image on this machine (takes a few minutes)…"
-  docker compose build app
+  docker compose build app \
+    || { back_to_previous || true; die "Building $TARGET failed (see above), so nothing was changed."; }
 fi
+# Docker downloads the database, tunnel, Caddy and virus scanner images (postgres:18-alpine and
+# so on) only once. Fetch their newest builds too, or their security fixes never arrive.
+docker compose pull --quiet --ignore-buildable \
+  || info "Couldn't download newer images for the database and other services; keeping the current ones."
+
+# A database copy from just before the new version starts: database changes on start can't be
+# undone otherwise. The app and worker stop first, so the copy holds everything they wrote while
+# the new version was downloaded or built. Kept apart from the nightly dumps; the last 3 are kept.
+BACKUP_DIR=${BACKUP_DIR:-$STORAGE_ROOT/backups}
+DUMP="$BACKUP_DIR/pre-update-$(date +%Y%m%d-%H%M%S).dump"
+bold "Backing up the database"
+docker compose stop app worker
+if ! ( umask 077; docker compose exec -T db pg_dump -U familycloud -d familycloud -Fc > "$DUMP.partial" ); then
+  rm -f "$DUMP.partial"
+  back_to_previous || true
+  die "The database backup failed, so nothing was changed."
+fi
+mv "$DUMP.partial" "$DUMP"
+info "$DUMP ($(du -h "$DUMP" | cut -f1))"
+ls -1t "$BACKUP_DIR"/pre-update-*.dump 2>/dev/null | tail -n +4 | xargs -r rm --
 
 bold "Restarting"
 docker compose up -d --remove-orphans
 if ! wait_healthy; then
   echo >&2
+  if app_crashed && roll_back; then
+    bold "Back on $FROM: $TARGET didn't start (see the logs above)."
+    info "The database is as it was just before the update. The next update tries again."
+    exit 1
+  fi
   info "Your files are untouched, and the database was backed up to:" >&2
   info "  $DUMP" >&2
-  info "To go back to the version you had: git checkout $OLD_REF, set IMAGE in deploy/.env back" >&2
-  info "to what it was, and restore that backup (docs/backup-restore.md, \"Restore\")." >&2
+  info "To go back to the version you had: git checkout $OLD_REF, set IMAGE=$OLD_IMAGE in" >&2
+  info "deploy/.env (the image it ran is kept as $PREVIOUS_IMAGE), and restore that backup" >&2
+  info "(docs/backup-restore.md, \"Restore\")." >&2
   exit 1
 fi
+# The images the previous version ran are no longer needed: each is hundreds of MB, and they'd
+# pile up on the system disk with every update. Going back to it means downloading it again.
+docker image rm "$PREVIOUS_IMAGE" >/dev/null 2>&1 || true
+if [[ "$OLD_IMAGE" == "$RELEASE_IMAGE_REPO":* && "$OLD_IMAGE" != "$IMAGE" ]]; then
+  docker image rm "$OLD_IMAGE" >/dev/null 2>&1 || true
+fi
+docker image prune -f >/dev/null || true
 bold "Updated: $FROM → $(running_version)"
