@@ -1,6 +1,13 @@
 import * as OTPAuth from 'otpauth';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addMember, Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
+import {
+  addMember,
+  Client,
+  createTestEnv,
+  MEMBER_PASSWORD,
+  setupAdmin,
+  type TestEnv,
+} from './helpers';
 
 let env: TestEnv;
 let admin: Client;
@@ -17,7 +24,7 @@ const PASSWORD = 'another long password';
 
 async function withTwoFactor(email: string) {
   const m = await addMember(env, admin, email);
-  const setup = await m.client.post('/auth/totp/setup');
+  const setup = await m.client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
   const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
   const enabled = await m.client.post('/auth/totp/enable', { code: totp.generate() });
   expect(enabled.status).toBe(200);

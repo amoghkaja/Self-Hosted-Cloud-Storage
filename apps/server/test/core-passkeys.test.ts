@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, type KeyObject, randomBytes, sign } from 'node:crypto';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client, createTestEnv, ORIGIN, setupAdmin, type TestEnv } from './helpers';
+import { ADMIN_PASSWORD, Client, createTestEnv, ORIGIN, setupAdmin, type TestEnv } from './helpers';
 
 let env: TestEnv;
 let admin: Client;
@@ -108,7 +108,8 @@ class Authenticator {
 }
 
 async function addPasskey(client: Client, device = new Authenticator()) {
-  const opts = (await client.post('/auth/passkeys/register/options', {})).body;
+  const opts = (await client.post('/auth/passkeys/register/options', { password: ADMIN_PASSWORD }))
+    .body;
   const res = await client.post('/auth/passkeys', {
     token: opts.token,
     response: device.register(opts.options),
@@ -172,10 +173,24 @@ describe('passkeys', () => {
     expect(replay.status).toBe(401);
   });
 
+  it('asks for the password before adding a passkey', async () => {
+    // A passkey added with a stolen session would outlast a password change and signing out.
+    const options = (body: { password?: string }) =>
+      admin.post('/auth/passkeys/register/options', body);
+    expect((await options({})).status).toBe(400);
+    const wrong = await options({ password: 'not my password' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.code).toBe('INVALID_CREDENTIALS');
+    expect(wrong.body.token).toBeUndefined();
+    expect((await options({ password: ADMIN_PASSWORD })).status).toBe(200);
+  });
+
   it('keeps passkeys private to their owner and needs a session to add one', async () => {
     const { res } = await addPasskey(admin);
     const guest = new Client(env.app);
-    expect((await guest.post('/auth/passkeys/register/options', {})).status).toBe(401);
+    expect((await guest.post('/auth/passkeys/register/options', { password: 'x' })).status).toBe(
+      401,
+    );
     expect((await guest.get('/auth/passkeys')).status).toBe(401);
     // Another person can't rename or delete it (404, like any other invisible item).
     const other = await addMemberClient();

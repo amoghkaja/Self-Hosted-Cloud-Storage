@@ -2,7 +2,14 @@ import { eq } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auditLog, passwordResets } from '../src/db/schema';
-import { addMember, Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
+import {
+  addMember,
+  Client,
+  createTestEnv,
+  MEMBER_PASSWORD,
+  setupAdmin,
+  type TestEnv,
+} from './helpers';
 
 let env: TestEnv;
 let admin: Client;
@@ -80,7 +87,7 @@ describe('password reset links', () => {
 
   it('never gets past two-factor sign-in', async () => {
     const { client, me } = await addMember(env, admin, 'twofactor@example.com');
-    const setup = await client.post('/auth/totp/setup');
+    const setup = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
     const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
     expect((await client.post('/auth/totp/enable', { code: totp.generate() })).status).toBe(200);
 

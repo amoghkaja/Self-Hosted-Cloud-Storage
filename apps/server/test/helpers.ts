@@ -131,13 +131,16 @@ export class Client {
   }
 }
 
+export const ADMIN_PASSWORD = 'correct horse battery';
+export const MEMBER_PASSWORD = 'another long password';
+
 export async function setupAdmin(env: TestEnv, email = 'admin@example.com') {
   const client = new Client(env.app);
   const res = await client.post<Me>('/auth/setup', {
     setupToken: SETUP_TOKEN,
     email,
     displayName: 'Admin',
-    password: 'correct horse battery',
+    password: ADMIN_PASSWORD,
   });
   if (res.status !== 200) throw new Error(`setup failed: ${JSON.stringify(res.body)}`);
   return { client, me: res.body };
@@ -160,7 +163,7 @@ export async function addMember(
   const res = await client.post<Me>(`/invites/${token}/accept`, {
     email,
     displayName: email.split('@')[0],
-    password: 'another long password',
+    password: MEMBER_PASSWORD,
   });
   if (res.status !== 200) throw new Error(`accept failed: ${JSON.stringify(res.body)}`);
   return { client, me: res.body };

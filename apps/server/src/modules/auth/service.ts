@@ -7,6 +7,7 @@ import type { Executor } from '../../db/client';
 import { nodes, recoveryCodes, type UserRow, users } from '../../db/schema';
 import { sha256 } from '../../lib/crypto';
 import { AppError, conflict, isUniqueViolation } from '../../lib/errors';
+import { verifyPassword } from '../../lib/passwords';
 
 /** Creates an account together with its root folder ("My Files"). */
 export async function createUserWithRoot(
@@ -159,4 +160,18 @@ export async function recoveryCodesLeft(exec: Executor, userId: string): Promise
 
 export async function dropRecoveryCodes(exec: Executor, userId: string): Promise<void> {
   await exec.delete(recoveryCodes).where(eq(recoveryCodes.userId, userId));
+}
+
+/**
+ * Asked before anything that hands out a new way into the account (a passkey, a two-factor
+ * secret): with only a stolen session, someone could otherwise add their own and keep it.
+ */
+export async function confirmPassword(exec: Executor, userId: string, password: string) {
+  const [row] = await exec
+    .select({ hash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!(await verifyPassword(row?.hash ?? null, password))) {
+    throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
+  }
 }

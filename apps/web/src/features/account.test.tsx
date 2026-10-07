@@ -1,5 +1,5 @@
 import type { Me } from '@familycloud/shared';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -130,7 +130,10 @@ describe('Two-factor setup', () => {
     const otpauthUrl =
       'otpauth://totp/Family%20Cloud:mum%40example.com?secret=ABCDEF234567&issuer=Family%20Cloud';
     mockFetch({
-      'POST /auth/totp/setup': () => ({ json: { secret: 'ABCDEF234567', otpauthUrl } }),
+      'POST /auth/totp/setup': (b) =>
+        (b as { password: string }).password === 'my password'
+          ? { json: { secret: 'ABCDEF234567', otpauthUrl } }
+          : { status: 400, json: { code: 'INVALID_CREDENTIALS', detail: 'Password is incorrect' } },
     });
     const me: Me = {
       id: 'u',
@@ -142,8 +145,18 @@ describe('Two-factor setup', () => {
       totpEnabled: false,
       rootNodeId: 'r',
     };
-    renderWithProviders(<TwoFactorSection me={me} />);
+    const { baseElement } = renderWithProviders(<TwoFactorSection me={me} />);
     await userEvent.click(screen.getByRole('button', { name: 'Set up two-factor' }));
+    // Confirm it's you first: a stolen session alone can't put someone else's app on the account.
+    const dialog = await screen.findByRole('dialog', { name: 'Set up two-factor' });
+    await userEvent.type(within(dialog).getByLabelText('Your password'), 'wrong');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
+    expect(await within(dialog).findByText('Password is incorrect')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Your password')).toHaveAttribute('aria-invalid', 'true');
+    await expectAccessible(baseElement);
+    await userEvent.clear(within(dialog).getByLabelText('Your password'));
+    await userEvent.type(within(dialog).getByLabelText('Your password'), 'my password');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     expect(
       await screen.findByRole('link', { name: 'Open in your authenticator app' }),
     ).toHaveAttribute('href', otpauthUrl);

@@ -1,4 +1,5 @@
 import {
+  ConfirmPasswordBody,
   ErrorCode,
   emailAllowed,
   LoginResponse,
@@ -28,6 +29,7 @@ import { AppError, notFound } from '../../lib/errors';
 import { toIso, toIsoOrNull } from '../../lib/time';
 import { requestMeta, requireUser, setSessionCookie } from '../../plugins/auth';
 import { strictLimit } from '../../plugins/security';
+import { confirmPassword } from './service';
 
 const CHALLENGE_TTL = 5 * 60;
 const MAX_PER_USER = 20;
@@ -97,9 +99,13 @@ export const passkeyRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/auth/passkeys/register/options',
-    { config: strictLimit(20), schema: { response: { 200: PasskeyOptions } } },
+    {
+      config: strictLimit(20),
+      schema: { body: ConfirmPasswordBody, response: { 200: PasskeyOptions } },
+    },
     async (req) => {
       const { user } = requireUser(req);
+      await confirmPassword(db, user.id, req.body.password);
       const existing = await db
         .select({ id: passkeys.credentialId, transports: passkeys.transports })
         .from(passkeys)

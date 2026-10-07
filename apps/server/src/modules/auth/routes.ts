@@ -2,6 +2,7 @@ import {
   AcceptInviteBody,
   ChangePasswordBody,
   CompletePasswordResetBody,
+  ConfirmPasswordBody,
   domainMessage,
   ErrorCode,
   emailAllowed,
@@ -12,7 +13,6 @@ import {
   LoginResponse,
   LoginTotpBody,
   Me,
-  NewRecoveryCodesBody,
   Ok,
   PasswordResetInfo,
   RecoveryCodeList,
@@ -46,6 +46,7 @@ import { strictLimit } from '../../plugins/security';
 import { loadBranding, publicBranding } from '../admin/branding';
 import {
   checkTotp,
+  confirmPassword,
   createUserWithRoot,
   dropRecoveryCodes,
   newRecoveryCodes,
@@ -338,7 +339,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     '/auth/recovery-codes',
     {
       config: strictLimit(5),
-      schema: { body: NewRecoveryCodesBody, response: { 200: RecoveryCodeList } },
+      schema: { body: ConfirmPasswordBody, response: { 200: RecoveryCodeList } },
     },
     async (req) => {
       const { user } = requireUser(req);
@@ -447,9 +448,13 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/auth/totp/setup',
-    { schema: { response: { 200: TotpSetupResponse } } },
+    {
+      config: strictLimit(10),
+      schema: { body: ConfirmPasswordBody, response: { 200: TotpSetupResponse } },
+    },
     async (req) => {
       const { user } = requireUser(req);
+      await confirmPassword(db, user.id, req.body.password);
       const { secretBase32, url } = newTotp(ctx, user.email);
       // Checked in the UPDATE, not on the (possibly cached) session user: replacing the secret of
       // an account that already has two-factor on would lock its owner out.

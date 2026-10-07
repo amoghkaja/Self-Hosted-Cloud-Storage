@@ -98,7 +98,8 @@ export const LoginRecoveryBody = z.object({
   code: RecoveryCode,
 });
 
-export const NewRecoveryCodesBody = z.object({ password: z.string().min(1).max(256) });
+/** "Confirm it's you": asked before anything that hands out a new way into the account. */
+export const ConfirmPasswordBody = z.object({ password: z.string().min(1).max(256) });
 export const RecoveryCodeList = z.object({ codes: z.array(z.string()) });
 export const RecoveryCodeStatus = z.object({ remaining: z.number().int() });
 export type RecoveryCodeStatus = z.infer<typeof RecoveryCodeStatus>;

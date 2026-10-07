@@ -9,6 +9,7 @@ import {
   addMember,
   Client,
   createTestEnv,
+  MEMBER_PASSWORD,
   SETUP_TOKEN,
   setupAdmin,
   type TestEnv,
@@ -159,10 +160,23 @@ describe('invites', () => {
 });
 
 describe('two-factor', () => {
+  it('asks for the password before it hands out a secret', async () => {
+    const { client: admin } = await loginAdmin();
+    const { client } = await addMember(env, admin, 'confirm2fa@example.com');
+    // Someone with a stolen session could otherwise turn it on with their own app and lock the
+    // owner out of their account.
+    expect((await client.post('/auth/totp/setup', {})).status).toBe(400);
+    const wrong = await client.post('/auth/totp/setup', { password: 'not my password' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.code).toBe('INVALID_CREDENTIALS');
+    expect(wrong.body.secret).toBeUndefined();
+    expect((await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD })).status).toBe(200);
+  });
+
   it('requires a TOTP code after enabling and rejects replayed codes', async () => {
     const { client: admin } = await loginAdmin();
     const { client } = await addMember(env, admin, 'totp@example.com');
-    const setup = await client.post('/auth/totp/setup');
+    const setup = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
     expect(setup.status).toBe(200);
     const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
     const enable = await client.post('/auth/totp/enable', { code: totp.generate() });
@@ -290,7 +304,7 @@ describe('lockout under concurrency', () => {
       password: 'correct horse battery',
     });
     const { client } = await addMember(env, admin, 'race2fa@example.com');
-    const setup = await client.post('/auth/totp/setup');
+    const setup = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
     const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
     await client.post('/auth/totp/enable', { code: totp.generate() });
     const code = totp.generate({ timestamp: Date.now() + 30_000 });
@@ -315,7 +329,7 @@ describe('lockout and two-factor together', () => {
   async function totpMember(email: string) {
     const { client: admin } = await loginAdmin();
     const { client } = await addMember(env, admin, email);
-    const setup = await client.post('/auth/totp/setup');
+    const setup = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
     const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
     await client.post('/auth/totp/enable', { code: totp.generate() });
     return { client, totp };
@@ -391,7 +405,7 @@ describe('lockout and two-factor together', () => {
       .update(users)
       .set({ totpEnabled: true, totpSecretEnc: secretEnc })
       .where(eq(users.id, me.id));
-    const setup = await client.post('/auth/totp/setup');
+    const setup = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
     expect(setup.status).toBe(409);
     const [row] = await env.ctx.db
       .select({ enc: users.totpSecretEnc })
@@ -424,7 +438,7 @@ describe('two-factor after the secret key changed', () => {
   it('explains the problem instead of failing with a bare server error', async () => {
     const { client: admin } = await loginAdmin();
     const { client, me } = await addMember(env, admin, 'rekeyed@example.com');
-    const setup = await client.post('/auth/totp/setup');
+    const setup = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
     const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(setup.body.secret) });
     await client.post('/auth/totp/enable', { code: totp.generate() });
     // As if the database was restored next to a regenerated SECRET_KEY.

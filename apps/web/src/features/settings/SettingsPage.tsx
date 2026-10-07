@@ -53,6 +53,7 @@ import { describeUserAgent, formatRelative } from '../../lib/format';
 import { passkeyError, passkeysSupported } from '../../lib/passkeys';
 import { type ThemeChoice, useTheme } from '../../lib/theme';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { ConfirmPasswordDialog } from './ConfirmPasswordDialog';
 
 function Section({
   id,
@@ -303,23 +304,17 @@ export function TwoFactorSection({ me }: { me: Me }) {
   const [busy, setBusy] = useState(false);
   const [newCodes, setNewCodes] = useState<string[] | null>(null);
   const [useRecovery, setUseRecovery] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
-  const start = async () => {
-    setBusy(true);
-    try {
-      const res = await api<{ secret: string; otpauthUrl: string }>('/auth/totp/setup', {
-        json: {},
-      });
-      setSetup({
-        secret: res.secret,
-        url: res.otpauthUrl,
-        qr: await QRCode.toDataURL(res.otpauthUrl, { margin: 1, width: 200 }),
-      });
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
+  const start = async (password: string) => {
+    const res = await api<{ secret: string; otpauthUrl: string }>('/auth/totp/setup', {
+      json: { password },
+    });
+    setSetup({
+      secret: res.secret,
+      url: res.otpauthUrl,
+      qr: await QRCode.toDataURL(res.otpauthUrl, { margin: 1, width: 200 }),
+    });
   };
   const enable = async (e: FormEvent) => {
     e.preventDefault();
@@ -455,10 +450,20 @@ export function TwoFactorSection({ me }: { me: Me }) {
           </div>
         </form>
       ) : (
-        <Button variant="primary" icon={<ShieldCheck size={16} />} onClick={start} loading={busy}>
+        <Button
+          variant="primary"
+          icon={<ShieldCheck size={16} />}
+          onClick={() => setConfirming(true)}
+        >
           Set up two-factor
         </Button>
       )}
+      <ConfirmPasswordDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Set up two-factor"
+        onConfirm={start}
+      />
     </Section>
   );
 }
@@ -788,12 +793,14 @@ function PasskeysSection() {
   const q = usePasskeys();
   const m = usePasskeyMutations();
   const [removing, setRemoving] = useState<Passkey | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const supported = passkeysSupported();
-  const add = async () => {
+  const add = async (password: string) => {
     try {
-      const p = await m.add.mutateAsync();
+      const p = await m.add.mutateAsync(password);
       toast.success(`Passkey added for ${p.name}. Next time, sign in with Face ID or Touch ID.`);
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') throw err;
       const message = passkeyError(err);
       if (message) toast.error(message);
     }
@@ -840,10 +847,16 @@ function PasskeysSection() {
         )}
       </QueryState>
       {supported && (
-        <Button icon={<Fingerprint size={16} />} loading={m.add.isPending} onClick={add}>
+        <Button icon={<Fingerprint size={16} />} onClick={() => setConfirming(true)}>
           Add a passkey
         </Button>
       )}
+      <ConfirmPasswordDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Add a passkey"
+        onConfirm={add}
+      />
       {removing && (
         <ConfirmDialog
           open

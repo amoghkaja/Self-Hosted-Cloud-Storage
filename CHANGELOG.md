@@ -10,6 +10,10 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Security
 
+- **Passkeys and two-factor:** adding a passkey or turning on two-factor sign-in now asks for
+  your password first. Someone who got hold of a signed-in browser (a phone left unlocked, say)
+  could otherwise add their own passkey and keep getting in after you changed your password, or
+  turn on two-factor with their own app and lock you out of your account.
 - **Passkeys:** a passkey sign-in can no longer be sent a second time. Someone who copied one
   (from a saved browser log, say) within its five minutes could sign in with it again, because
   passkeys synced through iCloud Keychain or Google Password Manager don't count their uses.

@@ -29,7 +29,7 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 | GET | `/auth/setup-status` | `{needsSetup, appName, wordmark, logoVersion, homeUrl, sourceUrl, privacyNotice, trashRetentionDays, versionRetentionDays}`: public |
 | GET | `/about` | `{version, releases:[{version, date, groups:[{title, items}]}]}`: the running version and the changelog; "Before you update" groups go to admins only |
 | GET | `/admin/scanner` | `{installed, enabled, reachable, version, waiting, infected:[{name, owner, signature}]}`: virus scanning status (admin) |
-| GET / POST | `/auth/passkeys` | List your passkeys / add one (after `POST /auth/passkeys/register/options`) |
+| GET / POST | `/auth/passkeys` | List your passkeys / add one (after `POST /auth/passkeys/register/options`, which takes `{password}`) |
 | PATCH / DELETE | `/auth/passkeys/:id` | Rename / remove a passkey |
 | POST | `/auth/passkeys/login/options`, `/auth/passkeys/login` | Sign in with a passkey (no email needed; counts as two-factor) |
 | GET | `/auth/storage` | `{usedBytes, quotaBytes, availableBytes}`: space left, after quota, family limit and disks |
@@ -41,7 +41,7 @@ The web app talks to a JSON API under `/api/v1`. Every request and response is v
 | GET / PATCH | `/auth/me` | Current user (fresh usage numbers) / change display name |
 | POST | `/auth/password` | Change password; signs out other sessions |
 | GET / DELETE | `/auth/sessions[/:id]` | List / revoke signed-in devices |
-| POST | `/auth/totp/setup`, `/enable`, `/disable` | Two-factor (TOTP) management. `enable` also returns ten `recoveryCodes` (shown once); `disable` takes `{password, code}` or `{password, recoveryCode}` |
+| POST | `/auth/totp/setup`, `/enable`, `/disable` | Two-factor (TOTP) management. `setup` takes `{password}`; `enable` also returns ten `recoveryCodes` (shown once); `disable` takes `{password, code}` or `{password, recoveryCode}` |
 | GET / POST | `/auth/recovery-codes` | `{remaining}` / `{password}` → `{codes}`: new codes replace the old ones |
 | GET / POST / DELETE | `/auth/app-passwords[/:id]` | Network-drive device passwords |
 | GET | `/invites/:token` | Invite details (public) |

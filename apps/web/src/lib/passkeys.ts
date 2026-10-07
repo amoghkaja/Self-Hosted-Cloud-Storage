@@ -28,9 +28,10 @@ export async function signInWithPasskey(autofill = false): Promise<LoginResponse
   return api<LoginResponse>('/auth/passkeys/login', { json: { token, response } });
 }
 
-export async function addPasskey(): Promise<Passkey> {
+/** The password is checked before the device is asked: see ConfirmPasswordDialog. */
+export async function addPasskey(password: string): Promise<Passkey> {
   const { options, token } = await api<PasskeyOptions>('/auth/passkeys/register/options', {
-    json: {},
+    json: { password },
   });
   const response = await startRegistration({
     optionsJSON: options as unknown as PublicKeyCredentialCreationOptionsJSON,

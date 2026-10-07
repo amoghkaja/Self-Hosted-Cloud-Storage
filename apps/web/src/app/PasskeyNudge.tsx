@@ -1,7 +1,9 @@
 import { Fingerprint, X } from 'lucide-react';
 import { useState } from 'react';
+import { ApiError } from '../api/client';
 import { usePasskeyMutations, usePasskeys } from '../api/queries';
 import { Button, IconButton, toast } from '../components/ui';
+import { ConfirmPasswordDialog } from '../features/settings/ConfirmPasswordDialog';
 import { passkeyError, passkeysSupported } from '../lib/passkeys';
 
 const KEY = 'fc-passkey-nudge-dismissed';
@@ -19,6 +21,7 @@ export function PasskeyNudge() {
   const [hidden, setHidden] = useState(dismissed);
   const q = usePasskeys();
   const m = usePasskeyMutations();
+  const [confirming, setConfirming] = useState(false);
   if (hidden || !passkeysSupported() || !q.data || q.data.length > 0) return null;
   const hide = () => {
     try {
@@ -26,12 +29,13 @@ export function PasskeyNudge() {
     } catch {}
     setHidden(true);
   };
-  const add = async () => {
+  const add = async (password: string) => {
     try {
-      await m.add.mutateAsync();
+      await m.add.mutateAsync(password);
       toast.success('Done! Next time, sign in with Face ID or Touch ID.');
       hide();
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') throw err;
       const message = passkeyError(err);
       if (message) toast.error(message);
     }
@@ -43,10 +47,16 @@ export function PasskeyNudge() {
     >
       <Fingerprint size={16} aria-hidden className="text-accent" />
       <span className="min-w-0 flex-1">Sign in faster next time with Face ID or Touch ID.</span>
-      <Button size="sm" variant="primary" loading={m.add.isPending} onClick={add}>
+      <Button size="sm" variant="primary" onClick={() => setConfirming(true)}>
         Set up
       </Button>
       <IconButton label="Not now" icon={<X />} size="sm" onClick={hide} />
+      <ConfirmPasswordDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Sign in with Face ID or Touch ID"
+        onConfirm={add}
+      />
     </section>
   );
 }
