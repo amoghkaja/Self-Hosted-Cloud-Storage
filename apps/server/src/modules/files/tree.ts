@@ -350,10 +350,13 @@ export async function restoreSubtree(
   if (!root) throw notFound('Trash item');
   let parentId = owner.rootNodeId!;
   if (root.parentId) {
+    // Locked: a trash of that folder under way finishes first (so this goes to the root), or
+    // waits and takes the restored item along. Never a live item in a trashed folder.
     const [parent] = await exec
       .select({ id: nodes.id })
       .from(nodes)
-      .where(and(eq(nodes.id, root.parentId), isNull(nodes.deletedAt)));
+      .where(and(eq(nodes.id, root.parentId), isNull(nodes.deletedAt)))
+      .for('share');
     if (parent) parentId = parent.id;
   }
   const name = await findFreeName(exec, parentId, root.name, 'restored');

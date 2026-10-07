@@ -86,6 +86,37 @@ describe('trash', () => {
     )) as unknown as { deleted: boolean; trashRootId: string | null }[];
     expect(row).toEqual({ deleted: true, trashRootId: target });
   });
+
+  it('restoring into a folder while it is being trashed puts the item in My Files', async () => {
+    const kitchen = await folder(root, 'Kitchen');
+    const recipe = (await uploadFile(c, kitchen, 'recipe.txt', Buffer.from('dal'))).final!.body.node
+      .id;
+    expect((await c.del(`/nodes/${recipe}`)).status).toBe(200);
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    let trashed!: () => void;
+    const trashRan = new Promise<void>((r) => {
+      trashed = r;
+    });
+    // The folder's trash has run but not committed yet.
+    const trash = env.ctx.db.transaction(async (tx) => {
+      await trashSubtree(tx, kitchen);
+      trashed();
+      await held;
+    });
+    await trashRan;
+    const restore = c.post(`/trash/${recipe}/restore`);
+    await new Promise((r) => setTimeout(r, 100)); // the restore is now waiting on the folder
+    release();
+    await trash;
+
+    const res = await restore;
+    expect(res.status).toBe(200);
+    // Not left live inside the trashed folder, where nobody would see it.
+    expect(res.body.node.parentId).toBe(root);
+  });
 });
 
 describe('moves', () => {
