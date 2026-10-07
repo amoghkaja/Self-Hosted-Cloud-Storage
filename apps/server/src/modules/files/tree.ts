@@ -209,16 +209,24 @@ export async function isAncestor(
   return rows.length > 0;
 }
 
+/** Renames and/or moves a live node; with `inFolder`, only while it is still in that folder. */
 export async function updateNode(
   exec: Executor,
   nodeId: string,
   patch: { name?: string; parentId?: string },
+  inFolder?: string,
 ): Promise<NodeRow> {
   try {
     const [row] = await exec
       .update(nodes)
       .set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(nodes.id, nodeId), isNull(nodes.deletedAt)))
+      .where(
+        and(
+          eq(nodes.id, nodeId),
+          isNull(nodes.deletedAt),
+          inFolder ? eq(nodes.parentId, inFolder) : undefined,
+        ),
+      )
       .returning();
     if (!row) throw notFound();
     return row;
@@ -275,7 +283,9 @@ export async function moveNode(
     }
     if (grantee && node.parentId) await lockWriteAccess(tx, grantee, node.parentId);
     if (opts.replaceId) await trashSubtree(tx, opts.replaceId);
-    return updateNode(tx, node.id, patch);
+    // The folder just re-checked must still be the item's: if the owner moved it meanwhile
+    // (perhaps somewhere private), the grantee's change must not follow it there.
+    return updateNode(tx, node.id, patch, grantee ? (node.parentId ?? undefined) : undefined);
   });
 }
 

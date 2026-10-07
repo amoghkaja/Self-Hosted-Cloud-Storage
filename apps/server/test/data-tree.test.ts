@@ -280,4 +280,29 @@ describe('changes through a share', () => {
     await trashSubtree(env.ctx.db, doc.id, { actorId: userId });
     expect((await c.get(`/nodes/${doc.id}`)).status).toBe(404);
   });
+
+  it('does not follow an item the owner moved somewhere private meanwhile', async () => {
+    const cousin = await addMember(env, c, 'cousin-moved@example.com');
+    const shared = await folder(root, 'Shared plans');
+    const inbox = await folder(shared, 'Inbox');
+    const priv = await folder(root, 'Private plans');
+    const doc = (await uploadFile(c, shared, 'plan.txt', Buffer.from('p'))).final!.body.node;
+    await c.post(`/nodes/${shared}/shares`, { userId: cousin.me.id, permission: 'edit' });
+    // Where the cousin's request saw it, before the owner moved it into a private folder.
+    const seen = { id: doc.id, ownerId: userId, parentId: shared };
+    expect((await c.patch(`/nodes/${doc.id}`, { parentId: priv })).status).toBe(200);
+
+    const as = { actorId: cousin.me.id };
+    await expect(moveNode(env.ctx.db, seen, { parentId: inbox }, as)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(moveNode(env.ctx.db, seen, { name: 'mine.txt' }, as)).rejects.toMatchObject({
+      status: 404,
+    });
+    expect((await c.get(`/nodes/${doc.id}`)).body.node).toMatchObject({
+      parentId: priv,
+      name: 'plan.txt',
+    });
+    expect((await cousin.client.get(`/nodes/${doc.id}`)).status).toBe(404);
+  });
 });
