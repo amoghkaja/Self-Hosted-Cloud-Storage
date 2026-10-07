@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useEffect } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useOutletContext } from 'react-router';
 import { onUnauthorized } from '../api/client';
-import { qk, useMe, useSetupStatus } from '../api/queries';
+import { useMe, useSetupStatus } from '../api/queries';
 import { Button, ErrorState, Spinner } from '../components/ui';
 import { usePageTitle } from '../lib/usePageTitle';
 
@@ -29,7 +29,9 @@ export function RequireAuth({ children }: { children: (me: Me) => ReactNode }) {
   useEffect(
     () =>
       onUnauthorized(() => {
-        qc.removeQueries({ queryKey: qk.me });
+        // Everything cached belongs to the person whose session ended, like signing out: whoever
+        // signs in next on this tab mustn't be shown it while their own data loads.
+        qc.clear();
         navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, {
           replace: true,
         });

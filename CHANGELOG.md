@@ -23,6 +23,12 @@ to do yourself when updating is listed under **Before you update**.
   open for more than five minutes), you're told why instead of being bounced to the sign-in
   page and back.
 
+### Security
+
+- **Shared computers:** when your session ends while Family Cloud is open (it expired, or you were
+  signed out from another device), the page forgets your files, as signing out does. Whoever
+  signed in next in that tab could briefly see your folders, recent files and search results.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved
