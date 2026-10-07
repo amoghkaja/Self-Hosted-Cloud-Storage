@@ -145,6 +145,28 @@ describe('UploadManager', () => {
     ).toEqual(['root/Trip/Day 1', 'root/Trip/Day 1', 'root/Trip/Day 2']);
   });
 
+  it('retries creating a folder of a folder upload when the connection drops', async () => {
+    const { t, folders } = fakeTransport();
+    (t.getUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      node: node('x'),
+      status: 'completed',
+    });
+    const ensure = vi.mocked(t.ensureFolder);
+    const real = ensure.getMockImplementation()!;
+    ensure.mockImplementationOnce(async () => {
+      throw new ApiError(0, 'NETWORK_ERROR', "Can't reach the server. Check your connection.");
+    });
+    ensure.mockImplementation(real);
+    const m = new UploadManager(t, { retryBaseMs: 1 });
+    m.add('root', [
+      { file: new File(['1'], '1.jpg'), relativeDir: 'Trip' },
+      { file: new File(['2'], '2.jpg'), relativeDir: 'Trip' },
+    ]);
+    await waitIdle(m);
+    expect(m.getSnapshot().map((i) => i.status)).toEqual(['done', 'done']);
+    expect(folders).toEqual(['root/Trip']);
+  });
+
   it('cancel aborts the server session and marks the item', async () => {
     const { t } = fakeTransport();
     (t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(
@@ -241,6 +263,41 @@ describe('UploadManager', () => {
     // The failed upload sends nothing more in the background (a retry resumes it instead).
     expect(slowAborted).toBe(true);
     expect(put).toEqual([]);
+  });
+
+  it('keeps what was sent when the connection drops while checking where to carry on', async () => {
+    const { t, put } = fakeTransport();
+    const chunk = vi.mocked(t.putChunk);
+    const real = chunk.getMockImplementation()!;
+    chunk.mockImplementationOnce(async () => {
+      throw new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected');
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, chunkConcurrency: 1 });
+    m.add('p', [{ file: new File(['abcdefgh'], 'big.mov'), relativeDir: '' }]); // 2 chunks
+    await waitIdle(m);
+    expect(m.getSnapshot()[0]!.status).toBe('error');
+
+    chunk.mockImplementation(real);
+    const get = vi.mocked(t.getUpload);
+    get.mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Connection lost'));
+    get.mockImplementation(async (id: string) =>
+      put.length === 0
+        ? ({
+            id,
+            chunkSize: 4,
+            totalChunks: 2,
+            receivedChunks: [1],
+            status: 'uploading',
+            node: null,
+          } as unknown as UploadSession)
+        : ({ id, status: 'completed', node: node('big') } as unknown as UploadSession),
+    );
+    m.retry(m.getSnapshot()[0]!.id);
+    await waitIdle(m);
+    // Same session, only the missing piece: not a fresh upload from the start.
+    expect(t.createUpload).toHaveBeenCalledTimes(1);
+    expect(put).toEqual([0]);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'big' });
   });
 
   it('closing the panel dismisses failures and releases their reserved space', async () => {

@@ -12,6 +12,9 @@ to do yourself when updating is listed under **Before you update**.
 
 - **Uploads:** when a file failed to upload, the rest of it no longer carries on sending in the
   background, using up your connection (and doubling up if you pressed Retry).
+- **Uploads:** a moment without a connection no longer fails every file of a folder upload at
+  once, and retrying or resuming a big upload no longer starts it again from the beginning if
+  the connection drops just then.
 
 ## v0.5.0 (2026-10-05)
 

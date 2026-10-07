@@ -146,6 +146,7 @@ const RETRYABLE = new Set([0, 408, 429, 500, 502, 503, 504]);
 const isRetryable = (err: unknown) => err instanceof ApiError && RETRYABLE.has(err.status);
 
 const aborted = () => new DOMException('Aborted', 'AbortError');
+const NEVER_ABORTED = new AbortController().signal;
 
 // Both remove their listeners when done: one signal lives for a whole upload, which can be
 // thousands of chunks, and each retry would otherwise leave a listener behind.
@@ -417,7 +418,12 @@ export class UploadManager {
       if (!cached) {
         const prev = chain;
         cached = prev.then(async (pid) => {
-          const folder = await this.transport.ensureFolder(pid, name);
+          // Every file in the folder waits on this, so a dropped connection must not fail them
+          // all; and no single file's cancel may stop it, hence a signal that never aborts.
+          const folder = await this.withRetry(
+            () => this.transport.ensureFolder(pid, name),
+            NEVER_ABORTED,
+          );
           // The new folder shows up in its parent's listing right away, not only its files.
           this.onFolderChanged?.(pid);
           return folder.id;
@@ -596,7 +602,13 @@ export class UploadManager {
     const { id } = item;
     const previous = this.sessions.get(id);
     if (previous) {
-      const s = await this.transport.getUpload(previous).catch(() => null);
+      // A dropped connection mustn't make it start over, throwing away what was already sent.
+      const s = await this.withRetry(() => this.transport.getUpload(previous), signal).catch(
+        (err) => {
+          if (signal.aborted) throw err;
+          return null;
+        },
+      );
       if (s && (s.status === 'uploading' || s.status === 'finalizing' || s.node)) return s;
       this.sessions.delete(id);
     }
