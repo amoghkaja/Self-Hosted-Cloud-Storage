@@ -16,6 +16,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Backups:** after adding a disk with `scripts/add-disk.sh`, every off-site backup ended with an
   error and old backups were never cleaned up, because of the disk's `lost+found` folder (which
   only the system can read). That folder is now skipped.
+- **Server:** the logs Docker keeps for each container are capped at 50 MB. They used to grow
+  with every request until the containers were next replaced, and could fill the system disk.
 
 ## v0.5.0 (2026-10-05)
 

@@ -16,6 +16,14 @@
 
 name: familycloud
 
+# Docker keeps a container's log until the container is removed, and the app logs every request:
+# cap each log so it can't fill the system disk over months (`docker compose logs` still works).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
 x-app: &app
   image: ${IMAGE:-ghcr.io/amoghkaja/self-hosted-cloud-storage:latest}
   build:
@@ -25,6 +33,7 @@ x-app: &app
       # scripts/install.sh and update.sh set this from `git describe` when building locally.
       APP_VERSION: ${APP_VERSION:-dev}
   restart: unless-stopped
+  logging: *logging
   env_file: .env
   environment:
     DATABASE_URL: postgres://familycloud:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/familycloud
@@ -62,6 +71,7 @@ services:
   db:
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: familycloud
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -94,6 +104,7 @@ services:
     image: cloudflare/cloudflared:latest
     profiles: [tunnel]
     restart: unless-stopped
+    logging: *logging
     command: tunnel --no-autoupdate run
     # Not ${VAR:?}: Compose checks required variables in every service, even ones whose profile
     # is off, so that would break the whole stack for anyone not using this profile.
@@ -109,6 +120,7 @@ services:
     image: caddy:2-alpine
     profiles: [caddy]
     restart: unless-stopped
+    logging: *logging
     environment:
       DOMAIN: ${DOMAIN:-}   # see the note on cloudflared above
     ports:
@@ -128,6 +140,7 @@ services:
     image: clamav/clamav:stable
     profiles: [clamav]
     restart: unless-stopped
+    logging: *logging
     volumes:
       # The virus list (about 300 MB), kept between restarts and refreshed by the container.
       - ${STORAGE_ROOT:-/srv/familycloud}/clamav:/var/lib/clamav

@@ -100,6 +100,14 @@ jobs:
           curl -fsS localhost:3080/healthz
           curl -fsS localhost:3080/api/v1/auth/setup-status | grep -q '"needsSetup":true'
           cd deploy && docker compose exec -T app node dist/cli.js setup-token
+      - name: Every container's log is capped, so logs can't fill the disk
+        working-directory: deploy
+        run: |
+          docker compose --profile '*' config --format json \
+            | jq -e '[.services[].logging.options["max-size"]] | all(. != null)'
+          for id in $(docker compose ps -q); do
+            [[ "$(docker inspect -f '{{index .HostConfig.LogConfig.Config "max-size"}}' "$id")" == 10m ]]
+          done
       - name: Running it again keeps every setting
         run: |
           grep -v '^# Generated' deploy/.env > "$RUNNER_TEMP/before.env"
