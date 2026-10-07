@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { sql } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -14,7 +15,7 @@ let bobDav: Dav;
 type Dav = (
   method: string,
   path: string,
-  opts?: { body?: string; headers?: Record<string, string>; remoteAddress?: string },
+  opts?: { body?: string | Readable; headers?: Record<string, string>; remoteAddress?: string },
 ) => Promise<LightMyRequestResponse>;
 
 function davClient(email: string, password: string): Dav {
@@ -282,6 +283,17 @@ describe('malformed requests', () => {
     });
     expect(mv.statusCode).toBe(400);
     expect((await aliceDav('GET', '/dav/My%20Files/doc.txt')).statusCode).toBe(200);
+  });
+
+  it('answers a size that is not a plain number of bytes with 411, not 500', async () => {
+    for (const size of ['1e300', '18446744073709551615']) {
+      const res = await aliceDav('PUT', '/dav/My%20Files/odd-size.bin', {
+        // Finder's chunked upload: no Content-Length, the size in its own header.
+        body: Readable.from([Buffer.from('abc')]),
+        headers: { 'transfer-encoding': 'chunked', 'x-expected-entity-length': size },
+      });
+      expect(res.statusCode).toBe(411);
+    }
   });
 });
 

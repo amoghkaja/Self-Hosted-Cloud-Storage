@@ -206,8 +206,10 @@ function sendXml(reply: FastifyReply, status: number, body: string) {
 function declaredLength(req: FastifyRequest): number | null {
   // macOS Finder streams with chunked encoding and announces the size in this header.
   const raw = req.headers['content-length'] ?? req.headers['x-expected-entity-length'];
-  const n = Number(Array.isArray(raw) ? raw[0] : raw);
-  return raw !== undefined && Number.isInteger(n) && n >= 0 ? n : null;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  // Digits only: Number() also reads "1e300" and "0x10", and a size past 2^53 isn't exact.
+  const n = Number(value);
+  return value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(n) ? n : null;
 }
 
 function destinationSegments(req: FastifyRequest): string[] {
