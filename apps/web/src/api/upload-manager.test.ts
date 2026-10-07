@@ -497,6 +497,36 @@ describe('UploadManager: instant uploads and resuming', () => {
     expect(pending.list().map((p) => p.sessionId)).toEqual(['flaky']);
   });
 
+  it('does not offer another tab’s running upload as unfinished', async () => {
+    const pending = memoryPendingStore(); // localStorage: shared by every tab
+    const first = fakeTransport();
+    let fail!: (err: unknown) => void;
+    (first.t.putChunk as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise((_res, rej) => (fail = rej)),
+    );
+    const tab1 = new UploadManager(first.t, { retryBaseMs: 1, chunkConcurrency: 1, pending });
+    tab1.add('folder', [{ file: new File(['0123'], 'movie.mov'), relativeDir: '' }]);
+    await settle();
+    await settle();
+    expect(pending.list()).toHaveLength(1);
+
+    // A second tab opens while the first is still sending.
+    const second = fakeTransport();
+    (second.t.getUpload as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => ({
+      id,
+      status: 'uploading',
+      node: null,
+    }));
+    const tab2 = new UploadManager(second.t, { retryBaseMs: 1, pending });
+    // Offering it there would let "Discard" cancel the upload the first tab is still sending.
+    expect(await tab2.interrupted()).toEqual([]);
+
+    // Once the first tab stops sending it (here it fails; or the tab is closed), it is offered.
+    fail(new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected'));
+    await waitIdle(tab1);
+    expect((await tab2.interrupted()).map((p) => p.name)).toEqual(['movie.mov']);
+  });
+
   it('remembers unfinished uploads and resumes them with only the missing pieces', async () => {
     const pending = memoryPendingStore();
     const file = new File(['0123456789ab'], 'movie.mov', { lastModified: 42 });
@@ -512,7 +542,10 @@ describe('UploadManager: instant uploads and resuming', () => {
       { name: 'movie.mov', size: 12, lastModified: 42, folderId: 'folder' },
     ]);
 
-    // Next page load: the server still has the session with chunk 0.
+    // Next page load: what was saved is still there, but the closed tab sends nothing any more.
+    const reloaded = memoryPendingStore();
+    for (const p of pending.list()) reloaded.save(p);
+    // The server still has the session with chunk 0.
     const second = fakeTransport({ received: [0] });
     (second.t.getUpload as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => ({
       id,
@@ -525,7 +558,7 @@ describe('UploadManager: instant uploads and resuming', () => {
       expiresAt: new Date().toISOString(),
       node: null,
     }));
-    const m2 = new UploadManager(second.t, { retryBaseMs: 1, pending });
+    const m2 = new UploadManager(second.t, { retryBaseMs: 1, pending: reloaded });
     const list = await m2.interrupted();
     expect(list).toHaveLength(1);
     // A different file with the same name isn't accepted.
@@ -538,6 +571,6 @@ describe('UploadManager: instant uploads and resuming', () => {
     expect(second.t.createUpload).not.toHaveBeenCalled();
     expect(second.put.sort()).toEqual([1, 2]);
     expect(m2.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'movie' });
-    expect(pending.list()).toEqual([]);
+    expect(reloaded.list()).toEqual([]);
   });
 });

@@ -39,16 +39,24 @@ export interface PendingUpload {
   savedAt: number;
 }
 
-/** Where pending uploads are remembered across page loads (localStorage in the browser). */
+/**
+ * Where pending uploads are remembered across page loads (localStorage in the browser). Every
+ * tab shares it, so an upload a tab is still sending is claimed, and not offered elsewhere.
+ */
 export interface PendingStore {
   list(): PendingUpload[];
   save(p: PendingUpload): void;
   remove(sessionId: string): void;
   clear(): void;
+  /** Marks a session as being sent until the returned function is called (or the tab closes). */
+  claim(sessionId: string): () => void;
+  /** Sessions being sent right now, by any tab. */
+  claimed(): Promise<Set<string>>;
 }
 
 export const memoryPendingStore = (): PendingStore => {
   let items: PendingUpload[] = [];
+  const sending = new Set<string>();
   return {
     list: () => items,
     save: (p) => {
@@ -60,10 +68,16 @@ export const memoryPendingStore = (): PendingStore => {
     clear: () => {
       items = [];
     },
+    claim: (id) => {
+      sending.add(id);
+      return () => sending.delete(id);
+    },
+    claimed: async () => new Set(sending),
   };
 };
 
 const PENDING_KEY = 'fc-pending-uploads';
+const SENDING_LOCK = 'fc-upload-';
 
 export const localPendingStore = (): PendingStore => {
   const read = (): PendingUpload[] => {
@@ -85,6 +99,25 @@ export const localPendingStore = (): PendingStore => {
     save: (p) => write([...read().filter((i) => i.sessionId !== p.sessionId), p]),
     remove: (id) => write(read().filter((i) => i.sessionId !== id)),
     clear: () => write([]),
+    // A Web Lock: the browser lets go of it by itself when the tab is closed or crashes.
+    claim: (id) => {
+      let release!: () => void;
+      const done = new Promise<void>((r) => (release = r));
+      navigator.locks?.request(`${SENDING_LOCK}${id}`, () => done).catch(() => {});
+      return release;
+    },
+    claimed: async () => {
+      try {
+        const held = (await navigator.locks?.query())?.held ?? [];
+        return new Set(
+          held.flatMap((l) =>
+            l.name?.startsWith(SENDING_LOCK) ? [l.name.slice(SENDING_LOCK.length)] : [],
+          ),
+        );
+      } catch {
+        return new Set();
+      }
+    },
   };
 };
 
@@ -320,7 +353,10 @@ export class UploadManager {
    */
   async interrupted(): Promise<PendingUpload[]> {
     const live: PendingUpload[] = [];
+    const sending = await this.opts.pending.claimed();
     for (const p of this.opts.pending.list()) {
+      // Ours, or still being sent by another tab (where "Discard" here would cancel it).
+      if (sending.has(p.sessionId)) continue;
       if (this.items.some((i) => this.sessions.get(i.id) === p.sessionId)) continue;
       // Couldn't ask (offline, server restarting): keep it for next time rather than forget it.
       const s = await this.transport
@@ -479,6 +515,7 @@ export class UploadManager {
     const controller = new AbortController();
     this.controllers.set(item.id, controller);
     const { signal } = controller;
+    let unclaim: (() => void) | undefined;
     try {
       this.patch(item.id, { status: 'uploading', loaded: 0 }, true);
       // The folder is shared with other files and carries on regardless; this file stops waiting
@@ -529,6 +566,7 @@ export class UploadManager {
       }
 
       const session = await this.openSession(item, folderId, file, signal);
+      unclaim = this.opts.pending.claim(session.id);
 
       const { chunkSize, totalChunks } = session;
       const have = new Set(session.receivedChunks);
@@ -610,6 +648,7 @@ export class UploadManager {
       // carry on unseen (and alongside a Retry's own) after the file is shown as failed.
       controller.abort();
       this.controllers.delete(item.id);
+      unclaim?.();
     }
   }
 

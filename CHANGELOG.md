@@ -17,6 +17,8 @@ to do yourself when updating is listed under **Before you update**.
   the connection drops just then.
 - **Unfinished uploads:** opening Family Cloud on a poor connection no longer forgets uploads that
   were cut off earlier; they're still offered to continue once the server can be reached.
+- **Unfinished uploads:** opening Family Cloud in a second tab while the first is still uploading
+  no longer lists those uploads as "didn't finish", where **Discard** would have cancelled them.
 - **Folder uploads:** empty folders inside a folder you drag in are made too, and dragging in an
   empty folder makes it. They used to be left out without a word.
 - **Uploads:** cancelling a file of a folder upload works at once, even while its folder is still
