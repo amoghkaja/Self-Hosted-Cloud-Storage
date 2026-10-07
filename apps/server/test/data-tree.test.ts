@@ -124,6 +124,40 @@ describe('listing order', () => {
     const desc = await c.get(`/nodes/${dir}/children?dir=desc`);
     expect(desc.body.items.map((i: { name: string }) => i.name)).toEqual(names.toReversed());
   });
+
+  it('pages by size and date, and refuses a cursor that does not fit the sort', async () => {
+    const dir = await folder(root, 'Paged');
+    for (const [i, n] of ['a', 'b', 'c'].entries()) {
+      await uploadFile(c, dir, `${n}.txt`, Buffer.alloc(i + 1));
+    }
+    for (const sort of ['size', 'updated']) {
+      const names: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const q: string = cursor ? `&cursor=${cursor}` : '';
+        const page = await c.get(`/nodes/${dir}/children?limit=1&sort=${sort}${q}`);
+        expect(page.status).toBe(200);
+        names.push(...page.body.items.map((i: { name: string }) => i.name));
+        cursor = page.body.nextCursor;
+      } while (cursor);
+      expect(names.toSorted()).toEqual(['a.txt', 'b.txt', 'c.txt']);
+    }
+
+    const byName = (await c.get(`/nodes/${dir}/children?limit=1`)).body.nextCursor;
+    const forge = (parts: unknown[]) => Buffer.from(JSON.stringify(parts)).toString('base64url');
+    const cases: [string, string][] = [
+      ['size', byName],
+      ['updated', byName],
+      ['name', forge(['file', 'a.txt', 'not-an-id'])],
+      ['name', forge(['file', 'a\u0000', dir])],
+      ['updated', forge(['file', '2026-13-01T00:00:00.000Z', dir])],
+      ['size', forge(['file', 1.5, dir])],
+    ];
+    for (const [sort, cursor] of cases) {
+      const res = await c.get(`/nodes/${dir}/children?limit=1&sort=${sort}&cursor=${cursor}`);
+      expect(res.status).toBe(400);
+    }
+  });
 });
 
 describe('names Postgres lowercases differently from JavaScript', () => {

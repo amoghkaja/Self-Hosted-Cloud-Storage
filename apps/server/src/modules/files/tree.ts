@@ -2,6 +2,7 @@ import { unlink } from 'node:fs/promises';
 import {
   type ChildrenQuery,
   ErrorCode,
+  Id,
   type NodePage,
   withCopySuffix,
 } from '@familycloud/shared/all';
@@ -32,15 +33,23 @@ function encodeCursor(c: Cursor): string {
   return Buffer.from(JSON.stringify(c)).toString('base64url');
 }
 
-function decodeCursor(raw: string): Cursor {
+/** Whether a cursor's key is one `sort` produces: anything else would fail in Postgres (500). */
+function keyFits(sort: ChildrenQuery['sort'], k: unknown): boolean {
+  if (sort === 'size') return Number.isSafeInteger(k);
+  if (typeof k !== 'string') return false;
+  if (sort === 'updated') return !Number.isNaN(Date.parse(k)) && new Date(k).toISOString() === k;
+  return !k.includes('\u0000');
+}
+
+function decodeCursor(raw: string, sort: ChildrenQuery['sort']): Cursor {
   try {
     const c = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
     if (
       Array.isArray(c) &&
       c.length === 3 &&
       (c[0] === 'folder' || c[0] === 'file') &&
-      (typeof c[1] === 'string' || typeof c[1] === 'number') &&
-      typeof c[2] === 'string'
+      keyFits(sort, c[1]) &&
+      Id.safeParse(c[2]).success
     ) {
       return c as Cursor;
     }
@@ -68,7 +77,7 @@ export async function listChildren(
 
   const conditions: SQL[] = [eq(nodes.parentId, folderId), isNull(nodes.deletedAt)];
   if (q.cursor) {
-    const [t, k, id] = decodeCursor(q.cursor);
+    const [t, k, id] = decodeCursor(q.cursor, q.sort);
     const kv =
       q.sort === 'updated'
         ? sql`${String(k)}::timestamptz`
