@@ -480,6 +480,23 @@ describe('UploadManager: instant uploads and resuming', () => {
     expect(m.getSnapshot().every((i) => i.status === 'done' && !i.instant)).toBe(true);
   });
 
+  it('forgets an unfinished upload only when the server says it is gone, not when offline', async () => {
+    const pending = memoryPendingStore();
+    const saved = { name: 'movie.mov', size: 12, lastModified: 42, folderId: 'f', savedAt: 1 };
+    pending.save({ ...saved, sessionId: 'flaky' });
+    pending.save({ ...saved, sessionId: 'gone' });
+    const { t } = fakeTransport();
+    vi.mocked(t.getUpload).mockImplementation(async (id) => {
+      throw id === 'flaky'
+        ? new ApiError(0, 'NETWORK_ERROR', "Can't reach the server. Check your connection.")
+        : new ApiError(404, 'NOT_FOUND', 'Upload not found');
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, pending });
+    expect(await m.interrupted()).toEqual([]);
+    // Still there to offer (and resume) on the next visit.
+    expect(pending.list().map((p) => p.sessionId)).toEqual(['flaky']);
+  });
+
   it('remembers unfinished uploads and resumes them with only the missing pieces', async () => {
     const pending = memoryPendingStore();
     const file = new File(['0123456789ab'], 'movie.mov', { lastModified: 42 });

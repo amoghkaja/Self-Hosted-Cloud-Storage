@@ -322,7 +322,11 @@ export class UploadManager {
     const live: PendingUpload[] = [];
     for (const p of this.opts.pending.list()) {
       if (this.items.some((i) => this.sessions.get(i.id) === p.sessionId)) continue;
-      const s = await this.transport.getUpload(p.sessionId).catch(() => null);
+      // Couldn't ask (offline, server restarting): keep it for next time rather than forget it.
+      const s = await this.transport
+        .getUpload(p.sessionId)
+        .catch((err: unknown) => (isRetryable(err) ? undefined : null));
+      if (s === undefined) continue;
       if (s?.status === 'uploading') live.push(p);
       else this.opts.pending.remove(p.sessionId);
     }
