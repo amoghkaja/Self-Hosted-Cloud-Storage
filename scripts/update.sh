@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Family Cloud updater: gets the newest version, backs up the database, restarts and checks
-# that it came back. Your files, settings and accounts are kept; database changes apply on start.
+# that it came back (going back to the old version if the new one crashes). Your files, settings
+# and accounts are kept; database changes apply on start.
 #
 #   ./scripts/update.sh           show what's new, ask, then update
 #   ./scripts/update.sh --check   only show whether an update is available
@@ -121,6 +122,33 @@ back_to_previous() {
   set_env "$ENV_FILE" IMAGE "$IMAGE" || return 1
   docker compose up -d --remove-orphans
 }
+# After a new version crashed on start: the database as the backup below holds it, then the
+# previous version. The database the new version had is kept as familycloud_failed_update until
+# this happens again.
+db_sql() {
+  docker compose exec -T -e PGOPTIONS='--client-min-messages=warning' db \
+    psql -U familycloud -d postgres -v ON_ERROR_STOP=1 -qc "$1"
+}
+roll_back() {
+  docker image inspect "$PREVIOUS_IMAGE" >/dev/null 2>&1 || return 1
+  bold "Going back to $FROM"
+  docker compose stop app worker || return 1
+  db_sql 'DROP DATABASE IF EXISTS familycloud_restore' || return 1
+  db_sql 'CREATE DATABASE familycloud_restore' || return 1
+  docker compose exec -T db pg_restore -U familycloud -d familycloud_restore --exit-on-error <"$DUMP" \
+    || return 1
+  db_sql 'DROP DATABASE IF EXISTS familycloud_failed_update' || return 1
+  db_sql 'ALTER DATABASE familycloud RENAME TO familycloud_failed_update' || return 1
+  db_sql 'ALTER DATABASE familycloud_restore RENAME TO familycloud' || return 1
+  back_to_previous && wait_healthy
+}
+# Crashed (restarted or stopped), rather than still busy with a big database change on a slow
+# computer: that one is left to finish.
+app_crashed() {
+  local id
+  id=$(docker compose ps -aq app) && [[ -n "$id" ]] || return 0
+  [[ "$(docker inspect -f '{{.RestartCount}} {{.State.Status}}' "$id")" != "0 running" ]]
+}
 
 bold "Getting $TARGET"
 if [[ "$CHANNEL" == stable ]]; then
@@ -171,6 +199,11 @@ bold "Restarting"
 docker compose up -d --remove-orphans
 if ! wait_healthy; then
   echo >&2
+  if app_crashed && roll_back; then
+    bold "Back on $FROM: $TARGET didn't start (see the logs above)."
+    info "The database is as it was just before the update. The next update tries again."
+    exit 1
+  fi
   info "Your files are untouched, and the database was backed up to:" >&2
   info "  $DUMP" >&2
   info "To go back to the version you had: git checkout $OLD_REF, set IMAGE=$OLD_IMAGE in" >&2

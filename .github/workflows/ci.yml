@@ -176,7 +176,27 @@ jobs:
           if BACKUP_DIR=/nonexistent ./scripts/update.sh <<<y; then exit 1; fi
           [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
           [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
-          curl -fsS localhost:3080/healthz
+          curl -fsS "localhost:${APP_PORT:-3080}/healthz"
+      - name: A new version that crashes on start is rolled back
+        env:
+          WAIT_SECS: '60'
+        run: |
+          OLD=$(git rev-parse HEAD)
+          OLD_IMAGE=$(grep '^IMAGE=' deploy/.env)
+          OLD_IMAGE_ID=$(docker inspect -f '{{.Image}}' "$(cd deploy && docker compose ps -q app)")
+          git checkout -q --detach origin/main
+          echo 'CMD ["node", "-e", "process.exit(1)"]' >> Dockerfile
+          git -c user.name=CI -c user.email=ci@localhost commit -q -am "A version that crashes on start"
+          git push -q origin HEAD:main
+          git checkout -q -
+          if ./scripts/update.sh <<<y; then exit 1; fi
+          [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
+          [[ "$(docker inspect -f '{{.Image}}' "$(cd deploy && docker compose ps -q app)")" == "$OLD_IMAGE_ID" ]]
+          curl -fsS "localhost:${APP_PORT:-3080}/healthz"
+          # The database was put back from the backup; the one the new version had is kept aside.
+          cd deploy
+          docker compose exec -T db psql -U familycloud -d postgres -tAc \
+            "select datname from pg_database where datname = 'familycloud_failed_update'" | grep -q .
       - name: Logs
         if: failure()
         run: cd deploy && docker compose ps && docker compose logs --tail 80

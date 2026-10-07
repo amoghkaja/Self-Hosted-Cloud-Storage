@@ -8,6 +8,12 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **Updating:** if a new version crashes on start, the update goes back to the version you had by
+  itself, with the database as it was just before. A bad automatic update on a Sunday morning no
+  longer leaves the cloud down until you notice. The next update tries again.
+
 ### Fixed
 
 - **Backups:** when the backup disk isn't plugged in, the nightly backup stops with a message in
