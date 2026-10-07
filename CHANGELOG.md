@@ -8,6 +8,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **Phones and tablets:** the buttons above a folder fit on the screen. On a phone the last ones
+  ran off its edge, which made the page slide sideways and could push the tab bar and the close
+  buttons of previews and dialogs out of sight. Where there isn't room, Request files and Rewind
+  are under the ⋮ button next to them.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved
