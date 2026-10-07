@@ -34,7 +34,13 @@ export default async function setup(project: TestProject) {
   let base = process.env.TEST_DATABASE_URL?.replace(/\/[^/]*$/, '');
   let stop = async () => {};
   if (!base) {
+    const known = new Set(process.listeners('beforeExit'));
     const { default: EmbeddedPostgres } = await import('embedded-postgres');
+    // Its exit hook calls process.exit(0) on `beforeExit`, which turns a failing run green. The
+    // teardown below stops the cluster instead.
+    for (const listener of process.listeners('beforeExit')) {
+      if (!known.has(listener)) process.off('beforeExit', listener);
+    }
     const dir = await mkdtemp(path.join(tmpdir(), 'fc-pg-'));
     const port = await freePort();
     const pg = new EmbeddedPostgres({
@@ -43,6 +49,11 @@ export default async function setup(project: TestProject) {
       password: 'postgres',
       port,
       persistent: false,
+      // Postgres refuses to run as root, so under root (a dev container) it runs as the `postgres`
+      // user, which needs to own the data directory.
+      createPostgresUser: process.getuid?.() === 0,
+      // The natural-sort ICU collation needs UTF-8; a C/POSIX locale would make initdb pick SQL_ASCII.
+      initdbFlags: ['--encoding=UTF8', '--locale=C.UTF-8'],
       onLog: () => {},
       onError: () => {},
     });
