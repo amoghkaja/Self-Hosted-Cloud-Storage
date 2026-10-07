@@ -27,6 +27,9 @@ to do yourself when updating is listed under **Before you update**.
   button sits under them), and Restore shows it's working, so a second tap doesn't try again.
 - **Selecting on a phone or tablet:** a file's menu (⋮, or press and hold) now has **Select all**
   next to Select, so moving or downloading a whole folder's photos no longer takes a tap on each.
+- **Two-factor sign-in on a phone:** setting it up on the phone that has your authenticator app
+  no longer needs a second device to scan the code: tap **Open in your authenticator app**, or
+  copy the key with one tap instead of typing 32 letters.
 
 ## v0.5.0 (2026-10-05)
 

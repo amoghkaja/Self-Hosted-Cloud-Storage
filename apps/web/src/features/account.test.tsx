@@ -1,3 +1,4 @@
+import type { Me } from '@familycloud/shared';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
@@ -6,7 +7,7 @@ import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils'
 import { WhatsNewPage } from './about/WhatsNewPage';
 import { LoginPage } from './auth/LoginPage';
 import { ResetPasswordPage } from './auth/ResetPasswordPage';
-import { ConnectGuide } from './settings/SettingsPage';
+import { ConnectGuide, TwoFactorSection } from './settings/SettingsPage';
 
 describe('Password reset page', () => {
   const token = 'tok_0123456789abcdefghijklmnop';
@@ -55,6 +56,32 @@ describe('Password reset page', () => {
     });
     renderWithProviders(page, { route: `/reset/${token}` });
     expect(await screen.findByText(/Ask your admin for a new one/)).toBeInTheDocument();
+  });
+});
+
+describe('Two-factor setup', () => {
+  it('can be done on the phone that has the authenticator app: no code to scan needed', async () => {
+    const otpauthUrl =
+      'otpauth://totp/Family%20Cloud:mum%40example.com?secret=ABCDEF234567&issuer=Family%20Cloud';
+    mockFetch({
+      'POST /auth/totp/setup': () => ({ json: { secret: 'ABCDEF234567', otpauthUrl } }),
+    });
+    const me: Me = {
+      id: 'u',
+      email: 'mum@example.com',
+      displayName: 'Mum',
+      role: 'member',
+      quotaBytes: null,
+      usedBytes: 0,
+      totpEnabled: false,
+      rootNodeId: 'r',
+    };
+    renderWithProviders(<TwoFactorSection me={me} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Set up two-factor' }));
+    expect(
+      await screen.findByRole('link', { name: 'Open in your authenticator app' }),
+    ).toHaveAttribute('href', otpauthUrl);
+    expect(screen.getByRole('button', { name: 'Copy key' })).toBeInTheDocument();
   });
 });
 
