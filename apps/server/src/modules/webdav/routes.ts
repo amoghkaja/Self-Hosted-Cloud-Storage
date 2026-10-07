@@ -365,6 +365,11 @@ export const davRoutes: FastifyPluginAsync = async (app) => {
       }
 
       case 'PUT': {
+        // A partial PUT (how `curl -C -` resumes an upload) would replace the whole file with
+        // just the part it sends. RFC 9110 says to refuse it.
+        if (req.headers['content-range'] !== undefined) {
+          throw new AppError(400, ErrorCode.VALIDATION, 'Partial uploads are not supported');
+        }
         const length = declaredLength(req);
         if (length === null)
           throw new AppError(411, ErrorCode.VALIDATION, 'Content-Length required');

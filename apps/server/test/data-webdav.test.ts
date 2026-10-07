@@ -165,6 +165,17 @@ describe('PUT', () => {
     });
     expect(missing.statusCode).toBe(412);
   });
+
+  it('refuses a partial PUT instead of replacing the file with the part sent', async () => {
+    await aliceDav('PUT', '/dav/My%20Files/resume.txt', { body: 'helloworld' });
+    // What `curl -T file -C -` sends to resume an upload: only the bytes after the first five.
+    const partial = await aliceDav('PUT', '/dav/My%20Files/resume.txt', {
+      body: 'WORLD',
+      headers: { 'content-range': 'bytes 5-9/10' },
+    });
+    expect(partial.statusCode).toBe(400);
+    expect((await aliceDav('GET', '/dav/My%20Files/resume.txt')).body).toBe('helloworld');
+  });
 });
 
 describe('LOCK and PROPPATCH', () => {

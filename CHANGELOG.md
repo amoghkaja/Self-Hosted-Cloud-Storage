@@ -8,6 +8,11 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Fixed
+
+- **Network drive:** a partial upload (such as resuming one with `curl -C -`) is refused instead of
+  replacing the whole file with just the part that was sent.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved
