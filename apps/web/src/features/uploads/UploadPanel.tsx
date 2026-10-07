@@ -3,7 +3,7 @@ import { ChevronDown, CircleAlert, CircleCheck, RotateCcw, X } from 'lucide-reac
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { UploadItem, UploadManager } from '../../api/upload-manager';
 import { uploadManager, useUploads } from '../../app/providers';
-import { announce, IconButton, Progress } from '../../components/ui';
+import { announce, FileName, IconButton, Progress } from '../../components/ui';
 import { cn } from '../../lib/cn';
 
 // Memoized: the manager keeps an unchanged item's snapshot object, so a progress tick only
@@ -23,8 +23,8 @@ export const UploadRow = memo(function UploadRow({
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium" title={item.name}>
-          {item.name}
+        <p className="flex text-sm font-medium" title={item.name}>
+          <FileName name={item.name} />
         </p>
         {item.status === 'error' ? (
           <p className="truncate text-xs text-danger">{item.error}</p>

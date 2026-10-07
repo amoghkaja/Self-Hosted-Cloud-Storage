@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   EmptyState,
   ErrorState,
+  FileName,
   PasswordField,
   QueryState,
   SwitchField,
@@ -243,6 +244,26 @@ describe('Breadcrumbs', () => {
     expect(screen.getByText('Photos')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('navigation', { name: 'Folder path' })).toBeInTheDocument();
     await expectAccessible(container);
+  });
+});
+
+describe('FileName', () => {
+  it('keeps the extension out of the part that gets cut short, and reads as one name', () => {
+    const name = 'Family reunion at the lake house – everyone’s photos (final).pdf';
+    render(<FileName name={name} />);
+    expect(screen.getByText(name)).toBeInTheDocument();
+    const ext = screen.getByText('.pdf');
+    expect(ext).toHaveAttribute('aria-hidden', 'true');
+    expect(ext.previousElementSibling).toHaveClass('truncate');
+    expect(ext).not.toHaveClass('truncate');
+  });
+
+  it('leaves names without a short extension whole', () => {
+    for (const name of ['Plan v2.0 final', '.bashrc', 'Holiday photos']) {
+      const { unmount } = render(<FileName name={name} />);
+      expect(screen.getByText(name)).toHaveClass('truncate');
+      unmount();
+    }
   });
 });
 

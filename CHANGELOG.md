@@ -20,6 +20,9 @@ to do yourself when updating is listed under **Before you update**.
 - **Folder path:** on a phone, a folder a few levels down showed "My F… › Docum… › Ta… › 2…".
   The path now keeps each name and slides sideways, starting at the folder you're in, whose name
   gets two lines.
+- **Long file names:** when a name is too long for the list, the end of it (".pdf", ".jpg")
+  stays in sight, so you can still tell what kind of file it is. The viewer shows the whole name
+  on two lines, which on a phone is where you can read it.
 
 ## v0.5.0 (2026-10-05)
 

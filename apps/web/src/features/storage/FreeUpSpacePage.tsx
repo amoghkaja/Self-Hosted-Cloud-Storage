@@ -9,6 +9,7 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
+  FileName,
   IconButton,
   QueryState,
   Skeleton,
@@ -36,9 +37,10 @@ function FileRow({
       <div className="min-w-0 flex-1">
         <Link
           to={`/files/${file.parentId}`}
-          className="block truncate text-sm font-medium hover:underline"
+          title={file.name}
+          className="flex text-sm font-medium hover:underline"
         >
-          {file.name}
+          <FileName name={file.name} />
         </Link>
         <p className="truncate text-xs text-muted">
           {file.folder ? `In ${file.folder}` : 'In My Files'} · {detail}

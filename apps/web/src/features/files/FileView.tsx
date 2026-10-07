@@ -14,7 +14,14 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ContextMenu, DropdownMenu, type MenuAction, Skeleton, Spinner } from '../../components/ui';
+import {
+  ContextMenu,
+  DropdownMenu,
+  FileName,
+  type MenuAction,
+  Skeleton,
+  Spinner,
+} from '../../components/ui';
 import { cn } from '../../lib/cn';
 import { formatRelative } from '../../lib/format';
 import { FileIcon, type NodeVisual } from './FileIcon';
@@ -294,7 +301,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
           </div>
           <div role="gridcell" className="min-w-0">
             <p className="flex items-center gap-1.5 text-sm font-medium" title={item.name}>
-              <span className="truncate">{item.name}</span>
+              <FileName name={item.name} />
               {p.badge?.(item)}
             </p>
             {/* A narrow list (a phone, or a tablet beside the sidebar) has no room for the date and
@@ -341,7 +348,7 @@ function FileViewInner<T extends ViewItem>(p: FileViewProps<T>) {
         <div className="flex h-[52px] items-center gap-1 bg-surface pr-1 pl-3">
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-1.5 text-sm font-medium" title={item.name}>
-              <span className="truncate">{item.name}</span>
+              <FileName name={item.name} />
               {p.badge?.(item)}
             </p>
             <p className="truncate text-xs text-muted">

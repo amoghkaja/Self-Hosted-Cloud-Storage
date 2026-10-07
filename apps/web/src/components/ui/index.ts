@@ -21,6 +21,7 @@ export {
   TextAreaField,
   TextField,
 } from './Field';
+export { FileName } from './FileName';
 export { IconButton } from './IconButton';
 export { ContextMenu, DropdownMenu, type MenuAction } from './Menu';
 export { Breadcrumbs, type Crumb, GlassIndicator, SectionLinks, Tabs } from './Navigation';
