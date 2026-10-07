@@ -160,6 +160,24 @@ describe('invites', () => {
 });
 
 describe('two-factor', () => {
+  it('counts wrong passwords at a confirmation toward the account lockout', async () => {
+    const { client: admin } = await loginAdmin();
+    const { client } = await addMember(env, admin, 'guess@example.com');
+    // A stolen session must not get unlimited guesses at the password that guards new factors.
+    for (let i = 0; i < 5; i++) {
+      const res = await client.post('/auth/totp/setup', { password: `guess ${i}` });
+      expect(res.status).toBe(400);
+    }
+    const locked = await client.post('/auth/totp/setup', { password: MEMBER_PASSWORD });
+    expect(locked.status).toBe(429);
+    expect(locked.body.code).toBe('ACCOUNT_LOCKED');
+    const signIn = await new Client(env.app).post('/auth/login', {
+      email: 'guess@example.com',
+      password: MEMBER_PASSWORD,
+    });
+    expect(signIn.status).toBe(429);
+  });
+
   it('asks for the password before it hands out a secret', async () => {
     const { client: admin } = await loginAdmin();
     const { client } = await addMember(env, admin, 'confirm2fa@example.com');

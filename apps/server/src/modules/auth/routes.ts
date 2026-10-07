@@ -46,16 +46,17 @@ import { strictLimit } from '../../plugins/security';
 import { loadBranding, publicBranding } from '../admin/branding';
 import {
   checkTotp,
+  claimAttempt,
   confirmPassword,
   createUserWithRoot,
   dropRecoveryCodes,
   newRecoveryCodes,
   newTotp,
   recoveryCodesLeft,
+  refundAttempt,
   useRecoveryCode,
 } from './service';
 
-const LOCK_AFTER = 5;
 const MFA_TOKEN_TTL = 5 * 60;
 
 const invalidCredentials = () =>
@@ -68,60 +69,6 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
   async function startSession(req: FastifyRequest, reply: FastifyReply, user: UserRow) {
     const s = await ctx.sessions.create(db, user.id, requestMeta(req));
     setSessionCookie(ctx, reply, s.token, s.absoluteExpiresAt);
-  }
-
-  const locked = (until: Date | null) => {
-    const minutes = until ? Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000)) : 1;
-    return new AppError(
-      429,
-      ErrorCode.ACCOUNT_LOCKED,
-      `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
-    );
-  };
-
-  /**
-   * Counts a sign-in attempt *before* the secret is checked, in one atomic statement, and
-   * refuses it while the account is locked. Counting first means a burst of parallel guesses
-   * can't all read "not locked" before any failure is written: the row lock serializes them and
-   * the 6th sees the lock set by the 5th. The counter is reset only after a full sign-in.
-   * Lock length doubles from 1 minute per extra failure, capped at 60 minutes. (The exponent is
-   * capped too: power(2, n) overflows float8 past n = 1023, which would turn every later sign-in
-   * for the account into a 500 after a slow, weeks-long guessing campaign.)
-   */
-  async function claimAttempt(userId: string): Promise<number> {
-    const [row] = await db
-      .update(users)
-      .set({
-        failedLogins: sql`${users.failedLogins} + 1`,
-        lockedUntil: sql`CASE WHEN ${users.failedLogins} + 1 >= ${LOCK_AFTER}
-          THEN now() + make_interval(mins => least(power(2, least(${users.failedLogins} + 1 - ${LOCK_AFTER}, 6)), 60)::int)
-          ELSE NULL END`,
-      })
-      .where(
-        and(
-          eq(users.id, userId),
-          sql`(${users.lockedUntil} IS NULL OR ${users.lockedUntil} <= now())`,
-        ),
-      )
-      .returning({ attempts: users.failedLogins });
-    if (row) return row.attempts;
-    const [current] = await db
-      .select({ lockedUntil: users.lockedUntil })
-      .from(users)
-      .where(eq(users.id, userId));
-    throw locked(current?.lockedUntil ?? null);
-  }
-
-  /**
-   * Takes back an attempt claimed by `claimAttempt` that turned out not to be a failure, without
-   * resetting the counter. Before the claim the account was unlocked, so clearing the lock the
-   * claim may have set restores that. Skipped if another attempt has been counted since.
-   */
-  async function refundAttempt(userId: string, attempts: number): Promise<void> {
-    await db
-      .update(users)
-      .set({ failedLogins: sql`${users.failedLogins} - 1`, lockedUntil: null })
-      .where(and(eq(users.id, userId), eq(users.failedLogins, attempts)));
   }
 
   async function auditFailure(
@@ -196,7 +143,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     { config: strictLimit(10), schema: { body: LoginBody, response: { 200: LoginResponse } } },
     async (req, reply) => {
       const [user] = await db.select().from(users).where(eq(users.email, req.body.email));
-      const attempts = user ? await claimAttempt(user.id) : 0;
+      const attempts = user ? await claimAttempt(db, user.id) : 0;
       const ok = await verifyPassword(user?.passwordHash ?? null, req.body.password);
       // Outside the allowed email domains the answer is the same as a wrong password, so the
       // rule doesn't reveal which accounts exist.
@@ -213,7 +160,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       // password itself isn't a failure, though: refund it, or after four earlier typos the lock
       // it triggers would refuse the code step that follows.
       if (user.totpEnabled) {
-        await refundAttempt(user.id, attempts);
+        await refundAttempt(db, user.id, attempts);
         return {
           status: 'mfa_required' as const,
           mfaToken: ctx.keys.sign('mfa', { uid: user.id }, MFA_TOKEN_TTL),
@@ -247,7 +194,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       ) {
         throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
       }
-      const attempts = await claimAttempt(user.id);
+      const attempts = await claimAttempt(db, user.id);
       const step = checkTotp(ctx, user.totpSecretEnc, req.body.code, user.totpLastStep);
       if (step === null) {
         await auditFailure(user.id, req, 'totp', attempts);
@@ -301,7 +248,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         throw new AppError(401, ErrorCode.MFA_INVALID, 'Sign-in expired, please start again');
       }
       // Counts toward the lockout like a wrong code from the app.
-      const attempts = await claimAttempt(user.id);
+      const attempts = await claimAttempt(db, user.id);
       if (!(await useRecoveryCode(db, user.id, req.body.code))) {
         await auditFailure(user.id, req, 'recovery_code', attempts);
         throw new AppError(
@@ -345,9 +292,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       const { user } = requireUser(req);
       const [fresh] = await db.select().from(users).where(eq(users.id, user.id));
       if (!fresh?.totpEnabled) throw conflict('Turn on two-factor sign-in first');
-      if (!(await verifyPassword(fresh.passwordHash, req.body.password))) {
-        throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
-      }
+      await confirmPassword(db, user.id, req.body.password, req.clientIp);
       const codes = await newRecoveryCodes(db, user.id);
       await audit(db, {
         actorId: user.id,
@@ -393,10 +338,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     { config: strictLimit(10), schema: { body: ChangePasswordBody, response: { 200: Ok } } },
     async (req) => {
       const { user, sessionId } = requireUser(req);
-      const [fresh] = await db.select().from(users).where(eq(users.id, user.id));
-      if (!(await verifyPassword(fresh!.passwordHash, req.body.currentPassword))) {
-        throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Current password is incorrect');
-      }
+      await confirmPassword(db, user.id, req.body.currentPassword, req.clientIp);
       await db
         .update(users)
         .set({ passwordHash: await hashPassword(req.body.newPassword), updatedAt: new Date() })
@@ -454,7 +396,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { user } = requireUser(req);
-      await confirmPassword(db, user.id, req.body.password);
+      await confirmPassword(db, user.id, req.body.password, req.clientIp);
       const { secretBase32, url } = newTotp(ctx, user.email);
       // Checked in the UPDATE, not on the (possibly cached) session user: replacing the secret of
       // an account that already has two-factor on would lock its owner out.

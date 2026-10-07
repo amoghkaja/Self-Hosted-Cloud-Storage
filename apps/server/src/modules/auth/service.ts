@@ -1,10 +1,11 @@
 import { randomInt } from 'node:crypto';
 import { ErrorCode, type UserRole } from '@familycloud/shared/all';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import * as OTPAuth from 'otpauth';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
 import { nodes, recoveryCodes, type UserRow, users } from '../../db/schema';
+import { audit } from '../../lib/audit';
 import { sha256 } from '../../lib/crypto';
 import { AppError, conflict, isUniqueViolation } from '../../lib/errors';
 import { verifyPassword } from '../../lib/passwords';
@@ -164,14 +165,89 @@ export async function dropRecoveryCodes(exec: Executor, userId: string): Promise
 
 /**
  * Asked before anything that hands out a new way into the account (a passkey, a two-factor
- * secret): with only a stolen session, someone could otherwise add their own and keep it.
+ * secret, recovery codes) or changes the password: with only a stolen session, someone could
+ * otherwise add their own way in and keep it. A wrong password counts toward the same lockout as
+ * signing in, so the session doesn't buy unlimited guesses.
  */
-export async function confirmPassword(exec: Executor, userId: string, password: string) {
+export async function confirmPassword(
+  exec: Executor,
+  userId: string,
+  password: string,
+  ip: string | null,
+) {
+  const attempts = await claimAttempt(exec, userId);
   const [row] = await exec
     .select({ hash: users.passwordHash })
     .from(users)
     .where(eq(users.id, userId));
   if (!(await verifyPassword(row?.hash ?? null, password))) {
+    await audit(exec, {
+      actorId: userId,
+      action: 'auth.login_failed',
+      ip,
+      meta: { reason: 'password_confirm', attempts },
+    });
     throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
   }
+  await refundAttempt(exec, userId, attempts);
+}
+
+const LOCK_AFTER = 5;
+
+const locked = (until: Date | null) => {
+  const minutes = until ? Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60_000)) : 1;
+  return new AppError(
+    429,
+    ErrorCode.ACCOUNT_LOCKED,
+    `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+  );
+};
+
+/**
+ * Counts a sign-in attempt *before* the secret is checked, in one atomic statement, and
+ * refuses it while the account is locked. Counting first means a burst of parallel guesses
+ * can't all read "not locked" before any failure is written: the row lock serializes them and
+ * the 6th sees the lock set by the 5th. The counter is reset only after a full sign-in.
+ * Lock length doubles from 1 minute per extra failure, capped at 60 minutes. (The exponent is
+ * capped too: power(2, n) overflows float8 past n = 1023, which would turn every later sign-in
+ * for the account into a 500 after a slow, weeks-long guessing campaign.)
+ */
+export async function claimAttempt(exec: Executor, userId: string): Promise<number> {
+  const [row] = await exec
+    .update(users)
+    .set({
+      failedLogins: sql`${users.failedLogins} + 1`,
+      lockedUntil: sql`CASE WHEN ${users.failedLogins} + 1 >= ${LOCK_AFTER}
+        THEN now() + make_interval(mins => least(power(2, least(${users.failedLogins} + 1 - ${LOCK_AFTER}, 6)), 60)::int)
+        ELSE NULL END`,
+    })
+    .where(
+      and(
+        eq(users.id, userId),
+        sql`(${users.lockedUntil} IS NULL OR ${users.lockedUntil} <= now())`,
+      ),
+    )
+    .returning({ attempts: users.failedLogins });
+  if (row) return row.attempts;
+  const [current] = await exec
+    .select({ lockedUntil: users.lockedUntil })
+    .from(users)
+    .where(eq(users.id, userId));
+  throw locked(current?.lockedUntil ?? null);
+}
+
+/**
+ * Takes back an attempt claimed by `claimAttempt` that turned out not to be a failure, without
+ * resetting the counter. Before the claim the account was unlocked, so clearing the lock the
+ * claim may have set restores that. Skipped if another attempt has been counted since.
+ */
+export async function refundAttempt(
+  exec: Executor,
+  userId: string,
+  attempts: number,
+): Promise<void> {
+  await exec
+    .update(users)
+    .set({ failedLogins: sql`${users.failedLogins} - 1`, lockedUntil: null })
+    .where(and(eq(users.id, userId), eq(users.failedLogins, attempts)));
 }

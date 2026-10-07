@@ -105,7 +105,7 @@ export const passkeyRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { user } = requireUser(req);
-      await confirmPassword(db, user.id, req.body.password);
+      await confirmPassword(db, user.id, req.body.password, req.clientIp);
       const existing = await db
         .select({ id: passkeys.credentialId, transports: passkeys.transports })
         .from(passkeys)
