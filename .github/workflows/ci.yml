@@ -94,7 +94,10 @@ jobs:
       - name: Shell scripts pass shellcheck
         run: shellcheck --severity=warning scripts/*.sh
       - name: An older PostgreSQL 18 image, as on a machine installed a while ago
-        run: docker pull -q postgres:18.0-alpine && docker tag postgres:18.0-alpine postgres:18-alpine
+        run: |
+          docker pull -q postgres:18.0-alpine
+          docker tag postgres:18.0-alpine postgres:18-alpine
+          docker image rm postgres:18.0-alpine
       - name: Install on a clean machine
         run: ./scripts/install.sh -y
       - name: The app answers and waits for its first admin
@@ -142,9 +145,12 @@ jobs:
           git remote set-url origin "$RUNNER_TEMP/origin.git"
           git checkout -q --detach HEAD~1
           SINCE=$(date +%s)
+          LEFTOVERS=$(docker images -q --filter dangling=true | wc -l)
           ./scripts/update.sh <<<y
           [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]
           ls "$STORAGE_ROOT"/backups/pre-update-*.dump
+          # The previous version's image doesn't stay behind, taking up the disk.
+          (( $(docker images -q --filter dangling=true | wc -l) <= LEFTOVERS ))
           # The database copy was made after the app stopped, so it holds everything it wrote.
           docker events --since "$SINCE" --until "$(date +%s)" \
             --format '{{.Action}} {{.Actor.Attributes.name}}' > "$RUNNER_TEMP/events"

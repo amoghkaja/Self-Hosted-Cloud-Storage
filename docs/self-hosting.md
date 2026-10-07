@@ -120,7 +120,7 @@ It shows what's new since your version (from [CHANGELOG.md](../CHANGELOG.md)) an
 
 1. moves the code to the newest release and pulls its image (or builds it), plus the newest builds of the database, tunnel, Caddy and virus scanner images (for their security fixes), while the cloud keeps running,
 2. stops the app and backs up the database to `/srv/familycloud/backups/pre-update-*.dump` (the last 3 are kept),
-3. restarts and waits until the app answers again, then prints the old and new version.
+3. restarts and waits until the app answers again, removes the images the previous version used, and prints the old and new version.
 
 The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start. **Admin → Overview** shows the version you run, at the bottom.
 

@@ -32,6 +32,8 @@ to do yourself when updating is listed under **Before you update**.
   the new version downloaded (or built, which takes a while on a Raspberry Pi) was missing from
   it. If the new version can't be built or the backup fails, the update now puts everything back
   as it was, instead of leaving the next version half set up.
+- **Updating:** the images the previous version used are removed once the new one is running.
+  They used to stay on the system disk, a few hundred MB with every update.
 
 ### Security
 

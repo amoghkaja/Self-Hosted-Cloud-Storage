@@ -211,5 +211,11 @@ if ! wait_healthy; then
   info "(docs/backup-restore.md, \"Restore\")." >&2
   exit 1
 fi
+# The images the previous version ran are no longer needed: each is hundreds of MB, and they'd
+# pile up on the system disk with every update. Going back to it means downloading it again.
 docker image rm "$PREVIOUS_IMAGE" >/dev/null 2>&1 || true
+if [[ "$OLD_IMAGE" == "$RELEASE_IMAGE_REPO":* && "$OLD_IMAGE" != "$IMAGE" ]]; then
+  docker image rm "$OLD_IMAGE" >/dev/null 2>&1 || true
+fi
+docker image prune -f >/dev/null || true
 bold "Updated: $FROM → $(running_version)"
