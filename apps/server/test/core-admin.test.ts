@@ -5,7 +5,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureSetupToken } from '../src/context';
 import { settings } from '../src/db/schema';
 import { SettingsStore } from '../src/lib/settings';
-import { addMember, type Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
+import {
+  ADMIN_PASSWORD,
+  addMember,
+  Client,
+  createTestEnv,
+  setupAdmin,
+  type TestEnv,
+} from './helpers';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -47,9 +54,13 @@ describe('admin', () => {
     const list = (await (results[0]!.status === 200 ? admin : second.client).get('/admin/users'))
       .body.items as { role: string; disabled: boolean }[];
     expect(list.filter((u) => u.role === 'admin' && !u.disabled).length).toBe(1);
-    // Put things back for the other tests.
+    // Put things back for the other tests. Being disabled ended this admin's session, so it
+    // signs in again (which side wins the race differs from run to run).
     if (results[0]!.status !== 200) {
       await second.client.patch(`/admin/users/${me.id}`, { disabled: false });
+      admin = new Client(env.app);
+      const login = await admin.post('/auth/login', { email: me.email, password: ADMIN_PASSWORD });
+      expect(login.status).toBe(200);
     }
   });
 
