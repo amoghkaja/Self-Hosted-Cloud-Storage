@@ -122,7 +122,9 @@ export function useCollectionNav(o: CollectionNavOptions) {
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (count === 0) return;
+      // Only keys pressed on an item: the column headers' sort buttons need their own Enter and
+      // Space.
+      if (count === 0 || !(e.target as Element).closest('[data-index]')) return;
       const o = latest.current;
       const cols = Math.max(1, columns);
       const mod = e.metaKey || e.ctrlKey;
