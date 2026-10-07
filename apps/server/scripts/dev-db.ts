@@ -17,6 +17,11 @@ const pg = new EmbeddedPostgres({
   password: 'postgres',
   port,
   persistent: true,
+  // Postgres refuses to run as root, so under root (a dev container) it runs as the `postgres`
+  // user, which needs to own the data directory.
+  createPostgresUser: process.getuid?.() === 0,
+  // The natural-sort ICU collation needs UTF-8; a C/POSIX locale would make initdb pick SQL_ASCII.
+  initdbFlags: ['--encoding=UTF8', '--locale=C.UTF-8'],
   onLog: () => {},
 });
 
