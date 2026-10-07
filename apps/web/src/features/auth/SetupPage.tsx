@@ -2,7 +2,7 @@ import { type InviteInfo, type Me, PASSWORD_MIN_LENGTH } from '@familycloud/shar
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { api, errorMessage } from '../../api/client';
+import { api, errorMessage, isUnusableLink } from '../../api/client';
 import { qk, useSetupStatus } from '../../api/queries';
 import { Button, ErrorState, PasswordField, Skeleton, TextField } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -164,6 +164,17 @@ export function AcceptInvitePage() {
           <Skeleton className="h-10" />
           <Skeleton className="h-10" />
         </div>
+      </AuthLayout>
+    );
+  }
+  if (invite.isError && !isUnusableLink(invite.error)) {
+    return (
+      <AuthLayout title="Join the family cloud">
+        <ErrorState
+          title="Couldn't open this invite"
+          error={invite.error}
+          onRetry={() => void invite.refetch()}
+        />
       </AuthLayout>
     );
   }

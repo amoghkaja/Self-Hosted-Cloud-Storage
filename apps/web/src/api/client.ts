@@ -80,6 +80,20 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   );
 }
 
+/**
+ * Whether a link's token itself is no good (removed, expired, used, or cut off when copied: a
+ * 4xx), rather than the server being unreachable or busy, when trying again may well work.
+ */
+export function isUnusableLink(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    err.status !== 408 &&
+    err.status !== 429
+  );
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;

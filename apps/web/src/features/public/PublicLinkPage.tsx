@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Download, FolderOpen, Lock } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { ApiError, api, apiUrl, errorMessage } from '../../api/client';
+import { ApiError, api, apiUrl, errorMessage, isUnusableLink } from '../../api/client';
 import { Logo } from '../../app/Logo';
 import { Button, EmptyState, ErrorState, PasswordField, Skeleton } from '../../components/ui';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -103,17 +103,14 @@ export function PublicLinkPage() {
     );
   }
   if (info.isError) {
-    const status = info.error instanceof ApiError ? info.error.status : 0;
-    // A cut-off address fails validation (400) rather than lookup (404): it's mistyped too.
-    const gone = status >= 400 && status < 500 && status !== 408 && status !== 429;
     return (
       <Frame>
-        {status === 410 ? (
+        {info.error instanceof ApiError && info.error.status === 410 ? (
           <ErrorState
             title="This link has expired"
             error="Ask the person who shared it for a new link."
           />
-        ) : gone ? (
+        ) : isUnusableLink(info.error) ? (
           <ErrorState title="Link not found" error="It may have been removed or mistyped." />
         ) : (
           // No connection, the server restarting, too many tries: the link itself may be fine.
