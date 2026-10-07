@@ -42,7 +42,11 @@ async function plan(exec: Executor, folderId: string, at: Date): Promise<Plan> {
     ${sub}
     SELECT n.id, n.name FROM nodes n JOIN sub ON sub.id = n.id
     WHERE n.trash_root_id = n.id AND n.deleted_at > ${when}::timestamptz
-      AND n.created_at <= ${when}::timestamptz
+      -- Something in the entry existed then: the item itself, or (moved into a folder made
+      -- since) something inside it. Entries made wholly since stay in the trash.
+      AND EXISTS (
+        SELECT 1 FROM nodes d WHERE d.trash_root_id = n.id AND d.created_at <= ${when}::timestamptz
+      )
     ORDER BY n.deleted_at DESC, n.id
     LIMIT ${MAX_ITEMS}
   `)) as unknown as Plan['restore'];

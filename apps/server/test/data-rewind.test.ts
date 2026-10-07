@@ -122,6 +122,25 @@ describe('rewind a folder', () => {
     expect((await parentOf(scratch)).deletedAt).not.toBeNull();
   });
 
+  it('brings back a file that existed then, even inside a folder made since', async () => {
+    const trip = (await mom.post('/folders', { parentId: momRoot, name: 'Trip' })).body.id;
+    const photo = await put(trip, 'beach.jpg', 'B');
+    await env.ctx.db.execute(
+      sql`UPDATE nodes SET created_at = now() - interval '2 hours' WHERE id IN (${trip}, ${photo})`,
+    );
+    const at = ago(60);
+    // Since then: a new folder, the photo moved into it, and the new folder deleted.
+    const sorted = (await mom.post('/folders', { parentId: trip, name: 'Sorted' })).body.id;
+    expect((await mom.patch(`/nodes/${photo}`, { parentId: sorted })).status).toBe(200);
+    await mom.del(`/nodes/${sorted}`);
+
+    const preview = await mom.get(`/nodes/${trip}/rewind?at=${encodeURIComponent(at)}`);
+    expect(preview.body.restore).toEqual({ count: 1, names: ['Sorted'] });
+    await mom.post(`/nodes/${trip}/rewind`, { at });
+    // Moves aren't recorded, so it comes back where it was deleted from.
+    expect(await parentOf(photo)).toMatchObject({ parentId: sorted, deletedAt: null });
+  });
+
   it('only lets the owner rewind, and only as far back as the trash goes', async () => {
     const shared = (await mom.post('/folders', { parentId: momRoot, name: 'Shared' })).body.id;
     expect(
