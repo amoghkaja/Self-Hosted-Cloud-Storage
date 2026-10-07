@@ -1,6 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
-// Runs after smoke.spec.ts (same admin), on a small phone. Unique names per run.
+// Runs after smoke.spec.ts (same admin; files run in name order), on a small phone. Unique
+// names per run.
 const ADMIN = { email: 'admin@example.com', password: 'correct horse battery staple' };
 const RUN = Date.now().toString(36);
 
