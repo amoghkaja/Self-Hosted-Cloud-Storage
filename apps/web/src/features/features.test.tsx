@@ -8,6 +8,7 @@ import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils'
 import { ByteSizeInput } from './admin/ByteSizeInput';
 import { LoginPage } from './auth/LoginPage';
 import { FileView, type ViewItem } from './files/FileView';
+import { TrashPage } from './files/OtherViews';
 
 const items: ViewItem[] = ['Photos', 'Recipes', 'notes.txt', 'taxes.pdf'].map((name, i) => ({
   id: `id${i}`,
@@ -150,6 +151,53 @@ describe('FileView', () => {
     expect(name).toHaveAttribute('aria-sort', 'ascending');
     await userEvent.click(within(name).getByRole('button'));
     expect(onChange).toHaveBeenCalledWith('name', 'desc');
+  });
+});
+
+describe('TrashPage', () => {
+  it('shows Restore working, and a second tap does not send it again', async () => {
+    const item = {
+      id: 't1',
+      type: 'file',
+      name: 'Blurry photo.jpg',
+      size: 31_000,
+      mimeType: 'image/jpeg',
+      thumb: 'none',
+      deletedAt: new Date().toISOString(),
+      originalParent: null,
+    };
+    let finish = () => {};
+    const restores: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://localhost').pathname.replace('/api/v1', '');
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+      if (init?.method === 'POST' && path === '/trash/t1/restore') {
+        restores.push(path);
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return json({
+          node: {
+            ...item,
+            parentId: null,
+            ownerId: 'u',
+            createdAt: item.deletedAt,
+            updatedAt: item.deletedAt,
+          },
+        });
+      }
+      if (path === '/trash') return json({ items: [item], retentionDays: 30 });
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch;
+    renderWithProviders(<TrashPage />);
+    const restore = await screen.findByRole('button', { name: 'Restore' });
+    await userEvent.click(restore);
+    await waitFor(() => expect(restore).toHaveAttribute('aria-busy', 'true'));
+    await userEvent.click(restore);
+    expect(restores).toHaveLength(1);
+    finish();
+    await waitFor(() => expect(restore).not.toHaveAttribute('aria-busy'));
   });
 });
 

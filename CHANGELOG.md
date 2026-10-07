@@ -23,6 +23,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Long file names:** when a name is too long for the list, the end of it (".pdf", ".jpg")
   stays in sight, so you can still tell what kind of file it is. The viewer shows the whole name
   on two lines, which on a phone is where you can read it.
+- **Trash on phones:** names and where things were deleted from can be read in full (the Restore
+  button sits under them), and Restore shows it's working, so a second tap doesn't try again.
 
 ## v0.5.0 (2026-10-05)
 

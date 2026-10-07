@@ -350,14 +350,19 @@ export function TrashPage() {
             </p>
             <ul className="divide-y divide-border rounded-2xl border border-border bg-surface">
               {d.items.map((item) => (
-                <li key={item.id} className="flex items-center gap-3 px-3 py-2.5">
+                // On a phone the buttons wrap under the name, which otherwise had room for a
+                // few letters ("Blurry phot…").
+                <li
+                  key={item.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5"
+                >
                   <FileIcon
                     node={item}
                     thumbSrc={item.thumb === 'ready' ? thumbUrl(item.id) : undefined}
                   />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{item.name}</p>
-                    <p className="truncate text-xs text-muted">
+                  <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
+                    <p className="line-clamp-2 text-sm font-medium">{item.name}</p>
+                    <p className="line-clamp-2 text-xs text-muted">
                       Deleted {formatRelative(item.deletedAt)}
                       {item.originalParent ? ` from ${item.originalParent.name}` : ''} ·{' '}
                       {formatBytes(item.size)}
@@ -366,7 +371,9 @@ export function TrashPage() {
                   <Button
                     size="sm"
                     icon={<RotateCcw size={14} />}
+                    loading={restore.isPending && restore.variables === item.id}
                     onClick={() => void doRestore(item.id, item.name)}
+                    className="ml-auto"
                   >
                     Restore
                   </Button>
