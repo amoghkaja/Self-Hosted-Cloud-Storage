@@ -8,6 +8,12 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Fixed
+
+- **Backups:** when the backup disk isn't plugged in, the nightly backup stops with a message in
+  its log. Before, it started a new backup in the empty folder the disk leaves behind, which is
+  on the system disk, and could fill it with a copy of every file.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

@@ -107,6 +107,20 @@ jobs:
           grep -v '^# Generated' deploy/.env | diff "$RUNNER_TEMP/before.env" -
       - name: The updater checks for a newer version
         run: ./scripts/update.sh --check
+      - name: Backups go to the backup disk, never onto the system disk when it's unplugged
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq restic
+          export RESTIC_REPOSITORY=$RUNNER_TEMP/backup-disk/familycloud RESTIC_PASSWORD=ci-only
+          mkdir "$RUNNER_TEMP/backup-disk"
+          sudo mount -t tmpfs -o "size=256m,uid=$(id -u)" tmpfs "$RUNNER_TEMP/backup-disk"
+          ./scripts/backup.sh
+          sudo umount "$RUNNER_TEMP/backup-disk"
+          if ./scripts/backup.sh; then echo "backed up into the empty mount point" >&2; exit 1; fi
+          [[ -z "$(ls -A "$RUNNER_TEMP/backup-disk")" ]]
+          # A second, empty disk in its place (two disks taking turns) gets a repository of its own.
+          sudo mount -t tmpfs -o "size=256m,uid=$(id -u)" tmpfs "$RUNNER_TEMP/backup-disk"
+          ./scripts/backup.sh
+          restic snapshots --json | jq -e 'length == 1'
       - name: Logs
         if: failure()
         run: cd deploy && docker compose ps && docker compose logs --tail 80

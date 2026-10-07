@@ -37,6 +37,8 @@ At least one copy should be **off this machine**, ideally off-site (fire, theft,
 | Backblaze B2 | `b2:my-bucket:familycloud` |
 | Any S3-compatible storage | `s3:https://s3.example.com/my-bucket/familycloud` |
 
+If a backup disk isn't plugged in when the backup runs, the script stops with a message in its log instead of writing to the empty folder it leaves behind (which is on the system disk). An empty disk mounted in the same place, such as the second of two you rotate, gets a new repository of its own.
+
 Create `deploy/backup.env` (keep it private, `chmod 600`):
 
 ```bash
