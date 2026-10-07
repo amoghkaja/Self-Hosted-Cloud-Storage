@@ -4,7 +4,7 @@ import {
   hasZodFastifySchemaValidationErrors,
   isResponseSerializationError,
 } from 'fastify-type-provider-zod';
-import { AppError } from '../lib/errors';
+import { AppError, isUnstorableText } from '../lib/errors';
 
 const TITLES: Record<number, string> = {
   400: 'Bad Request',
@@ -76,10 +76,7 @@ export function registerErrorHandling(app: FastifyInstance) {
       req.log.error({ err, issues: err.cause?.issues }, 'response failed schema validation');
       return sendProblem(reply, 500, ErrorCode.INTERNAL, 'Something went wrong');
     }
-    // Text Postgres can't store (a NUL, in text or JSON) can only have come from the request.
-    // Drizzle wraps the driver's error; a query run on postgres-js directly throws it as is.
-    const pgCode = (err as { cause?: { code?: unknown } }).cause?.code ?? err.code;
-    if (pgCode === '22021' || pgCode === '22P05') {
+    if (isUnstorableText(err)) {
       return sendProblem(reply, 400, ErrorCode.VALIDATION, 'Text cannot contain a NUL character');
     }
     const status = err.statusCode ?? 500;

@@ -37,8 +37,7 @@ function encodeCursor(c: Cursor): string {
 function keyFits(sort: ChildrenQuery['sort'], k: unknown): boolean {
   if (sort === 'size') return Number.isSafeInteger(k);
   if (typeof k !== 'string') return false;
-  if (sort === 'updated') return !Number.isNaN(Date.parse(k)) && new Date(k).toISOString() === k;
-  return !k.includes('\u0000');
+  return sort !== 'updated' || (!Number.isNaN(Date.parse(k)) && new Date(k).toISOString() === k);
 }
 
 function decodeCursor(raw: string, sort: ChildrenQuery['sort']): Cursor {

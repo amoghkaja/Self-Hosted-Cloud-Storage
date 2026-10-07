@@ -55,12 +55,7 @@ export function parseDavPath(url: string): string[] {
   const pathOnly = url.split('?')[0]!.replace(/^\/dav\/?/, '');
   const parts = pathOnly.split('/').filter(Boolean);
   try {
-    return parts.map((p) => {
-      const name = normalizeName(decodeURIComponent(p));
-      // No name holds a NUL, and Postgres refuses one in a query (a 500).
-      if (name.includes('\0')) throw new Error('NUL in path');
-      return name;
-    });
+    return parts.map((p) => normalizeName(decodeURIComponent(p)));
   } catch {
     throw new AppError(400, ErrorCode.VALIDATION, 'Malformed path');
   }

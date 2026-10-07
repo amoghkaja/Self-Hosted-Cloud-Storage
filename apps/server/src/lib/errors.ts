@@ -30,6 +30,12 @@ export function isUniqueViolation(err: unknown, constraint?: string): boolean {
   return e?.code === '23505' && (!constraint || e.constraint_name === constraint);
 }
 
+/** Text Postgres can't store (a NUL, in text or JSON): it can only have come from the request. */
+export function isUnstorableText(err: unknown): boolean {
+  const code = findPgError(err)?.code;
+  return code === '22021' || code === '22P05';
+}
+
 function findPgError(err: unknown): { code?: string; constraint_name?: string } | null {
   let cur: unknown = err;
   for (let i = 0; i < 4 && cur && typeof cur === 'object'; i++) {
