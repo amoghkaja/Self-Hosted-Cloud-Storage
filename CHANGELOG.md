@@ -30,6 +30,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Two-factor sign-in on a phone:** setting it up on the phone that has your authenticator app
   no longer needs a second device to scan the code: tap **Open in your authenticator app**, or
   copy the key with one tap instead of typing 32 letters.
+- **Free up space → Versions on a phone:** the explanation is no longer squeezed into a narrow
+  column beside the "Delete all older versions" button.
 - **Admin → Activity on a phone:** every entry is laid out the same way (the time, then who did
   what), instead of breaking onto a second line in a different place each time.
 - **Uploading on a small phone:** the upload list takes at most a quarter of the screen, so the
