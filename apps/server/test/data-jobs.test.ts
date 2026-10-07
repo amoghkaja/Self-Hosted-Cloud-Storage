@@ -99,6 +99,34 @@ describe('thumbnails', () => {
     await generateThumbnail(env.ctx, blob.id);
     expect((await blobOf(up.final!.body.node.id)).thumbStatus).toBe('ready');
   });
+
+  it('a photo deleted for good while its thumbnail is drawn leaves no thumbnail behind', async () => {
+    const photo = await sharp({
+      create: { width: 64, height: 48, channels: 3, background: '#000' },
+    })
+      .png()
+      .toBuffer();
+    const node = (await uploadFile(admin, root, 'gone.png', photo)).final!.body.node;
+    const blob = (await blobOf(node.id)).id;
+    const vm = env.ctx.volumes;
+    const readable = vm.readableBlobFile.bind(vm);
+    vm.readableBlobFile = async (b) => {
+      // The job has the file open when the photo is deleted from the trash.
+      const open = path.join(env.dataDir, 'open-photo.png');
+      await copyFile(await readable(b), open);
+      await admin.del(`/nodes/${node.id}`);
+      expect((await admin.del(`/trash/${node.id}`)).status).toBe(200);
+      return open;
+    };
+    try {
+      await generateThumbnail(env.ctx, blob);
+    } finally {
+      vm.readableBlobFile = readable;
+    }
+    for (const p of thumbPaths(env.ctx.config.cacheDir, blob)) {
+      expect(await stat(p).catch(() => null)).toBeNull();
+    }
+  });
 });
 
 describe('drain', () => {

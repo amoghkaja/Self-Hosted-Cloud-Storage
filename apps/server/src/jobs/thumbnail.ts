@@ -185,7 +185,9 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
       .webp({ quality: 72 })
       .toFile(smallTmp);
     await rename(smallTmp, small);
-    await setStatus('ready');
+    const [still] = await setStatus('ready').returning({ id: blobs.id });
+    // Deleted while drawing (its clean-up found nothing yet): don't leave the thumbnails behind.
+    if (!still) await Promise.all([big, small].map((f) => rm(f, { force: true })));
   } catch (err) {
     if (err instanceof ToolMissing) {
       ctx.log.warn({ tool: err.message, blobId }, 'thumbnail tool not installed');
