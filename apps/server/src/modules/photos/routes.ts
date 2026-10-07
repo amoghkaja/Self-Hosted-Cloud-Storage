@@ -17,7 +17,7 @@ import {
   type ThumbStatus,
   UpdateAlbumBody,
 } from '@familycloud/shared/all';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { Executor } from '../../db/client';
@@ -169,14 +169,28 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
     };
   }
 
-  /** Only real family members may be tagged. */
-  async function checkPeople(ids: string[]) {
+  /**
+   * Only real family members may be tagged. Someone already on the trip stays on it after their
+   * account is disabled: the edit form sends them back, and they did go.
+   */
+  async function checkPeople(ids: string[], albumId?: string) {
     const unique = [...new Set(ids)];
     if (unique.length === 0) return unique;
+    const active = isNull(users.disabledAt);
     const found = await db
       .select({ id: users.id })
       .from(users)
-      .where(and(inArray(users.id, unique), isNull(users.disabledAt)));
+      .where(
+        and(
+          inArray(users.id, unique),
+          albumId
+            ? or(
+                active,
+                sql`${users.id} IN (SELECT user_id FROM album_people WHERE album_id = ${albumId})`,
+              )
+            : active,
+        ),
+      );
     if (found.length !== unique.length)
       throw badRequest('Someone in the list is not in the family');
     return unique;
@@ -275,7 +289,7 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
         throw badRequest('The trip can’t end before it starts');
       }
       if (b.coverNodeId) await albumPhoto(a.id, b.coverNodeId);
-      const people = b.peopleIds ? await checkPeople(b.peopleIds) : null;
+      const people = b.peopleIds ? await checkPeople(b.peopleIds, a.id) : null;
       const row = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(albums)
@@ -659,6 +673,14 @@ function encodeCursor(c: [string, string]) {
   return Buffer.from(JSON.stringify(c)).toString('base64url');
 }
 
+/**
+ * Exactly what shotAtText writes, at a real moment: Date.parse also takes "2020", 30 February
+ * or year 0, which PostgreSQL then refuses (a 500).
+ */
+const realShotAt = (s: string) =>
+  /^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}$/.test(s) &&
+  new Date(`${s.slice(0, 19)}Z`).toISOString().slice(0, 19) === s.slice(0, 19);
+
 function decodeCursor(raw: string): [string, string] {
   try {
     const c = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
@@ -666,9 +688,9 @@ function decodeCursor(raw: string): [string, string] {
       Array.isArray(c) &&
       c.length === 2 &&
       typeof c[0] === 'string' &&
-      !Number.isNaN(Date.parse(c[0])) &&
+      realShotAt(c[0]) &&
       typeof c[1] === 'string' &&
-      /^[0-9a-f-]{36}$/i.test(c[1])
+      z.uuid().safeParse(c[1]).success
     ) {
       return c as [string, string];
     }

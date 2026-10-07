@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { nodes } from '../src/db/schema';
+import { hashBlob } from '../src/jobs/maintenance';
 import {
   addMember,
   bytes,
@@ -132,6 +136,85 @@ describe('trip albums', () => {
     await kid.del(`/nodes/${first}`);
     const second = (await kid.post(`/albums/${album.id}/folder`, {})).body.folderId;
     expect(second).not.toBe(first);
+  });
+
+  it("keeps what isn't a photo or video private, even from someone who knows its checksum", async () => {
+    const album = (
+      await dad.post('/albums', { title: 'Paris', startDate: '2026-05-01', peopleIds: [dadId] })
+    ).body;
+    const { folderId } = (await dad.post(`/albums/${album.id}/folder`, {})).body;
+    const kidRoot = (await kid.get('/auth/me')).body.rootNodeId;
+    /** Stores `data` in Dad's trip folder, then asks for an instant copy as the kid. */
+    const probe = async (name: string, data: Buffer, mimeType: string) => {
+      const node = (await uploadFile(dad, folderId, name, data, { mimeType })).final!.body.node;
+      const [row] = await env.ctx.db
+        .select({ blobId: nodes.blobId })
+        .from(nodes)
+        .where(eq(nodes.id, node.id));
+      await hashBlob(env.ctx, row!.blobId!);
+      const res = await kid.post('/uploads/instant', {
+        parentId: kidRoot,
+        name: `copy of ${name}`,
+        size: data.length,
+        sha256: createHash('sha256').update(data).digest('hex'),
+      });
+      expect(res.status).toBe(200);
+      return res.body.node;
+    };
+
+    // A boarding pass kept with the trip's photos isn't in the album, so the kid can't get it.
+    expect(await probe('boarding pass.pdf', bytes(2000, 41), 'application/pdf')).toBeNull();
+    // A photo in the album is the family's to see, so a copy of it is fine.
+    expect(await probe('eiffel.jpg', bytes(3000, 42), 'image/jpeg')).toMatchObject({
+      name: 'copy of eiffel.jpg',
+    });
+  });
+
+  it('can still edit a trip after someone on it has had their account disabled', async () => {
+    const aunt = await addMember(env, dad, 'aunt@example.com');
+    const album = (
+      await mom.post('/albums', {
+        title: 'Kerala',
+        startDate: '2026-02-01',
+        peopleIds: [momId, aunt.me.id],
+      })
+    ).body;
+    expect((await dad.patch(`/admin/users/${aunt.me.id}`, { disabled: true })).status).toBe(200);
+    // The edit form sends everyone already on the trip back, the aunt too.
+    const edited = await mom.patch(`/albums/${album.id}`, {
+      title: 'Kerala backwaters',
+      peopleIds: [momId, aunt.me.id],
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.title).toBe('Kerala backwaters');
+    expect(edited.body.people.map((p: { id: string }) => p.id).sort()).toEqual(
+      [momId, aunt.me.id].sort(),
+    );
+    // …but nobody disabled can be added to a trip they weren't on.
+    const other = (
+      await mom.post('/albums', { title: 'Munnar', startDate: '2026-02-05', peopleIds: [momId] })
+    ).body;
+    const added = await mom.patch(`/albums/${other.id}`, { peopleIds: [momId, aunt.me.id] });
+    expect(added.status).toBe(400);
+    expect(added.body.detail).toBe('Someone in the list is not in the family');
+  });
+
+  it('refuses a page cursor it never handed out (400, not a server error)', async () => {
+    const album = (
+      await mom.post('/albums', { title: 'Cursors', startDate: '2026-04-01', peopleIds: [momId] })
+    ).body;
+    const cursor = (c: unknown) => Buffer.from(JSON.stringify(c)).toString('base64url');
+    const someId = '00000000-0000-4000-8000-000000000000';
+    for (const c of [
+      ['2020-02-30T00:00:00.000000', someId],
+      ['2020', someId],
+      ['0000-01-01T00:00:00.000000', someId],
+      ['2026-01-01T00:00:00.000000', '-'.repeat(36)],
+    ]) {
+      const res = await kid.get(`/albums/${album.id}/photos?cursor=${cursor(c)}`);
+      expect(res.status, JSON.stringify(c)).toBe(400);
+      expect(res.body).toMatchObject({ code: 'VALIDATION_ERROR', detail: 'Invalid cursor' });
+    }
   });
 
   it('refuses unknown people and bad dates', async () => {

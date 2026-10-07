@@ -47,6 +47,7 @@ import { type NodeWithBlob, requireAccess } from '../files/access';
 import {
   sendBlob,
   sendOfficePreview,
+  sendsFileStart,
   sendThumbnail,
   sendVideoStream,
   sendZip,
@@ -178,13 +179,18 @@ export async function resolveUnlocked(
 
 /**
  * Counts a download through a link, refusing it once the link's download limit is used up
- * (checked and counted in one statement, so parallel downloads can't overshoot). A download
- * resumed part-way, or a HEAD, continues one already counted.
+ * (checked and counted in one statement, so parallel downloads can't overshoot). A HEAD, or the
+ * rest of a `file` download resumed part-way, continues one already counted. Anything that sends
+ * the start of the file is a new download whatever its Range header says, and so is every zip
+ * (always sent whole).
  */
-async function countDownload(ctx: AppContext, req: FastifyRequest, linkId: string) {
-  if (req.method === 'HEAD') return;
-  const range = req.headers.range;
-  if (range && !/^bytes=0-/.test(range.trim())) return;
+async function countDownload(
+  ctx: AppContext,
+  req: FastifyRequest,
+  linkId: string,
+  file?: { blobId: string; size: number },
+) {
+  if (file ? !sendsFileStart(req, file) : req.method === 'HEAD') return;
   const [counted] = await ctx.db
     .update(shareLinks)
     .set({ downloadCount: sql`${shareLinks.downloadCount} + 1` })
@@ -558,7 +564,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
         throw new AppError(403, ErrorCode.FORBIDDEN, 'Downloads are turned off for this link');
       }
       if (n.type !== 'file' || !n.blobId || !n.volumeId) throw notFound('File');
-      if (!inline) await countDownload(ctx, req, r.link.id);
+      if (!inline) await countDownload(ctx, req, r.link.id, { blobId: n.blobId, size: n.size });
       return sendBlob(
         ctx,
         req,
@@ -575,7 +581,9 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
-  // Watching a video is viewing, so it works on view-only links too.
+  // Watching a video is viewing, so it works on view-only links too. An original that would go
+  // out as a download (one the browser can't play) is the content route's: downloads allowed,
+  // and counted.
   app.get(
     '/public/links/:token/stream/:nodeId',
     { config: strictLimit(600), schema: { params: PublicNodeParams } },
@@ -584,13 +592,19 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
       if (n.type !== 'file' || !n.blobId || !n.volumeId || !n.mimeType?.startsWith('video/')) {
         throw notFound('Video');
       }
-      return sendVideoStream(ctx, req, reply, {
-        blobId: n.blobId,
-        volumeId: n.volumeId,
-        size: n.size,
-        name: n.name,
-        mimeType: n.mimeType,
-      });
+      return sendVideoStream(
+        ctx,
+        req,
+        reply,
+        {
+          blobId: n.blobId,
+          volumeId: n.volumeId,
+          size: n.size,
+          name: n.name,
+          mimeType: n.mimeType,
+        },
+        { watchOnly: true },
+      );
     },
   );
 

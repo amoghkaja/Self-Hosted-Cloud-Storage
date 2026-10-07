@@ -13,6 +13,24 @@ to do yourself when updating is listed under **Before you update**.
 - **Passkeys:** a passkey sign-in can no longer be sent a second time. Someone who copied one
   (from a saved browser log, say) within its five minutes could sign in with it again, because
   passkeys synced through iCloud Keychain or Google Password Manager don't count their uses.
+- **Share links with a download limit** now count every download. A download program could ask
+  for a file or a zip "in pieces" in a way that still sent all of it without counting, so the
+  link never ran out.
+- **Trip folders:** a document kept with a trip's photos (a boarding pass, a booking) isn't in
+  the album, and now instant uploads treat it as private too. Before, a family member who had
+  the very same file could upload it "instantly" and so find out it was there.
+- **View-only links:** a video the browser can't play as it is (an `.mkv` or `.avi`, say) could
+  be downloaded through the link's video player, even with downloads turned off, until its
+  streaming copy was ready (or for good, if one couldn't be made). The player now waits for the
+  streaming copy, and downloading the original follows the link's download settings.
+
+### Fixed
+
+- **File requests:** when the folder owner's storage is full, the person sending files is told
+  so, instead of "Not enough storage left in your quota" (they don't have one).
+- **Family Photos:** a trip can be edited again after someone on it has had their account
+  disabled. Saving said "Someone in the list is not in the family", and there was no way round
+  it; they now stay on the trip.
 
 ## v0.5.0 (2026-10-05)
 

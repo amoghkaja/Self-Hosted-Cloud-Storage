@@ -71,6 +71,36 @@ export async function refuseUnsafe(ctx: AppContext, blobId: string): Promise<voi
   }
 }
 
+const blobEtag = (blobId: string) => `"${blobId}"`;
+
+/**
+ * The part of a file a request asks for (null: all of it). A resumed download whose validator
+ * no longer matches (the file was saved over) must get the whole new file, never a slice of it
+ * spliced onto the old bytes. Dates can't match: no Last-Modified is sent.
+ */
+function requestedRange(req: FastifyRequest, size: number, etag: string) {
+  const ifRange = req.headers['if-range'];
+  return ifRange === undefined || String(ifRange).trim() === etag
+    ? parseRange(req.headers.range, size)
+    : null;
+}
+
+/**
+ * Whether sendBlob answers this request with the start of the file (a new download), rather than
+ * the rest of one already under way, a HEAD, a 304 or a 416. A Range that isn't honoured, or
+ * that covers the whole file, sends the start too.
+ */
+export function sendsFileStart(
+  req: FastifyRequest,
+  blob: Pick<BlobRef, 'blobId' | 'size'>,
+): boolean {
+  if (req.method === 'HEAD') return false;
+  const etag = blobEtag(blob.blobId);
+  if (etagMatches(req.headers['if-none-match'], etag)) return false;
+  const range = requestedRange(req, blob.size, etag);
+  return range === null || (range !== 'unsatisfiable' && range.start === 0);
+}
+
 /** Sends a stored file (see sendFileRange). */
 export async function sendBlob(
   ctx: AppContext,
@@ -84,7 +114,7 @@ export async function sendBlob(
   return sendFileRange(req, reply, {
     file,
     size: blob.size,
-    etag: `"${blob.blobId}"`,
+    etag: blobEtag(blob.blobId),
     name: blob.name,
     mimeType: blob.mimeType,
     inline: opts.inline,
@@ -94,13 +124,16 @@ export async function sendBlob(
 
 /**
  * Plays a video: the 720p streaming copy when the worker has made one (small enough for family
- * abroad, and H.264 so it plays in every browser), otherwise the original.
+ * abroad, and H.264 so it plays in every browser), otherwise the original. An original of a type
+ * that can't be shown inline goes out as a download; `watchOnly` (a public link, where downloads
+ * have their own rules) refuses that instead.
  */
 export async function sendVideoStream(
   ctx: AppContext,
   req: FastifyRequest,
   reply: FastifyReply,
   blob: BlobRef,
+  opts: { watchOnly?: boolean } = {},
 ) {
   await refuseUnsafe(ctx, blob.blobId);
   const [row] = await ctx.db
@@ -121,6 +154,9 @@ export async function sendVideoStream(
         logId: blob.blobId,
       });
     }
+  }
+  if (opts.watchOnly && !isInlineSafe(blob.mimeType)) {
+    throw new AppError(404, ErrorCode.NOT_FOUND, "This video can't be played here yet");
   }
   return sendBlob(ctx, req, reply, blob, { inline: true });
 }
@@ -196,14 +232,7 @@ async function sendFileRange(
 
   if (etagMatches(req.headers['if-none-match'], etag)) return reply.status(304).send();
 
-  // A resumed download whose validator no longer matches (the file was saved over) must get the
-  // whole new file, never a slice of it spliced onto the old bytes. Dates can't match: no
-  // Last-Modified is sent.
-  const ifRange = req.headers['if-range'];
-  const range =
-    ifRange === undefined || String(ifRange).trim() === etag
-      ? parseRange(req.headers.range, f.size)
-      : null;
+  const range = requestedRange(req, f.size, etag);
   if (range === 'unsatisfiable') {
     reply.header('Content-Range', `bytes */${f.size}`);
     throw new AppError(416, ErrorCode.VALIDATION, 'Requested range not satisfiable');
