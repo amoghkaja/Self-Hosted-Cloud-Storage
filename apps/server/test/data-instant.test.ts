@@ -82,6 +82,31 @@ describe('instant uploads', () => {
     expect(res.body.node).toBeNull();
   });
 
+  it('matches photos in a family album, but not other files kept in its folder', async () => {
+    const aliceId = (await alice.get('/auth/me')).body.id;
+    const album = (
+      await alice.post('/albums', { title: 'Goa', startDate: '2026-08-12', peopleIds: [aliceId] })
+    ).body;
+    const { folderId } = (await alice.post(`/albums/${album.id}/folder`, {})).body;
+    const photo = bytes(15_000, 55);
+    const passport = bytes(15_000, 66);
+    await stored(alice, folderId, 'beach.jpg', photo);
+    // Not part of the album (only photos and videos are), so nobody else can see it.
+    await stored(alice, folderId, 'passport.pdf', passport);
+
+    const claim = (data: Buffer, name: string) =>
+      bob.post('/uploads/instant', {
+        parentId: bobRoot,
+        name,
+        size: data.length,
+        sha256: sha(data),
+      });
+    expect((await claim(photo, 'beach.jpg')).body.node).not.toBeNull();
+    const res = await claim(passport, 'guess.pdf');
+    expect(res.status).toBe(200);
+    expect(res.body.node).toBeNull();
+  });
+
   it('matches files shared with the uploader, and deleting one copy keeps the other', async () => {
     const shared = bytes(30_000, 33);
     const folder = (await alice.post('/folders', { parentId: aliceRoot, name: 'Shared' })).body;

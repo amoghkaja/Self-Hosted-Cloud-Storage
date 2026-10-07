@@ -13,6 +13,8 @@ to do yourself when updating is listed under **Before you update**.
 - **Uploads:** a second copy of a piece of an upload, still being sent when the upload finished,
   could change the stored file afterwards (after its virus check, and in every copy of it). It is
   now stopped before the file is stored.
+- **Instant uploads:** someone who knew a file's checksum could get a copy of a document (not a
+  photo or video) that another person kept in their trip album folder, which only they can see.
 
 ## v0.5.0 (2026-10-05)
 

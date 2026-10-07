@@ -252,8 +252,8 @@ export async function createUpload(
 
 /**
  * "Instant upload": when a file with the same SHA-256 and size is already stored, and the
- * uploader can already see a copy of it (their own files, something shared with them, or a
- * family album), the new file points at the same bytes and nothing is transferred.
+ * uploader can already see a copy of it (their own files, something shared with them, or a photo
+ * in a family album), the new file points at the same bytes and nothing is transferred.
  *
  * Matching only against visible copies keeps the hash from revealing whether someone else has a
  * particular private file. The new file is charged to its folder owner's quota like any upload;
@@ -283,7 +283,9 @@ export async function instantUpload(
       scan: blobs.scanStatus,
       nodeId: nodes.id,
       ownerId: nodes.ownerId,
-      inAlbum: sql<boolean>`EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
+      // An album shows the family only the photos and videos in its folders.
+      inAlbum: sql<boolean>`(${nodes.mimeType} LIKE 'image/%' OR ${nodes.mimeType} LIKE 'video/%')
+        AND EXISTS (SELECT 1 FROM album_folders WHERE folder_id = ${nodes.parentId})`,
     })
     .from(blobs)
     .innerJoin(nodes, eq(nodes.blobId, blobs.id))
