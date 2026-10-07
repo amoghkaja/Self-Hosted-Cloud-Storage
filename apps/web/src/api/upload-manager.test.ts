@@ -213,6 +213,36 @@ describe('UploadManager', () => {
     expect(m.getSnapshot()[0]).toMatchObject({ status: 'done', nodeId: 'r' });
   });
 
+  it('stops sending a file’s other pieces once one of them fails', async () => {
+    const { t, put } = fakeTransport();
+    const chunk = vi.mocked(t.putChunk);
+    const real = chunk.getMockImplementation()!;
+    let slowAborted = false;
+    chunk.mockImplementation(async (sessionId, index, data, onProgress, signal) => {
+      if (index === 0) throw new ApiError(400, 'CHUNK_INVALID', 'Chunk rejected');
+      if (index === 1) {
+        // Still sending when chunk 0 fails.
+        await new Promise<void>((resolve, reject) => {
+          const done = setTimeout(resolve, 30);
+          signal.addEventListener('abort', () => {
+            clearTimeout(done);
+            slowAborted = true;
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+      }
+      return real(sessionId, index, data, onProgress, signal);
+    });
+    const m = new UploadManager(t, { retryBaseMs: 1, chunkConcurrency: 2 });
+    m.add('p', [{ file: new File(['abcdefghijklmnop'], 'four.bin'), relativeDir: '' }]); // 4 chunks
+    await waitIdle(m);
+    expect(m.getSnapshot()[0]).toMatchObject({ status: 'error', error: 'Chunk rejected' });
+    await new Promise((r) => setTimeout(r, 80));
+    // The failed upload sends nothing more in the background (a retry resumes it instead).
+    expect(slowAborted).toBe(true);
+    expect(put).toEqual([]);
+  });
+
   it('closing the panel dismisses failures and releases their reserved space', async () => {
     const { t } = fakeTransport();
     (t.putChunk as ReturnType<typeof vi.fn>).mockRejectedValue(

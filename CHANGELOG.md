@@ -8,6 +8,11 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Fixed
+
+- **Uploads:** when a file failed to upload, the rest of it no longer carries on sending in the
+  background, using up your connection (and doubling up if you pressed Retry).
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved

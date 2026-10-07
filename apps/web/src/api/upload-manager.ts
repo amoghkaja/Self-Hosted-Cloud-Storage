@@ -576,6 +576,9 @@ export class UploadManager {
         );
       }
     } finally {
+      // One piece failing leaves the file's other pieces still sending: stop them too, or they
+      // carry on unseen (and alongside a Retry's own) after the file is shown as failed.
+      controller.abort();
       this.controllers.delete(item.id);
     }
   }
