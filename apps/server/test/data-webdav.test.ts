@@ -316,11 +316,12 @@ describe('malformed requests', () => {
   it('answers a NUL in a path or a Destination with 400, not 500', async () => {
     expect((await aliceDav('GET', '/dav/My%20Files/%00')).statusCode).toBe(400);
     expect((await aliceDav('PROPFIND', '/dav/My%20Files/a%00b/')).statusCode).toBe(400);
-    const mv = await aliceDav('MOVE', '/dav/My%20Files/doc.txt', {
-      headers: { destination: '/dav/My%20Files/%00/doc.txt' },
+    await aliceDav('PUT', '/dav/My%20Files/nul-check.txt', { body: 'stay' });
+    const mv = await aliceDav('MOVE', '/dav/My%20Files/nul-check.txt', {
+      headers: { destination: '/dav/My%20Files/%00/nul-check.txt' },
     });
     expect(mv.statusCode).toBe(400);
-    expect((await aliceDav('GET', '/dav/My%20Files/doc.txt')).statusCode).toBe(200);
+    expect((await aliceDav('GET', '/dav/My%20Files/nul-check.txt')).statusCode).toBe(200);
   });
 
   it('answers a size that is not a plain number of bytes with 411, not 500', async () => {
