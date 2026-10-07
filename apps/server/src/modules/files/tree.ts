@@ -257,7 +257,10 @@ export async function moveNode(
   return exec.transaction(async (tx) => {
     if (patch.parentId !== undefined) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`move:${node.ownerId}`}))`);
-      const [target] = await tx
+      // The folder it leaves is locked too: a trash of that folder then waits and leaves the
+      // item out, instead of trashing it in its new place. In id order, as trashSubtree locks
+      // folders, and at the strength lockWriteAccess takes below, so it never needs upgrading.
+      const folders = await tx
         .select({
           id: nodes.id,
           ownerId: nodes.ownerId,
@@ -265,9 +268,12 @@ export async function moveNode(
           deletedAt: nodes.deletedAt,
         })
         .from(nodes)
-        .where(eq(nodes.id, patch.parentId))
-        // Locked at the strength lockWriteAccess takes below, so it never needs upgrading.
+        .where(
+          inArray(nodes.id, node.parentId ? [patch.parentId, node.parentId] : [patch.parentId]),
+        )
+        .orderBy(nodes.id)
         .for(grantee ? 'no key update' : 'share');
+      const target = folders.find((f) => f.id === patch.parentId);
       if (!target || target.deletedAt || target.type !== 'folder') throw notFound('Folder');
       if (target.ownerId !== node.ownerId) {
         throw new AppError(

@@ -140,6 +140,38 @@ describe('trash', () => {
 });
 
 describe('moves', () => {
+  it('a file moved out of a folder while it is being trashed stays where it went', async () => {
+    const old = await folder(root, 'Old stuff');
+    const keep = await folder(root, 'Keep');
+    const doc = (await uploadFile(c, old, 'passport.pdf', Buffer.from('p'))).final!.body.node.id;
+    let commit!: () => void;
+    const held = new Promise<void>((r) => {
+      commit = r;
+    });
+    let ran!: () => void;
+    const moveRan = new Promise<void>((r) => {
+      ran = r;
+    });
+    // The move has run but not committed yet.
+    const move = env.ctx.db.transaction(async (tx) => {
+      await moveNode(tx, { id: doc, ownerId: userId, parentId: old }, { parentId: keep });
+      ran();
+      await held;
+    });
+    await moveRan;
+    const trash = trashSubtree(env.ctx.db, old);
+    await new Promise((r) => setTimeout(r, 100)); // the trash is now waiting on the move
+    commit();
+    await move;
+    await trash;
+
+    // Not trashed along with the folder it left (where no trash entry would ever show it).
+    const [row] = (await env.ctx.db.execute(
+      sql`select deleted_at IS NOT NULL AS deleted, parent_id AS "parentId" from nodes where id = ${doc}`,
+    )) as unknown as { deleted: boolean; parentId: string }[];
+    expect(row).toEqual({ deleted: false, parentId: keep });
+  });
+
   it('two opposite moves at once cannot detach folders into a cycle', async () => {
     for (let i = 0; i < 8; i++) {
       const a = await folder(root, `A${i}`);
