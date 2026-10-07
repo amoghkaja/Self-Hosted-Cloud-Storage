@@ -213,6 +213,26 @@ describe('trip albums', () => {
     });
   });
 
+  it('gives a photo a new version when it is saved over, for its thumbnail address', async () => {
+    const album = (
+      await mom.post('/albums', { title: 'Redo', startDate: '2026-04-04', peopleIds: [momId] })
+    ).body;
+    const { folderId } = (await mom.post(`/albums/${album.id}/folder`, {})).body;
+    await uploadFile(mom, folderId, 'sunset.jpg', photo(71), { mimeType: 'image/jpeg' });
+    const before = (await kid.get(`/albums/${album.id}/photos`)).body.items[0];
+    const coverBefore = (await kid.get(`/albums/${album.id}`)).body.cover;
+    expect(coverBefore.updatedAt).toBe(before.updatedAt);
+    await new Promise((r) => setTimeout(r, 5));
+    await uploadFile(mom, folderId, 'sunset.jpg', photo(72), {
+      mimeType: 'image/jpeg',
+      onConflict: 'replace',
+    });
+    const after = (await kid.get(`/albums/${album.id}/photos`)).body.items[0];
+    expect(after.id).toBe(before.id);
+    expect(after.updatedAt).not.toBe(before.updatedAt);
+    expect((await kid.get(`/albums/${album.id}`)).body.cover.updatedAt).toBe(after.updatedAt);
+  });
+
   it('pages through an album with the cursors it hands out', async () => {
     const album = (
       await mom.post('/albums', { title: 'Pages', startDate: '2026-04-02', peopleIds: [momId] })

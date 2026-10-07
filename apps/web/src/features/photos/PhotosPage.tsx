@@ -2,7 +2,7 @@ import type { Album } from '@familycloud/shared';
 import { Images, Plus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { apiUrl } from '../../api/client';
+import { albumThumbUrl } from '../../api/client';
 import { useAlbumMutations, useAlbums, useDirectory } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { Avatar, Button, EmptyState, QueryState, Skeleton } from '../../components/ui';
@@ -12,7 +12,7 @@ import { TripDialog, tripDates } from './TripForm';
 
 export function coverUrl(a: Album) {
   return a.cover?.thumb === 'ready'
-    ? apiUrl(`/albums/${a.id}/photos/${a.cover.nodeId}/thumbnail`, { size: '1600' })
+    ? albumThumbUrl(a.id, a.cover.nodeId, 1600, a.cover.updatedAt)
     : null;
 }
 

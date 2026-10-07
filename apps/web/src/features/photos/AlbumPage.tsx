@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { api, apiUrl, errorMessage } from '../../api/client';
+import { albumThumbUrl, api, apiUrl, errorMessage } from '../../api/client';
 import { albumFolder, useAlbum, useAlbumMutations, useAlbumPhotos } from '../../api/queries';
 import { useShell } from '../../app/guards';
 import { uploadManager } from '../../app/providers';
@@ -60,7 +60,7 @@ function Tile({ p, albumId, onOpen }: { p: AlbumPhoto; albumId: string; onOpen: 
       >
         {p.thumb === 'ready' ? (
           <img
-            src={apiUrl(`/albums/${albumId}/photos/${p.id}/thumbnail`, { size: '256' })}
+            src={albumThumbUrl(albumId, p.id, 256, p.updatedAt)}
             alt=""
             loading="lazy"
             decoding="async"
@@ -217,8 +217,7 @@ export function AlbumPage() {
     () => ({
       content: (id, inline) =>
         apiUrl(`/albums/${albumId}/photos/${id}/content`, inline ? { inline: '1' } : undefined),
-      thumb: (id, size) =>
-        apiUrl(`/albums/${albumId}/photos/${id}/thumbnail`, { size: String(size) }),
+      thumb: (id, size, version) => albumThumbUrl(albumId, id, size, version),
       stream: (id) => apiUrl(`/albums/${albumId}/photos/${id}/stream`),
       canDownload: true,
     }),

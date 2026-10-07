@@ -84,6 +84,11 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Fixed
 
+- **Family Photos and Trash:** after a photo in a trip album is saved over (Replace, a restored
+  version or Rewind), the album, its cover and the photo viewer show the new picture; they kept
+  showing the old one, as the trash could for a photo restored, changed and deleted again.
+- **Family Photos:** an album whose only picture was one of the hidden "._" files a Mac copies
+  along no longer shows it as a broken cover.
 - **Disaster-recovery export** (`cli export`) now includes files still waiting for their virus
   check. If the virus scanner was down, every recent upload was left out of the rebuilt folders.
 - **Names with an invisible "NUL" character** (pasted from some apps) are refused with a

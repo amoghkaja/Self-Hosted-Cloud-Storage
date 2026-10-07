@@ -79,17 +79,18 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
       count: number;
       cover_id: string | null;
       thumb: string | null;
+      cover_updated_at: string | null;
     }>(
       sql`
         SELECT a.id AS album_id, coalesce(s.count, 0)::int AS count,
-               c.id AS cover_id, c.thumb
+               c.id AS cover_id, c.thumb, c.updated_at AS cover_updated_at
         FROM albums a
         LEFT JOIN LATERAL (
           SELECT count(*) AS count FROM nodes
           WHERE ${inAlbum(sql`a.id`)}
         ) s ON true
         LEFT JOIN LATERAL (
-          SELECT nodes.id, b.thumb_status AS thumb FROM nodes
+          SELECT nodes.id, b.thumb_status AS thumb, nodes.updated_at FROM nodes
           JOIN blobs b ON b.id = nodes.blob_id
           WHERE ${inAlbum(sql`a.id`)}
           ORDER BY (nodes.id = a.cover_node_id) DESC, (b.thumb_status = 'ready') DESC,
@@ -120,6 +121,7 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
         count: number;
         cover_id: string | null;
         thumb: string | null;
+        cover_updated_at: string | null;
       }[]
     ).map((s) => [s.album_id, s]),
   );
@@ -136,7 +138,14 @@ async function albumDtos(exec: Executor, rows: AlbumRow[]): Promise<Album[]> {
         .filter((p) => p.albumId === r.id)
         .map(({ id, displayName }) => ({ id, displayName })),
       photoCount: s?.count ?? 0,
-      cover: s?.cover_id ? { nodeId: s.cover_id, thumb: (s.thumb ?? 'none') as ThumbStatus } : null,
+      cover:
+        s?.cover_id && s.cover_updated_at
+          ? {
+              nodeId: s.cover_id,
+              thumb: (s.thumb ?? 'none') as ThumbStatus,
+              updatedAt: toIso(s.cover_updated_at),
+            }
+          : null,
       updatedAt: toIso(r.updatedAt),
     };
   });
@@ -467,6 +476,7 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
           thumb: r.thumb,
           addedBy: r.owner,
           createdAt: toIso(r.node.createdAt),
+          updatedAt: toIso(r.node.updatedAt),
           takenAt: r.takenAt ? r.takenAt.replace(' ', 'T').slice(0, 19) : null,
           location:
             r.latitude !== null && r.longitude !== null

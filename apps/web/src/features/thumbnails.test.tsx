@@ -1,4 +1,4 @@
-import type { FileNode, Me } from '@familycloud/shared';
+import type { Album, FileNode, Me, TrashItem } from '@familycloud/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
@@ -7,8 +7,9 @@ import { contentUrl, thumbUrl } from '../api/client';
 import { qk } from '../api/queries';
 import { TooltipProvider } from '../components/ui';
 import { mockFetch } from '../test/utils';
-import { RecentPage } from './files/OtherViews';
+import { RecentPage, TrashPage } from './files/OtherViews';
 import PreviewModal from './files/PreviewModal';
+import { coverUrl } from './photos/PhotosPage';
 
 const me = {
   id: '33333333-3333-4333-8333-333333333333',
@@ -85,5 +86,58 @@ describe('thumbnails after a file is saved over', () => {
     first.unmount();
     view(photo('2026-10-07T08:00:00.000Z'));
     expect(src()).not.toBe(before);
+  });
+
+  it('change address for an album cover', () => {
+    const album = (updatedAt: string) =>
+      ({
+        id: '44444444-4444-4444-8444-444444444444',
+        cover: { nodeId: photo(updatedAt).id, thumb: 'ready', updatedAt },
+      }) as Album;
+    expect(coverUrl(album('2026-09-20T10:00:00.000Z'))).not.toBe(
+      coverUrl(album('2026-10-07T08:00:00.000Z')),
+    );
+  });
+
+  it('change address each time a file goes to the trash', async () => {
+    const trashed = (deletedAt: string): TrashItem => ({
+      id: photo('x').id,
+      type: 'file',
+      name: 'beach.jpg',
+      size: 1000,
+      mimeType: 'image/jpeg',
+      thumb: 'ready',
+      deletedAt,
+      originalParent: null,
+    });
+    let current = trashed('2026-09-20T10:00:00.000Z');
+    mockFetch({ 'GET /trash': () => ({ json: { items: [current], retentionDays: 30 } }) });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Outlet context={{ me }} />,
+          children: [{ path: 'trash', element: <TrashPage /> }],
+        },
+      ],
+      { initialEntries: ['/trash'] },
+    );
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <RouterProvider router={router} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText('beach.jpg');
+    const before = container.querySelector('img')?.getAttribute('src');
+    expect(before).toContain(`/nodes/${current.id}/thumbnail`);
+    // Restored, saved over and trashed again: its contents may have changed in between.
+    current = trashed('2026-10-07T08:00:00.000Z');
+    await qc.invalidateQueries({ queryKey: qk.trash });
+    await waitFor(() =>
+      expect(container.querySelector('img')?.getAttribute('src')).not.toBe(before),
+    );
   });
 });

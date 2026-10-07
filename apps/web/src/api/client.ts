@@ -112,6 +112,13 @@ export const previewUrl = (nodeId: string) => apiUrl(`/nodes/${nodeId}/preview`)
  */
 export const thumbUrl = (nodeId: string, size: 256 | 1600 = 256, version?: string) =>
   apiUrl(`/nodes/${nodeId}/thumbnail`, { size, v: version });
+/** An album photo's thumbnail, versioned the same way (AlbumPhoto and AlbumCover `updatedAt`). */
+export const albumThumbUrl = (
+  albumId: string,
+  nodeId: string,
+  size: 256 | 1600,
+  version?: string,
+) => apiUrl(`/albums/${albumId}/photos/${nodeId}/thumbnail`, { size, v: version });
 export const zipUrl = (ids: string[]) => apiUrl('/zip', { ids: ids.join(',') });
 export const versionUrl = (nodeId: string, versionId: string) =>
   apiUrl(`/nodes/${nodeId}/versions/${versionId}/content`);

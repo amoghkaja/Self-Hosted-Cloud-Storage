@@ -358,7 +358,10 @@ export function TrashPage() {
                 >
                   <FileIcon
                     node={item}
-                    thumbSrc={item.thumb === 'ready' ? thumbUrl(item.id) : undefined}
+                    // Contents can't change in the trash, but can between two trips there.
+                    thumbSrc={
+                      item.thumb === 'ready' ? thumbUrl(item.id, 256, item.deletedAt) : undefined
+                    }
                   />
                   <div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]">
                     <p className="line-clamp-2 text-sm font-medium">{item.name}</p>

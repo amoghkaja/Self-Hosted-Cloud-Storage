@@ -5,7 +5,8 @@ import { ThumbStatus } from './files';
 /** A calendar day, YYYY-MM-DD (no time zone: a trip's dates are the same everywhere). */
 export const CalendarDate = z.iso.date();
 
-export const AlbumCover = z.object({ nodeId: Id, thumb: ThumbStatus });
+/** `updatedAt` changes with the photo's contents: thumbnail addresses carry it (see thumbUrl). */
+export const AlbumCover = z.object({ nodeId: Id, thumb: ThumbStatus, updatedAt: IsoDate });
 
 export const Album = z.object({
   id: Id,
@@ -62,6 +63,8 @@ export const AlbumPhoto = z.object({
   thumb: ThumbStatus,
   addedBy: UserRef,
   createdAt: IsoDate,
+  /** Changes with the contents (a saved-over photo): thumbnail addresses carry it. */
+  updatedAt: IsoDate,
   /** When it was taken, on the camera's clock: "YYYY-MM-DDTHH:MM:SS" with no time zone. */
   takenAt: z.string().nullable(),
   /** Where it was taken, when the phone recorded it. */

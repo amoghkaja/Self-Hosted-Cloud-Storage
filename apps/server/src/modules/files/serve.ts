@@ -286,7 +286,8 @@ export async function sendThumbnail(
   const etag = `"${blobId}-${size}"`;
   reply
     .header('ETag', etag)
-    // Keyed by immutable blob id: the bytes behind this URL never change.
+    // The address is a file's id plus its version (`v`, its updatedAt), and a file's contents
+    // change only with a new version: so the bytes behind one address never change.
     .header('Cache-Control', 'private, max-age=31536000, immutable')
     .header('Content-Type', 'image/webp')
     .header('X-Content-Type-Options', 'nosniff');
