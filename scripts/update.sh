@@ -110,17 +110,23 @@ docker image rm "$PREVIOUS_IMAGE" >/dev/null 2>&1 || true
 APP_ID=$(docker compose ps -q app 2>/dev/null || true)
 if [[ -n "$APP_ID" ]]; then docker tag "$(docker inspect -f '{{.Image}}' "$APP_ID")" "$PREVIOUS_IMAGE" || true; fi
 back_to_previous() {
-  if [[ -n "$OLD_BRANCH" ]]; then
-    git checkout --quiet -B "$OLD_BRANCH" "$OLD_REF"
-  else
-    git -c advice.detachedHead=false checkout --quiet "$OLD_REF"
-  fi || return 1
+  # Without the old image under its name, starting would run the new version, whose database
+  # changes would then apply with no backup: better to stay stopped.
   if docker image inspect "$PREVIOUS_IMAGE" >/dev/null 2>&1; then
     docker tag "$PREVIOUS_IMAGE" "${OLD_IMAGE:-$RELEASE_IMAGE_REPO:latest}" || return 1
   fi
   IMAGE=$OLD_IMAGE
-  set_env "$ENV_FILE" IMAGE "$IMAGE" || return 1
-  docker compose up -d --remove-orphans
+  # Each step is tried even if one before it failed: a full disk (a likely reason the update
+  # failed) can stop the checkout or the .env write, and that must not leave the app stopped.
+  local failed=0
+  if [[ -n "$OLD_BRANCH" ]]; then
+    git checkout --quiet -B "$OLD_BRANCH" "$OLD_REF"
+  else
+    git -c advice.detachedHead=false checkout --quiet "$OLD_REF"
+  fi || failed=1
+  docker compose up -d --remove-orphans || failed=1
+  set_env "$ENV_FILE" IMAGE "$IMAGE" || failed=1
+  return "$failed"
 }
 # After a new version crashed on start: the database as the backup below holds it, then the
 # previous version. The database the new version had is kept as familycloud_failed_update until
