@@ -14,6 +14,8 @@ to do yourself when updating is listed under **Before you update**.
   already taken (a second "ΔΙΑΚΟΠΕΣ" folder, a second "İzmir.jpg", or "Make a copy" of one)
   failed instead of naming it "(1)", restoring one from the trash next to an item of the same
   name failed, and uploads didn't ask whether to replace the existing file.
+- **Rewind a folder:** files and folders added after the moment you go back to, and deleted
+  since, no longer come back out of the trash. They weren't there at that moment.
 
 ## v0.5.0 (2026-10-05)
 

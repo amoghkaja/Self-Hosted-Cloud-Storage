@@ -100,6 +100,28 @@ describe('rewind a folder', () => {
     });
   });
 
+  it('leaves in the trash what was added and deleted since', async () => {
+    const notes = (await mom.post('/folders', { parentId: momRoot, name: 'Notes' })).body.id;
+    const kept = await put(notes, 'kept.txt', 'K');
+    await env.ctx.db.execute(
+      sql`UPDATE nodes SET created_at = now() - interval '2 hours' WHERE id IN (${notes}, ${kept})`,
+    );
+    const at = ago(60);
+    const junk = await put(notes, 'junk.txt', 'J');
+    const scratch = (await mom.post('/folders', { parentId: notes, name: 'Scratch' })).body.id;
+    await put(scratch, 'draft.txt', 'D');
+    await mom.del(`/nodes/${junk}`);
+    await mom.del(`/nodes/${scratch}`);
+    await mom.del(`/nodes/${kept}`);
+
+    const preview = await mom.get(`/nodes/${notes}/rewind?at=${encodeURIComponent(at)}`);
+    expect(preview.body.restore).toEqual({ count: 1, names: ['kept.txt'] });
+    expect((await mom.post(`/nodes/${notes}/rewind`, { at })).body.restored).toBe(1);
+    expect((await parentOf(kept)).deletedAt).toBeNull();
+    expect((await parentOf(junk)).deletedAt).not.toBeNull();
+    expect((await parentOf(scratch)).deletedAt).not.toBeNull();
+  });
+
   it('only lets the owner rewind, and only as far back as the trash goes', async () => {
     const shared = (await mom.post('/folders', { parentId: momRoot, name: 'Shared' })).body.id;
     expect(
