@@ -79,9 +79,9 @@ jobs:
   installer:
     name: Installer and updater
     runs-on: ubuntu-24.04
-    # Builds the image on the runner, as a fresh install of main does, and starts it: about 6
-    # minutes.
-    timeout-minutes: 20
+    # Builds the image on the runner, as a fresh install of main does, and starts it (about 6
+    # minutes), then backs it up and updates it to a few newer commits (a few minutes more).
+    timeout-minutes: 30
     env:
       # Test this commit's installer (on stable, a fresh clone switches to the newest release).
       UPDATE_CHANNEL: main
