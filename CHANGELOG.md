@@ -14,6 +14,9 @@ to do yourself when updating is listed under **Before you update**.
   ran off its edge, which made the page slide sideways and could push the tab bar and the close
   buttons of previews and dialogs out of sight. Where there isn't room, Request files and Rewind
   are under the ⋮ button next to them.
+- **Tablets:** file names in a folder had only a sliver of room beside the sidebar on an iPad
+  held upright ("Docume…"). Until there's room for the date and size columns, they go under the
+  name, as on a phone.
 
 ## v0.5.0 (2026-10-05)
 
