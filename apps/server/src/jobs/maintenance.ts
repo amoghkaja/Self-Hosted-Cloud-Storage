@@ -189,6 +189,35 @@ export async function drainVolume(ctx: AppContext, volumeId: string): Promise<vo
       .limit(20);
 
     if (batch.length === 0) {
+      // In one statement with the checks: an upload in flight a moment ago may just have put
+      // its file here.
+      const retired = await ctx.db
+        .update(storageVolumes)
+        .set({
+          status: 'retired',
+          statusMessage: `Drained ${new Date().toISOString().slice(0, 10)}. Safe to unmount.`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(storageVolumes.id, volumeId),
+            eq(storageVolumes.status, 'draining'),
+            sql`NOT EXISTS (SELECT 1 FROM ${blobs} WHERE ${blobs.volumeId} = ${volumeId})`,
+            sql`NOT EXISTS (SELECT 1 FROM ${uploadSessions} WHERE ${uploadSessions.volumeId} = ${volumeId}
+              AND ${uploadSessions.status} IN ('uploading', 'finalizing'))`,
+          ),
+        )
+        .returning({ id: storageVolumes.id });
+      if (retired.length > 0) {
+        await audit(ctx.db, {
+          actorId: null,
+          action: 'volume.retired',
+          targetType: 'volume',
+          targetId: volumeId,
+          meta: { moved },
+        });
+        return;
+      }
       const [inflight] = await ctx.db
         .select({ n: sql<number>`count(*)::int` })
         .from(uploadSessions)
@@ -209,22 +238,7 @@ export async function drainVolume(ctx: AppContext, volumeId: string): Promise<vo
         );
         return;
       }
-      await ctx.db
-        .update(storageVolumes)
-        .set({
-          status: 'retired',
-          statusMessage: `Drained ${new Date().toISOString().slice(0, 10)}. Safe to unmount.`,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(storageVolumes.id, volumeId), eq(storageVolumes.status, 'draining')));
-      await audit(ctx.db, {
-        actorId: null,
-        action: 'volume.retired',
-        targetType: 'volume',
-        targetId: volumeId,
-        meta: { moved },
-      });
-      return;
+      continue; // a file arrived (or the drain was cancelled): the next round sees it
     }
 
     for (const blob of batch) {

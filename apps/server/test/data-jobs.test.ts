@@ -2,8 +2,9 @@ import { execFile } from 'node:child_process';
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { blobs, nodes } from '../src/db/schema';
 import { drainVolume } from '../src/jobs/maintenance';
 import { generateThumbnail } from '../src/jobs/thumbnail';
 import { thumbPaths } from '../src/storage/thumbs';
@@ -178,6 +179,69 @@ describe('drain', () => {
     const res = await admin.get(`/nodes/${id}/content`);
     expect(res.status).toBe(200);
     expect(Buffer.compare(res.raw.rawPayload, data)).toBe(0);
+  });
+
+  it('an upload finishing just as the disk looks empty is moved too, not left on a retired disk', async () => {
+    await mkdir(path.join(env.ctx.config.volumesRoot, 'disk3'), { recursive: true });
+    const cand = (await admin.get('/admin/volumes/candidates')).body.items.find(
+      (x: { name: string }) => x.name === 'disk3',
+    );
+    const disk3 = (await admin.post('/admin/volumes', { name: 'disk3', path: cand.path })).body;
+    // Start an upload on disk3, then drain it while the upload is still going.
+    await admin.patch(`/admin/volumes/${disk2.id}`, { status: 'readonly' });
+    const data = bytes(2_000, 6);
+    const started = await admin.post('/uploads', {
+      parentId: root,
+      name: 'just-in-time.bin',
+      size: data.length,
+    });
+    await admin.patch(`/admin/volumes/${disk2.id}`, { status: 'active' });
+    expect((await admin.post(`/admin/volumes/${disk3.id}/drain`)).status).toBe(200);
+    env.jobs.take('drain-volume');
+
+    // The upload commits right after the drain found no files left on disk3.
+    const db = env.ctx.db as any;
+    const select = db.select;
+    let armed = true;
+    db.select = (...args: unknown[]) => {
+      const builder = select.apply(db, args);
+      const from = builder.from.bind(builder);
+      builder.from = (table: unknown) => {
+        const query = from(table);
+        if (armed && table === blobs) {
+          armed = false;
+          const then = query.then.bind(query);
+          // biome-ignore lint/suspicious/noThenProperty: runs the upload once the drain's query has answered
+          query.then = (ok: any, fail: any) =>
+            then(async (rows: unknown) => {
+              const res = await admin.req('PUT', `/uploads/${started.body.id}/chunks/0`, {
+                body: data,
+              });
+              expect(res.body.status).toBe('completed');
+              return rows;
+            }).then(ok, fail);
+        }
+        return query;
+      };
+      return builder;
+    };
+    try {
+      await drainVolume(env.ctx, disk3.id);
+    } finally {
+      db.select = select;
+    }
+    expect(armed).toBe(false);
+    const [file] = await env.ctx.db
+      .select({ volumeId: blobs.volumeId })
+      .from(blobs)
+      .innerJoin(nodes, eq(nodes.blobId, blobs.id))
+      .where(eq(nodes.name, 'just-in-time.bin'));
+    expect(file?.volumeId).toBe(disk2.id);
+    const vols = (await admin.get('/admin/overview')).body.volumes as {
+      id: string;
+      status: string;
+    }[];
+    expect(vols.find((v) => v.id === disk3.id)?.status).toBe('retired');
   });
 });
 

@@ -19,6 +19,12 @@ to do yourself when updating is listed under **Before you update**.
   fetch the web addresses written in it (for example, other services on your home network) while
   making its thumbnail. Uploaded videos are now only ever read as video files from the disk.
 
+### Fixed
+
+- **Moving files off a disk:** an upload that finished at the very moment the move ran out of
+  files could stay behind on the disk, which was then marked "Safe to unmount". It is now moved
+  too before the disk is retired.
+
 ## v0.5.0 (2026-10-05)
 
 ### Improved
