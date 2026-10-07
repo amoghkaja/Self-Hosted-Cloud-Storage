@@ -36,6 +36,8 @@ to do yourself when updating is listed under **Before you update**.
   folder and its buttons stay in view while a batch of photos goes up.
 - **Rename:** the name is selected without its ending, as intended, so you can type the new name
   straight away and keep ".jpg". The cursor used to sit at the end of the name.
+- **Deleting a link or file request** asks first. It used to go with one tap on the bin right
+  next to Copy, and a deleted link can't be brought back (a new one has a different address).
 
 ## v0.5.0 (2026-10-05)
 

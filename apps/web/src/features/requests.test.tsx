@@ -1,12 +1,12 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { requestTransport } from '../api/upload-manager';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
 import { PublicLinkPage } from './public/PublicLinkPage';
 import { RequestFilesDialog } from './sharing/RequestFilesDialog';
-import { ShareDialog } from './sharing/ShareDialog';
+import { LinkRow, ShareDialog } from './sharing/ShareDialog';
 
 const token = 'req_0123456789abcdefghijklmn';
 const setupStatus = {
@@ -146,5 +146,48 @@ describe('Request files button', () => {
       maxUploadBytes: 5 * 1024 ** 3,
     });
     expect(typeof (calls[1]!.body as { expiresAt: unknown }).expiresAt).toBe('string');
+  });
+});
+
+describe('deleting a link', () => {
+  it('asks first: the address can never be brought back', async () => {
+    const onDelete = vi.fn();
+    renderWithProviders(
+      <ul>
+        <LinkRow
+          link={{
+            id: 'l1',
+            nodeId: 'n1',
+            kind: 'view',
+            title: null,
+            url: 'https://cloud.example.com/s/abcdefghijklmnopqrstuvwxyz012345',
+            hasPassword: false,
+            allowDownload: true,
+            downloadCount: 0,
+            maxDownloads: null,
+            uploadCount: 0,
+            uploadBytes: 0,
+            maxUploadBytes: null,
+            expiresAt: null,
+            lastAccessedAt: null,
+            createdAt: '2026-10-01T00:00:00Z',
+          }}
+          title="Holiday"
+          deleting={false}
+          onDelete={onDelete}
+        />
+      </ul>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete link' }));
+    const ask = await screen.findByRole('alertdialog', { name: 'Delete this link?' });
+    expect(onDelete).not.toHaveBeenCalled();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    expect(onDelete).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete link' }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete link' }),
+    );
+    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 });
