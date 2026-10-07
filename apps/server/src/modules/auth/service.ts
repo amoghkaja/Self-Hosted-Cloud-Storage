@@ -165,9 +165,9 @@ export async function dropRecoveryCodes(exec: Executor, userId: string): Promise
 
 /**
  * Asked before anything that hands out a new way into the account (a passkey, a two-factor
- * secret, recovery codes) or changes the password: with only a stolen session, someone could
- * otherwise add their own way in and keep it. A wrong password counts toward the same lockout as
- * signing in, so the session doesn't buy unlimited guesses.
+ * secret, recovery codes, a device password) or changes the password: with only a stolen
+ * session, someone could otherwise add their own way in and keep it. A wrong password counts
+ * toward the same lockout as signing in, so the session doesn't buy unlimited guesses.
  */
 export async function confirmPassword(
   exec: Executor,
@@ -175,21 +175,31 @@ export async function confirmPassword(
   password: string,
   ip: string | null,
 ) {
-  const attempts = await claimAttempt(exec, userId);
-  const [row] = await exec
-    .select({ hash: users.passwordHash })
-    .from(users)
-    .where(eq(users.id, userId));
-  if (!(await verifyPassword(row?.hash ?? null, password))) {
-    await audit(exec, {
-      actorId: userId,
-      action: 'auth.login_failed',
-      ip,
-      meta: { reason: 'password_confirm', attempts },
-    });
-    throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
-  }
-  await refundAttempt(exec, userId, attempts);
+  // One at a time per account: a burst of parallel guesses can't all be checked before the first
+  // failures are counted (sign-in gets this by counting first), and a right password never
+  // counts, however many arrive at once.
+  const attempts = await exec.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`confirm-password:${userId}`}))`);
+    const [row] = await tx
+      .select({
+        hash: users.passwordHash,
+        lockedUntil: users.lockedUntil,
+        isLocked: sql<boolean>`coalesce(${users.lockedUntil} > now(), false)`,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    if (row?.isLocked) throw locked(row.lockedUntil);
+    if (await verifyPassword(row?.hash ?? null, password)) return null;
+    return claimAttempt(tx, userId);
+  });
+  if (attempts === null) return;
+  await audit(exec, {
+    actorId: userId,
+    action: 'auth.login_failed',
+    ip,
+    meta: { reason: 'password_confirm', attempts },
+  });
+  throw new AppError(400, ErrorCode.INVALID_CREDENTIALS, 'Password is incorrect');
 }
 
 const LOCK_AFTER = 5;

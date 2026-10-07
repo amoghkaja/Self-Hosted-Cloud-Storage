@@ -178,6 +178,19 @@ describe('two-factor', () => {
     expect(signIn.status).toBe(429);
   });
 
+  it('checks a burst of parallel guesses at a confirmation one at a time', async () => {
+    const { client: admin } = await loginAdmin();
+    const { client } = await addMember(env, admin, 'confirm-burst@example.com');
+    // Eleven wrong guesses and, last, the right one: checked side by side, the right one would get
+    // through after the lock; checked in turn, it arrives once the account is locked.
+    const guesses = [...Array.from({ length: 11 }, (_, i) => `burst guess ${i}`), MEMBER_PASSWORD];
+    const results = await Promise.all(
+      guesses.map((password) => client.post('/auth/totp/setup', { password })),
+    );
+    expect(results.filter((r) => r.status === 400)).toHaveLength(5);
+    expect(results.at(-1)!.status).toBe(429);
+  });
+
   it('asks for the password before it hands out a secret', async () => {
     const { client: admin } = await loginAdmin();
     const { client } = await addMember(env, admin, 'confirm2fa@example.com');
