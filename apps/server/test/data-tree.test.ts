@@ -87,35 +87,55 @@ describe('trash', () => {
     expect(row).toEqual({ deleted: true, trashRootId: target });
   });
 
+  /** Trashes a folder in a transaction that stays open until `commit()`. */
+  async function trashUncommitted(folderId: string) {
+    let commit!: () => void;
+    const held = new Promise<void>((r) => {
+      commit = r;
+    });
+    let ran!: () => void;
+    const trashRan = new Promise<void>((r) => {
+      ran = r;
+    });
+    const done = env.ctx.db.transaction(async (tx) => {
+      await trashSubtree(tx, folderId);
+      ran();
+      await held;
+    });
+    await trashRan;
+    return { commit, done };
+  }
+
   it('restoring into a folder while it is being trashed puts the item in My Files', async () => {
     const kitchen = await folder(root, 'Kitchen');
     const recipe = (await uploadFile(c, kitchen, 'recipe.txt', Buffer.from('dal'))).final!.body.node
       .id;
     expect((await c.del(`/nodes/${recipe}`)).status).toBe(200);
-    let release!: () => void;
-    const held = new Promise<void>((r) => {
-      release = r;
-    });
-    let trashed!: () => void;
-    const trashRan = new Promise<void>((r) => {
-      trashed = r;
-    });
-    // The folder's trash has run but not committed yet.
-    const trash = env.ctx.db.transaction(async (tx) => {
-      await trashSubtree(tx, kitchen);
-      trashed();
-      await held;
-    });
-    await trashRan;
+    const trash = await trashUncommitted(kitchen);
     const restore = c.post(`/trash/${recipe}/restore`);
     await new Promise((r) => setTimeout(r, 100)); // the restore is now waiting on the folder
-    release();
-    await trash;
+    trash.commit();
+    await trash.done;
 
     const res = await restore;
     expect(res.status).toBe(200);
     // Not left live inside the trashed folder, where nobody would see it.
     expect(res.body.node.parentId).toBe(root);
+  });
+
+  it('a folder made in a folder while it is being trashed is refused', async () => {
+    const trip = await folder(root, 'Trip');
+    const trash = await trashUncommitted(trip);
+    const create = c.post('/folders', { parentId: trip, name: 'Day 1' });
+    await new Promise((r) => setTimeout(r, 100)); // the new folder is now waiting on its parent
+    trash.commit();
+    await trash.done;
+
+    expect((await create).status).toBe(409);
+    const live = (await env.ctx.db.execute(
+      sql`select id from nodes where parent_id = ${trip} and deleted_at is null`,
+    )) as unknown as unknown[];
+    expect(live).toHaveLength(0);
   });
 });
 
