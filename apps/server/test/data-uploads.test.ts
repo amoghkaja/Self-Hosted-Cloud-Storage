@@ -1,10 +1,11 @@
 import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { eq, sql } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { uploadSessions } from '../src/db/schema';
 import { expireUploads, reconcileUsage } from '../src/jobs/maintenance';
-import { releaseUpload } from '../src/modules/uploads/service';
+import { releaseUpload, writeChunk } from '../src/modules/uploads/service';
 import { VOLUME_MARKER } from '../src/storage/volume-manager';
 import {
   addMember,
@@ -119,6 +120,32 @@ describe('chunked upload state machine', () => {
     expect((await session(id)).status).toBe('finalizing');
     expect(await usage()).toEqual(before);
     await releaseUpload(env.ctx, id, 'aborted');
+  });
+
+  it('a copy of a chunk still streaming when the upload finishes never writes into the stored file', async () => {
+    const data = bytes(1000, 5);
+    const id = await start('trickled.bin', data.length);
+    const [row] = await env.ctx.db.select().from(uploadSessions).where(eq(uploadSessions.id, id));
+    // A second copy of chunk 0 sends a little, then stalls (a slow retry, or a sender doing it
+    // on purpose to change the file after it has been checked).
+    const slow = new PassThrough();
+    const late = writeChunk(env.ctx, row!, 0, slow, null).catch((err: unknown) => err);
+    slow.write(Buffer.alloc(10, 0x58));
+    const s = await session(id);
+    await vi.waitFor(async () =>
+      expect((await readFile(s.tmp)).subarray(0, 10)).toEqual(Buffer.alloc(10, 0x58)),
+    );
+
+    const res = await chunk(id, 0, data);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('completed');
+    if (!slow.destroyed) slow.end(Buffer.alloc(990, 0x5a));
+    // The stopped copy is answered like any late chunk, not with an error.
+    const outcome = (await late) as Awaited<ReturnType<typeof writeChunk>>;
+    expect(['finalizing', 'completed']).toContain(outcome.session.status);
+    expect(Buffer.compare(await readFile(s.final), data)).toBe(0);
+    const download = await c.get(`/nodes/${res.body.node.id}/content`);
+    expect(Buffer.compare(download.raw.rawPayload, data)).toBe(0);
   });
 
   it('a disk that is briefly unmounted answers 503 and the upload resumes afterwards', async () => {

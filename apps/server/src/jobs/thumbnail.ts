@@ -9,6 +9,7 @@ import sharp from 'sharp';
 import type { AppContext } from '../context';
 import { blobs, nodes } from '../db/schema';
 import { previewPath, thumbPath } from '../storage/thumbs';
+import { UPLOADED_VIDEO_INPUT } from './video';
 
 // Long-running worker: no libvips operation cache, and bounded threads per image.
 sharp.cache(false);
@@ -74,6 +75,7 @@ async function toRaster(kind: Kind, src: string, work: string): Promise<string> 
           '-hide_banner',
           '-loglevel',
           'error',
+          ...UPLOADED_VIDEO_INPUT,
           '-ss',
           '1',
           '-i',
@@ -93,6 +95,7 @@ async function toRaster(kind: Kind, src: string, work: string): Promise<string> 
           '-hide_banner',
           '-loglevel',
           'error',
+          ...UPLOADED_VIDEO_INPUT,
           '-i',
           src,
           '-frames:v',
@@ -156,7 +159,7 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
     src = pdf;
     rasterKind = 'pdf';
   } else {
-    src = await ctx.volumes.blobFile(row.blob);
+    src = await ctx.volumes.readableBlobFile(row.blob);
   }
   const big = thumbPath(ctx.config.cacheDir, blobId, 1600);
   const small = thumbPath(ctx.config.cacheDir, blobId, 256);
@@ -182,7 +185,9 @@ export async function generateThumbnail(ctx: AppContext, blobId: string): Promis
       .webp({ quality: 72 })
       .toFile(smallTmp);
     await rename(smallTmp, small);
-    await setStatus('ready');
+    const [still] = await setStatus('ready').returning({ id: blobs.id });
+    // Deleted while drawing (its clean-up found nothing yet): don't leave the thumbnails behind.
+    if (!still) await Promise.all([big, small].map((f) => rm(f, { force: true })));
   } catch (err) {
     if (err instanceof ToolMissing) {
       ctx.log.warn({ tool: err.message, blobId }, 'thumbnail tool not installed');

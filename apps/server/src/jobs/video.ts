@@ -14,6 +14,19 @@ const TRANSCODE_TIMEOUT_MS = 5 * 3600 * 1000;
 const MAX_DIRECT_BITRATE = 4_000_000;
 const TARGET_HEIGHT = 720;
 
+/**
+ * Input options for every ffmpeg and ffprobe run on an uploaded file: read it only as a real
+ * video container, from the local disk. ffmpeg picks the format from the contents, and a
+ * streaming manifest or playlist (DASH, HLS, ffconcat) dressed up as a video would otherwise make
+ * the worker fetch addresses of the uploader's choosing.
+ */
+export const UPLOADED_VIDEO_INPUT = [
+  '-protocol_whitelist',
+  'file',
+  '-format_whitelist',
+  'mov,matroska,avi,mpegts,mpeg,flv,asf,ogg,dv,mxf,rm',
+];
+
 function exec(cmd: string, args: string[], timeout: number): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -35,7 +48,16 @@ interface Probe {
 async function probe(file: string): Promise<Probe> {
   const out = await exec(
     'ffprobe',
-    ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file],
+    [
+      '-v',
+      'error',
+      ...UPLOADED_VIDEO_INPUT,
+      '-print_format',
+      'json',
+      '-show_format',
+      '-show_streams',
+      file,
+    ],
     PROBE_TIMEOUT_MS,
   );
   const info = JSON.parse(out) as {
@@ -64,7 +86,7 @@ export async function makeVideoStream(ctx: AppContext, blobId: string): Promise<
   const setStatus = (streamStatus: 'ready' | 'original' | 'failed') =>
     ctx.db.update(blobs).set({ streamStatus }).where(eq(blobs.id, blobId));
 
-  const src = await ctx.volumes.blobFile(blob);
+  const src = await ctx.volumes.readableBlobFile(blob);
   let info: Probe;
   try {
     info = await probe(src);
@@ -98,6 +120,7 @@ export async function makeVideoStream(ctx: AppContext, blobId: string): Promise<
         '-hide_banner',
         '-loglevel',
         'error',
+        ...UPLOADED_VIDEO_INPUT,
         '-i',
         src,
         // Never upscale; keep the aspect ratio (even width for H.264).

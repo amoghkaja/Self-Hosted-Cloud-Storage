@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, mkdtemp, rename, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,7 +36,7 @@ export async function makeOfficePreview(ctx: AppContext, blobId: string): Promis
       .where(eq(blobs.id, blobId))
       .returning({ id: blobs.id });
 
-  const src = await ctx.volumes.blobFile(row.blob);
+  const src = await ctx.volumes.readableBlobFile(row.blob);
   const ext = splitExtension(row.name)[1].toLowerCase() || '.bin';
   let work: string | null = null;
   try {
@@ -48,7 +48,7 @@ export async function makeOfficePreview(ctx: AppContext, blobId: string): Promis
       fileKind(row.mimeType, row.name) === 'spreadsheet' ? ['html', 'pdf'] : ['pdf'];
     const outputs: string[] = [];
     for (const format of formats) {
-      await run([
+      await runSoffice([
         '--headless',
         '--norestore',
         '--nolockcheck',
@@ -93,18 +93,33 @@ export async function makeOfficePreview(ctx: AppContext, blobId: string): Promis
   }
 }
 
-function run(args: string[]): Promise<void> {
+/**
+ * Runs LibreOffice in a process group of its own. Its launcher starts the converter as a child,
+ * so a timeout kills the whole group: killing only the launcher left the converter running on
+ * its own, with a huge or hostile document keeping a core busy long after the job gave up.
+ */
+export function runSoffice(args: string[], timeoutMs = CONVERT_TIMEOUT_MS): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile(
-      process.env.SOFFICE_BIN ?? 'soffice',
-      args,
-      {
-        timeout: CONVERT_TIMEOUT_MS,
-        killSignal: 'SIGKILL',
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      },
-      (err) => (err ? reject(err) : resolve()),
-    );
+    const child = spawn(process.env.SOFFICE_BIN ?? 'soffice', args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    const timer = setTimeout(() => {
+      try {
+        if (child.pid) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // Already gone.
+      }
+    }, timeoutMs);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('exit', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`LibreOffice stopped with ${signal ?? `exit code ${code}`}`));
+    });
   });
 }

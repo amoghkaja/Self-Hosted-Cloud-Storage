@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
-import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { blobs, nodes, storageVolumes } from '../src/db/schema';
 import { drainVolume } from '../src/jobs/maintenance';
+import { readMediaInfo } from '../src/jobs/media-info';
+import { extractText } from '../src/jobs/text';
 import { generateThumbnail } from '../src/jobs/thumbnail';
 import { thumbPaths } from '../src/storage/thumbs';
 import { VOLUME_MARKER } from '../src/storage/volume-manager';
@@ -95,6 +99,34 @@ describe('thumbnails', () => {
     await generateThumbnail(env.ctx, blob.id);
     expect((await blobOf(up.final!.body.node.id)).thumbStatus).toBe('ready');
   });
+
+  it('a photo deleted for good while its thumbnail is drawn leaves no thumbnail behind', async () => {
+    const photo = await sharp({
+      create: { width: 64, height: 48, channels: 3, background: '#000' },
+    })
+      .png()
+      .toBuffer();
+    const node = (await uploadFile(admin, root, 'gone.png', photo)).final!.body.node;
+    const blob = (await blobOf(node.id)).id;
+    const vm = env.ctx.volumes;
+    const readable = vm.readableBlobFile.bind(vm);
+    vm.readableBlobFile = async (b) => {
+      // The job has the file open when the photo is deleted from the trash.
+      const open = path.join(env.dataDir, 'open-photo.png');
+      await copyFile(await readable(b), open);
+      await admin.del(`/nodes/${node.id}`);
+      expect((await admin.del(`/trash/${node.id}`)).status).toBe(200);
+      return open;
+    };
+    try {
+      await generateThumbnail(env.ctx, blob);
+    } finally {
+      vm.readableBlobFile = readable;
+    }
+    for (const p of thumbPaths(env.ctx.config.cacheDir, blob)) {
+      expect(await stat(p).catch(() => null)).toBeNull();
+    }
+  });
 });
 
 describe('drain', () => {
@@ -178,6 +210,127 @@ describe('drain', () => {
     const res = await admin.get(`/nodes/${id}/content`);
     expect(res.status).toBe(200);
     expect(Buffer.compare(res.raw.rawPayload, data)).toBe(0);
+  });
+
+  it('an upload finishing just as the disk looks empty is moved too, not left on a retired disk', async () => {
+    await mkdir(path.join(env.ctx.config.volumesRoot, 'disk3'), { recursive: true });
+    const cand = (await admin.get('/admin/volumes/candidates')).body.items.find(
+      (x: { name: string }) => x.name === 'disk3',
+    );
+    const disk3 = (await admin.post('/admin/volumes', { name: 'disk3', path: cand.path })).body;
+    // Start an upload on disk3, then drain it while the upload is still going.
+    await admin.patch(`/admin/volumes/${disk2.id}`, { status: 'readonly' });
+    const data = bytes(2_000, 6);
+    const started = await admin.post('/uploads', {
+      parentId: root,
+      name: 'just-in-time.bin',
+      size: data.length,
+    });
+    await admin.patch(`/admin/volumes/${disk2.id}`, { status: 'active' });
+    expect((await admin.post(`/admin/volumes/${disk3.id}/drain`)).status).toBe(200);
+    env.jobs.take('drain-volume');
+
+    // The upload commits right after the drain found no files left on disk3.
+    const db = env.ctx.db as any;
+    const select = db.select;
+    let armed = true;
+    db.select = (...args: unknown[]) => {
+      const builder = select.apply(db, args);
+      const from = builder.from.bind(builder);
+      builder.from = (table: unknown) => {
+        const query = from(table);
+        if (armed && table === blobs) {
+          armed = false;
+          const then = query.then.bind(query);
+          // biome-ignore lint/suspicious/noThenProperty: runs the upload once the drain's query has answered
+          query.then = (ok: any, fail: any) =>
+            then(async (rows: unknown) => {
+              const res = await admin.req('PUT', `/uploads/${started.body.id}/chunks/0`, {
+                body: data,
+              });
+              expect(res.body.status).toBe('completed');
+              return rows;
+            }).then(ok, fail);
+        }
+        return query;
+      };
+      return builder;
+    };
+    try {
+      await drainVolume(env.ctx, disk3.id);
+    } finally {
+      db.select = select;
+    }
+    expect(armed).toBe(false);
+    const [file] = await env.ctx.db
+      .select({ volumeId: blobs.volumeId })
+      .from(blobs)
+      .innerJoin(nodes, eq(nodes.blobId, blobs.id))
+      .where(eq(nodes.name, 'just-in-time.bin'));
+    expect(file?.volumeId).toBe(disk2.id);
+    const vols = (await admin.get('/admin/overview')).body.volumes as {
+      id: string;
+      status: string;
+    }[];
+    expect(vols.find((v) => v.id === disk3.id)?.status).toBe('retired');
+  });
+});
+
+describe('a disk that is unmounted for a while', () => {
+  it('leaves thumbnails, photo dates and document words waiting, then makes them once it is back', async () => {
+    const photo = await sharp({
+      create: { width: 40, height: 30, channels: 3, background: '#22c55e' },
+    })
+      .jpeg()
+      .toBuffer();
+    const pic = (await uploadFile(admin, root, 'away.jpg', photo)).final!.body.node;
+    const doc = (await uploadFile(admin, root, 'away.txt', Buffer.from('lighthouse keeper'))).final!
+      .body.node;
+    const picBlob = (await blobOf(pic.id)).id;
+    const docBlob = (await blobOf(doc.id)).id;
+    const statuses = async () => {
+      const rows = await env.ctx.db
+        .select({
+          id: blobs.id,
+          thumb: blobs.thumbStatus,
+          info: blobs.infoStatus,
+          text: blobs.textStatus,
+        })
+        .from(blobs)
+        .where(inArray(blobs.id, [picBlob, docBlob]));
+      const pick = (id: string) => rows.find((r) => r.id === id)!;
+      return { thumb: pick(picBlob).thumb, info: pick(picBlob).info, text: pick(docBlob).text };
+    };
+    expect(await statuses()).toEqual({ thumb: 'pending', info: 'pending', text: 'pending' });
+
+    // Unmounted: an empty directory where the disk was.
+    const [vol] = await env.ctx.db
+      .select({ path: storageVolumes.path })
+      .from(storageVolumes)
+      .innerJoin(blobs, eq(blobs.volumeId, storageVolumes.id))
+      .where(eq(blobs.id, picBlob));
+    const away = `${vol!.path}.away`;
+    await rename(vol!.path, away);
+    await mkdir(vol!.path);
+    env.ctx.volumes.invalidate();
+    try {
+      for (const job of [generateThumbnail, readMediaInfo]) {
+        await expect(job(env.ctx, picBlob)).rejects.toMatchObject({ code: 'VOLUME_OFFLINE' });
+      }
+      await expect(extractText(env.ctx, docBlob)).rejects.toMatchObject({
+        code: 'VOLUME_OFFLINE',
+      });
+      // Still waiting, so the hourly recovery queues them again.
+      expect(await statuses()).toEqual({ thumb: 'pending', info: 'pending', text: 'pending' });
+    } finally {
+      await rm(vol!.path, { recursive: true });
+      await rename(away, vol!.path);
+      env.ctx.volumes.invalidate();
+    }
+    await generateThumbnail(env.ctx, picBlob);
+    await readMediaInfo(env.ctx, picBlob);
+    await extractText(env.ctx, docBlob);
+    expect(await statuses()).toEqual({ thumb: 'ready', info: 'ready', text: 'ready' });
   });
 });
 

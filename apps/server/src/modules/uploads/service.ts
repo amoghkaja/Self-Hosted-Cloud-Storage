@@ -1,4 +1,4 @@
-import { mkdir, open, rename, unlink } from 'node:fs/promises';
+import { type FileHandle, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -253,8 +253,8 @@ export async function createUpload(
 
 /**
  * "Instant upload": when a file with the same SHA-256 and size is already stored, and the
- * uploader can already see a copy of it (their own files, something shared with them, or a
- * family album), the new file points at the same bytes and nothing is transferred.
+ * uploader can already see a copy of it (their own files, something shared with them, or a photo
+ * in a family album), the new file points at the same bytes and nothing is transferred.
  *
  * Matching only against visible copies keeps the hash from revealing whether someone else has a
  * particular private file. The new file is charged to its folder owner's quota like any upload;
@@ -394,6 +394,43 @@ export async function getOwnedSession(ctx: AppContext, userId: string, id: strin
 class ChunkTooLarge extends Error {}
 
 /**
+ * Chunk writes in progress, per upload (in this process: the app runs as one). Finalizing stops
+ * them before the temp file becomes the stored file: a second copy of a chunk still streaming (a
+ * slow retry, or a sender trickling bytes on purpose) would otherwise go on writing into the file
+ * after it was committed, checksummed and scanned, and into every file that shares its bytes.
+ */
+const chunkWriters = new Map<
+  string,
+  { closed: boolean; active: Map<AbortController, Promise<void>> }
+>();
+
+function writersOf(uploadId: string) {
+  let w = chunkWriters.get(uploadId);
+  if (!w) {
+    w = { closed: false, active: new Map() };
+    chunkWriters.set(uploadId, w);
+  }
+  return w;
+}
+
+/** Turns away new chunk writes, stops those in progress and waits until their files are closed. */
+async function stopChunkWriters(uploadId: string): Promise<void> {
+  const w = writersOf(uploadId);
+  w.closed = true;
+  for (const writer of w.active.keys()) writer.abort();
+  await Promise.all(w.active.values());
+}
+
+/** A chunk sent again once the upload had every chunk: report where it is instead of failing. */
+async function lateChunk(ctx: AppContext, uploadId: string) {
+  const [now] = await ctx.db.select().from(uploadSessions).where(eq(uploadSessions.id, uploadId));
+  if (now?.status === 'finalizing' || now?.status === 'completed') {
+    return { session: now, node: null };
+  }
+  throw conflict(`Upload is ${now?.status ?? 'gone'}`, ErrorCode.UPLOAD_STATE);
+}
+
+/**
  * Writes one chunk straight from the request stream into the pre-allocated file at its offset.
  * Chunks may arrive in any order and in parallel; re-sending a chunk is harmless (idempotent).
  */
@@ -416,44 +453,47 @@ export async function writeChunk(
     throw new AppError(400, ErrorCode.CHUNK_INVALID, `Chunk ${index} must be ${expected} bytes`);
   }
 
-  const volumePath = await ctx.volumes.pathOf(session.volumeId);
-  const tmp = ctx.volumes.tmpPath(volumePath, session.id);
-  let fh: Awaited<ReturnType<typeof open>>;
-  try {
-    fh = await open(tmp, 'r+');
-  } catch {
-    // A disk that is briefly gone must not cost the upload: 503, and the client retries.
-    await ctx.volumes.assertOnline({ id: session.volumeId, path: volumePath });
-    if (await releaseUpload(ctx, session.id, 'aborted', ['uploading'])) {
-      throw conflict('Upload data was lost; please start again', ErrorCode.UPLOAD_STATE);
-    }
-    // A late retry of a chunk after the last one arrived: finalizing already moved the file.
-    const [now] = await ctx.db
-      .select()
-      .from(uploadSessions)
-      .where(eq(uploadSessions.id, session.id));
-    if (now?.status === 'finalizing' || now?.status === 'completed') {
-      return { session: now, node: null };
-    }
-    throw conflict(`Upload is ${now?.status ?? 'gone'}`, ErrorCode.UPLOAD_STATE);
-  }
-
+  const writers = writersOf(session.id);
+  // Finalizing has begun: the upload already has this chunk.
+  if (writers.closed) return lateChunk(ctx, session.id);
+  const writer = new AbortController();
+  let release = () => {};
+  writers.active.set(
+    writer,
+    new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  );
+  let fh: FileHandle | undefined;
   let written = 0;
-  const counter = new Transform({
-    transform(chunk: Buffer, _enc, cb) {
-      written += chunk.length;
-      if (written > expected) cb(new ChunkTooLarge());
-      else cb(null, chunk);
-    },
-  });
   try {
+    const volumePath = await ctx.volumes.pathOf(session.volumeId);
+    const tmp = ctx.volumes.tmpPath(volumePath, session.id);
+    try {
+      fh = await open(tmp, 'r+');
+    } catch {
+      // A disk that is briefly gone must not cost the upload: 503, and the client retries.
+      await ctx.volumes.assertOnline({ id: session.volumeId, path: volumePath });
+      if (await releaseUpload(ctx, session.id, 'aborted', ['uploading'])) {
+        throw conflict('Upload data was lost; please start again', ErrorCode.UPLOAD_STATE);
+      }
+      // A late retry of a chunk after the last one arrived: finalizing already moved the file.
+      return lateChunk(ctx, session.id);
+    }
+    const counter = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        written += chunk.length;
+        if (written > expected) cb(new ChunkTooLarge());
+        else cb(null, chunk);
+      },
+    });
     await pipeline(
       body,
       counter,
       fh.createWriteStream({ start: index * session.chunkSize, autoClose: true }),
+      { signal: writer.signal },
     );
   } catch (err) {
-    await fh.close().catch(() => {});
     if (err instanceof ChunkTooLarge) {
       throw new AppError(
         400,
@@ -461,7 +501,17 @@ export async function writeChunk(
         `Chunk ${index} is larger than ${expected} bytes`,
       );
     }
+    // Stopped by finalizing: another copy of this chunk already arrived.
+    if (writer.signal.aborted) return lateChunk(ctx, session.id);
     throw err;
+  } finally {
+    // Also waits for writes still in flight, so a stopped writer is really done.
+    await fh?.close().catch(() => {});
+    writers.active.delete(writer);
+    if (!writers.closed && writers.active.size === 0 && chunkWriters.get(session.id) === writers) {
+      chunkWriters.delete(session.id);
+    }
+    release();
   }
   if (written !== expected) {
     throw new AppError(
@@ -529,6 +579,7 @@ export async function finalizeUpload(
   const tmp = ctx.volumes.tmpPath(volumePath, claimed.id);
   const final = ctx.volumes.blobPath(volumePath, claimed.blobId);
   try {
+    await stopChunkWriters(claimed.id);
     const fh = await open(tmp, 'r+');
     await fh.datasync();
     await fh.close();
@@ -549,6 +600,9 @@ export async function finalizeUpload(
     }
     if (await releaseUpload(ctx, claimed.id, 'aborted')) throw err;
     throw conflict('The upload was cancelled', ErrorCode.UPLOAD_STATE);
+  } finally {
+    // Moved (a chunk sent again finds no temp file), or handed back to take chunks again.
+    chunkWriters.delete(claimed.id);
   }
 
   const work = derivedWork(claimed.mimeType, claimed.name);

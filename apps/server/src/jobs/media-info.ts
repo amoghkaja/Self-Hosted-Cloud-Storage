@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import exifr from 'exifr';
 import type { AppContext } from '../context';
 import { blobs, nodes } from '../db/schema';
+import { UPLOADED_VIDEO_INPUT } from './video';
 
 const PROBE_TIMEOUT_MS = 60_000;
 
@@ -66,7 +67,7 @@ async function videoInfo(file: string): Promise<MediaInfo> {
   const out = await new Promise<string>((resolve, reject) => {
     execFile(
       'ffprobe',
-      ['-v', 'error', '-print_format', 'json', '-show_format', file],
+      ['-v', 'error', ...UPLOADED_VIDEO_INPUT, '-print_format', 'json', '-show_format', file],
       { timeout: PROBE_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
       (err, stdout) => (err ? reject(err) : resolve(stdout)),
     );
@@ -100,7 +101,7 @@ export async function readMediaInfo(ctx: AppContext, blobId: string): Promise<vo
   let info: MediaInfo = { takenAt: null, latitude: null, longitude: null };
   let infoStatus: 'ready' | 'failed' = 'ready';
   // Outside the try: a disk that's offline is retried, not recorded as a bad file.
-  const file = await ctx.volumes.blobFile(row.blob);
+  const file = await ctx.volumes.readableBlobFile(row.blob);
   try {
     if (mime.startsWith('video/')) info = await videoInfo(file);
     else if (mime.startsWith('image/') && mime !== 'image/svg+xml') info = await photoInfo(file);

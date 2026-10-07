@@ -71,6 +71,16 @@ export class VolumeManager {
     return this.blobPath(await this.pathOf(blob.volumeId), blob.id);
   }
 
+  /**
+   * The blob's file for a background job to read. Throws while its disk is offline, so the job
+   * is retried later rather than recording the file as one it can't read.
+   */
+  async readableBlobFile(blob: { id: string; volumeId: string }): Promise<string> {
+    const volumePath = await this.pathOf(blob.volumeId);
+    await this.assertOnline({ id: blob.volumeId, path: volumePath });
+    return this.blobPath(volumePath, blob.id);
+  }
+
   /** Health + capacity of one volume, cached for a few seconds (statfs on every request is wasteful). */
   status(volume: Pick<VolumeRow, 'id' | 'path'>, fresh = false): Promise<VolumeRuntime> {
     const hit = this.runtime.get(volume.id);

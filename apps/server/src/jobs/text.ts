@@ -87,7 +87,7 @@ export async function extractText(ctx: AppContext, blobId: string): Promise<void
   const file =
     source === 'office'
       ? previewPath(ctx.config.cacheDir, blobId, 'pdf')
-      : await ctx.volumes.blobFile(row.blob);
+      : await ctx.volumes.readableBlobFile(row.blob);
   let content: string | null;
   try {
     content = source === 'plain' ? await plainText(file) : await pdfText(file);

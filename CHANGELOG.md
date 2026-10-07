@@ -27,6 +27,12 @@ to do yourself when updating is listed under **Before you update**.
   device was signing in could keep working for up to a minute. It's now locked out at once.
 - **Network drive:** a signed-in device could stall the server for about a second with each
   specially made request.
+- **Uploads:** a second copy of a piece of an upload, still being sent when the upload finished,
+  could change the stored file afterwards (after its virus check, and in every copy of it). It is
+  now stopped before the file is stored.
+- **Videos:** a streaming playlist uploaded with a video's name made the background worker
+  fetch the web addresses written in it (for example, other services on your home network) while
+  making its thumbnail. Uploaded videos are now only ever read as video files from the disk.
 
 ### Fixed
 
@@ -44,6 +50,15 @@ to do yourself when updating is listed under **Before you update**.
 - **Version history:** files copied to the network drive from Finder or Windows no longer get an
   empty "older version" (both write an empty file before its contents). Empty files are never
   kept as versions.
+- **Moving files off a disk:** an upload that finished at the very moment the move ran out of
+  files could stay behind on the disk, which was then marked "Safe to unmount". It is now moved
+  too before the disk is retired.
+- **A disk unplugged for a while:** photos and videos on it never got thumbnails, dates or
+  streaming copies, and documents were never searchable by their words, even after it was back.
+  That work now waits for the disk and is done once it returns.
+- **Previews of very large documents:** when LibreOffice took longer than 3 minutes, the preview
+  was given up but LibreOffice went on running in the background, slowing the server down. It is
+  now stopped.
 
 ## v0.5.0 (2026-10-05)
 
