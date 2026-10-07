@@ -1,7 +1,9 @@
 import { Readable } from 'node:stream';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { nodes } from '../src/db/schema';
+import { copyNode } from '../src/modules/files/copy';
 import { addMember, type Client, createTestEnv, setupAdmin, type TestEnv } from './helpers';
 
 let env: TestEnv;
@@ -133,6 +135,28 @@ describe('MOVE and COPY', () => {
     expect((await alice.get('/auth/me')).body.usedBytes).toBe(before + 8);
     expect((await aliceDav('GET', '/dav/My%20Files/report-draft.txt')).body).toBe('new text');
     expect((await alice.get('/trash')).body.items).toHaveLength(0);
+  });
+
+  it('COPY never trashes an item it replaces once that moved out of reach', async () => {
+    const team = (await alice.post('/folders', { parentId: aliceRoot, name: 'Team' })).body.id;
+    const plan = (await alice.post('/folders', { parentId: team, name: 'plan' })).body.id;
+    const hidden = (await alice.post('/folders', { parentId: aliceRoot, name: 'Hidden' })).body.id;
+    await alice.post(`/nodes/${team}/shares`, { userId: bobId, permission: 'edit' });
+    await bobDav('PUT', '/dav/Shared%20with%20me/Team/memo.txt', { body: 'memo' });
+    const [memo] = await env.ctx.db.select().from(nodes).where(eq(nodes.name, 'memo.txt'));
+    // Bob's COPY found "plan" in the shared folder; before it commits, Alice moves "plan" into a
+    // folder Bob can't see.
+    await alice.patch(`/nodes/${plan}`, { parentId: hidden });
+    const copy = copyNode(env.ctx, {
+      userId: bobId,
+      source: memo!,
+      dest: { id: team, ownerId: memo!.ownerId },
+      name: 'plan',
+      onConflict: 'fail',
+      replace: { id: plan, type: 'folder' },
+    });
+    await expect(copy).rejects.toMatchObject({ status: 403 });
+    expect((await alice.get(`/nodes/${plan}`)).status).toBe(200);
   });
 
   it('refuses to copy a folder into itself', async () => {

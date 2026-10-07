@@ -101,7 +101,8 @@ export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeR
         );
         ({ node: root, usageDelta, orphans } = replaced);
       } else {
-        if (input.replace) await trashSubtree(tx, input.replace.id);
+        // With the actor: if it moved meanwhile, edit access where it is now is re-checked.
+        if (input.replace) await trashSubtree(tx, input.replace.id, { actorId: input.userId });
         root = await insertNode(
           tx,
           {
