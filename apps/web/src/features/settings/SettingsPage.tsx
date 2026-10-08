@@ -21,7 +21,7 @@ import {
 import QRCode from 'qrcode';
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ApiError, api, errorMessage } from '../../api/client';
+import { api, errorMessage, isWrongPassword } from '../../api/client';
 import {
   qk,
   useAbout,
@@ -144,7 +144,7 @@ function PasswordSection() {
       void qc.invalidateQueries({ queryKey: qk.sessions });
     } catch (err) {
       setError({
-        field: err instanceof ApiError && err.code === 'INVALID_CREDENTIALS' ? 'current' : 'next',
+        field: isWrongPassword(err) ? 'current' : 'next',
         message: errorMessage(err),
       });
     } finally {
@@ -637,7 +637,7 @@ function DevicesSection() {
       setCreds(await m.create.mutateAsync({ name: name.trim(), password }));
       setPassword('');
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
+      if (isWrongPassword(err)) {
         setPasswordError(errorMessage(err));
       } else {
         toast.error(errorMessage(err));
@@ -819,7 +819,7 @@ function PasskeysSection() {
       const p = await m.add.mutateAsync(password);
       toast.success(`Passkey added for ${p.name}. Next time, sign in with Face ID or Touch ID.`);
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') throw err;
+      if (isWrongPassword(err)) throw err;
       const message = passkeyError(err);
       if (message) toast.error(message);
     }

@@ -1,6 +1,6 @@
 import { Fingerprint, X } from 'lucide-react';
 import { useState } from 'react';
-import { ApiError } from '../api/client';
+import { isWrongPassword } from '../api/client';
 import { usePasskeyMutations, usePasskeys } from '../api/queries';
 import { Button, IconButton, toast } from '../components/ui';
 import { ConfirmPasswordDialog } from '../features/settings/ConfirmPasswordDialog';
@@ -35,7 +35,7 @@ export function PasskeyNudge() {
       toast.success('Done! Next time, sign in with Face ID or Touch ID.');
       hide();
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') throw err;
+      if (isWrongPassword(err)) throw err;
       const message = passkeyError(err);
       if (message) toast.error(message);
     }

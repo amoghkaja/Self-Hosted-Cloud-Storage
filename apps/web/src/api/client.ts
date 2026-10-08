@@ -94,6 +94,14 @@ export function isUnusableLink(err: unknown): boolean {
   );
 }
 
+/**
+ * Whether the server turned down the password someone typed, so the form can show the message on
+ * the password field rather than as a general failure.
+ */
+export function isWrongPassword(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'INVALID_CREDENTIALS';
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;

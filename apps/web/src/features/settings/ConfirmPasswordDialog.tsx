@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { ApiError, errorMessage } from '../../api/client';
+import { errorMessage, isWrongPassword } from '../../api/client';
 import { Button, Dialog, PasswordField, toast } from '../../components/ui';
 
 /**
@@ -34,7 +34,7 @@ export function ConfirmPasswordDialog({
       await onConfirm(password);
       close();
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
+      if (isWrongPassword(err)) {
         setError(errorMessage(err));
       } else {
         toast.error(errorMessage(err));
