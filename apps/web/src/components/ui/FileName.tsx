@@ -1,5 +1,3 @@
-import { cn } from '../../lib/cn';
-
 /** ".pdf", ".jpeg", ".docx": a short ending with no spaces (so "Plan v2.0 final" has none). */
 const EXTENSION = /\.[^\s.]{1,7}$/;
 
@@ -8,13 +6,13 @@ const EXTENSION = /\.[^\s.]{1,7}$/;
  * l….pdf"), so a narrow list doesn't hide what kind of file it is. Screen readers get the
  * whole name as one piece of text.
  */
-export function FileName({ name, className }: { name: string; className?: string }) {
+export function FileName({ name }: { name: string }) {
   const ext = name.match(EXTENSION)?.[0];
   if (!ext || ext.length === name.length) {
-    return <span className={cn('truncate', className)}>{name}</span>;
+    return <span className="truncate">{name}</span>;
   }
   return (
-    <span className={cn('flex min-w-0', className)}>
+    <span className="flex min-w-0">
       <span className="sr-only">{name}</span>
       <span aria-hidden="true" className="truncate">
         {name.slice(0, -ext.length)}
