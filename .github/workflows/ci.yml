@@ -101,6 +101,19 @@ jobs:
           . scripts/lib.sh
           image_published v0.6.0
           if image_published v0.0.0; then exit 1; fi
+      - name: The one-line installer gets Family Cloud and runs its installer
+        run: |
+          git init -q --bare -b main "$RUNNER_TEMP/get.git"
+          git push -q "$RUNNER_TEMP/get.git" HEAD:refs/heads/main
+          export FC_REPO=file://$RUNNER_TEMP/get.git FC_DIR=$RUNNER_TEMP/get
+          bash -s -- --help < scripts/get.sh | grep -q 'Family Cloud installer'
+          [[ -x "$FC_DIR/scripts/install.sh" ]]
+          # Run again, it uses the copy it made.
+          bash -s -- --help < scripts/get.sh | grep -q 'already in'
+          # Never as root, and never into a folder that isn't Family Cloud.
+          if sudo bash -s < scripts/get.sh; then exit 1; fi
+          mkdir "$RUNNER_TEMP/other"
+          if FC_DIR=$RUNNER_TEMP/other bash -s < scripts/get.sh; then exit 1; fi
       - name: An older PostgreSQL 18 image, as on a machine installed a while ago
         run: |
           docker pull -q postgres:18.0-alpine

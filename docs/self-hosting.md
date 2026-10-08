@@ -11,13 +11,21 @@ This guide takes you from a spare computer to a working family cloud on your own
 
 ## 2. Install
 
+On the computer that will run it, as your everyday user (not root):
+
+```bash
+curl -fsSL https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh | bash
+```
+
+That downloads Family Cloud into `~/familycloud` and runs its installer, `./scripts/install.sh`. For another folder, end the command with `| FC_DIR=/somewhere/else bash` instead. Prefer to do it by hand? The same thing:
+
 ```bash
 git clone https://github.com/amoghkaja/Self-Hosted-Cloud-Storage.git familycloud
 cd familycloud
-./scripts/install.sh --install-docker
+./scripts/install.sh
 ```
 
-If Docker isn't there yet, the script installs it and carries on. Log out and back in afterwards to use `docker` commands yourself.
+If Docker isn't there yet, the installer offers to install it and carries on (`--install-docker` does it without asking). Log out and back in afterwards to use `docker` commands yourself.
 
 A fresh clone installs the newest release. Before changing anything, it checks that the app's port (3080) is free, shows which disk the files will go on and how much room it has (and suggests a bigger disk if there is one), and tells you when it needs your password for `sudo`. The installer asks:
 

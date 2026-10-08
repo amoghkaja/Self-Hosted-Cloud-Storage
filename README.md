@@ -36,15 +36,13 @@ Family Cloud turns a Linux machine and its disks into a private cloud for the pe
 
 **You need** a Linux computer that stays on (a spare PC, a mini PC or a Raspberry Pi 5), and a domain name if your family should reach it away from home. You don't need to know Docker: the installer sets it up.
 
-**1. Install** (about 15 minutes):
+**1. Install** (about 15 minutes), on that computer:
 
 ```bash
-git clone https://github.com/amoghkaja/Self-Hosted-Cloud-Storage.git familycloud
-cd familycloud
-./scripts/install.sh --install-docker
+curl -fsSL https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh | bash
 ```
 
-It installs the newest release (and Docker, if needed) and asks a few questions: how your family will reach it (a free **Cloudflare Tunnel** with no router changes, your own domain, Tailscale, or "later"), the address, a name and where to keep the files. For the tunnel, paste a Cloudflare API token and it creates the tunnel and DNS record itself. It generates all the secrets, starts everything and offers to install updates automatically. 
+It downloads Family Cloud into `~/familycloud`, installs the newest release (and Docker, if needed) and asks a few questions: how your family will reach it (a free **Cloudflare Tunnel** with no router changes, your own domain, Tailscale, or "later"), the address, a name and where to keep the files. For the tunnel, paste a Cloudflare API token and it creates the tunnel and DNS record itself. It generates all the secrets, starts everything and offers to install updates automatically. 
 
 **2. Create your account.** The installer prints a link and a one-time setup token. Open the link, paste the token and create the admin account.
 

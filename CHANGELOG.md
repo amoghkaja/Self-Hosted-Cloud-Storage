@@ -24,6 +24,10 @@ to do yourself when updating is listed under **Before you update**.
   nothing. If you had the Sunday updates, the next time `./scripts/update.sh` runs (by hand, or
   by itself that Sunday) it switches over and keeps automatic updates on. They're turned on or
   off in Admin → Overview, or with `AUTO_UPDATE=yes` or `no` in `deploy/.env`.
+- **Installing:** one command installs Family Cloud on a new computer:
+  `curl -fsSL https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh | bash`.
+  It downloads Family Cloud into `~/familycloud` and runs the installer, which now offers to
+  install Docker itself when it's missing.
 - **Installing:** on a computer whose clock is on UTC, the installer offers to set your time zone,
   so updates and backups run at night where you are.
 

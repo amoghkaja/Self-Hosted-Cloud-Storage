@@ -2,7 +2,7 @@
 # Family Cloud installer: prepares storage folders, writes deploy/.env with fresh secrets and
 # starts the stack with Docker Compose. Safe to re-run: existing settings are kept.
 #
-#   ./scripts/install.sh                   interactive
+#   ./scripts/install.sh                   interactive (offers to install Docker if it's missing)
 #   ./scripts/install.sh --install-docker  also install Docker Engine (Ubuntu/Debian, uses sudo)
 #
 # Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_API_TOKEN=... ./scripts/install.sh -y
@@ -68,6 +68,10 @@ command -v openssl >/dev/null || die "openssl is required (sudo apt install open
 command -v curl >/dev/null || die "curl is required (sudo apt install curl)."
 
 if ! command -v docker >/dev/null; then
+  if ! $INSTALL_DOCKER && ! $YES; then
+    read -r -p "  Docker isn't installed. Install it now (Ubuntu/Debian; uses sudo)? [Y/n] " ans || true
+    [[ "${ans:-y}" =~ ^[Yy] ]] && INSTALL_DOCKER=true
+  fi
   if $INSTALL_DOCKER; then
     bold "Installing Docker Engine (sudo required)…"
     curl -fsSL https://get.docker.com | sudo sh
