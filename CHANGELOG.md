@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.6.0 (2026-10-08)
+
 ### Security
 
 - **Passkeys, two-factor and network-drive passwords:** adding a passkey, turning on two-factor
