@@ -74,6 +74,12 @@ RELEASE_IMAGE_REPO=ghcr.io/amoghkaja/self-hosted-cloud-storage
 # shellcheck disable=SC2034
 LOCAL_IMAGE=familycloud:local
 
+# Whether the official image for release tag $1 is published yet: the release workflow pushes it
+# some minutes after the tag. Fails too when the registry can't be reached.
+image_published() {
+  timeout 60 docker manifest inspect "$RELEASE_IMAGE_REPO:$1" >/dev/null 2>&1
+}
+
 # The newest release tag (vX.Y.Z; pre-releases such as v1.0.0-rc.1 are skipped), or nothing.
 latest_release() {
   git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null | grep -v -- - | head -1 || true

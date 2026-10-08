@@ -93,6 +93,11 @@ jobs:
           fetch-depth: 0
       - name: Shell scripts pass shellcheck
         run: shellcheck --severity=warning scripts/*.sh
+      - name: Unattended updates can tell whether a release's image is published yet
+        run: |
+          . scripts/lib.sh
+          image_published v0.6.0
+          if image_published v0.0.0; then exit 1; fi
       - name: An older PostgreSQL 18 image, as on a machine installed a while ago
         run: |
           docker pull -q postgres:18.0-alpine
@@ -161,6 +166,14 @@ jobs:
           VERSION=$(cd deploy && docker compose exec -T db postgres --version)
           echo "$VERSION"
           [[ "$VERSION" != *" 18.0" ]]
+      - name: A checkout ahead of what it follows is never moved back
+        run: |
+          OLD_APP=$(cd deploy && docker compose ps -q app)
+          git -c user.name=CI -c user.email=ci@localhost commit -q --allow-empty -m "Ahead of main"
+          ./scripts/update.sh -y | tee "$RUNNER_TEMP/out"
+          grep -q 'Already newer' "$RUNNER_TEMP/out"
+          [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          git reset -q --hard HEAD~1
       - name: An update that can't build or back up changes nothing
         run: |
           # A newer version that doesn't build: the update stops, and nothing changes.

@@ -50,7 +50,10 @@ Every change a family would notice adds a line to the **Unreleased** section of
   that backup (it does so itself when a new version crashes on start), so a release never needs
   a "downgrade" path.
 - Automatic updates (`update.sh -y`) stop before any release with a **Before you update**
-  section, so those steps are never skipped.
+  section, so those steps are never skipped. They also wait until the release's image is
+  published: the tag comes first, and without the image they would build it on the machine.
+- `update.sh` never moves a checkout back: on a commit after the version it would install (a
+  pre-release, or `main` ahead of the newest release), it says so and stops.
 - `main` must always be deployable: people on the `main` channel build it as it is.
 
 ## Update channels

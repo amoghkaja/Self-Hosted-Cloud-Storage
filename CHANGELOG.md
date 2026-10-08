@@ -8,12 +8,20 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **Updating:** automatic updates now wait until a new release is ready to download, instead of
+  building it on your computer in the meantime (which can take an hour on a Raspberry Pi).
+
 ### Fixed
 
 - **Updating:** when an update stops because the database backup failed, it now finishes only
   once the version you had is answering again. It used to finish while the cloud was still
   starting, and said "nothing was changed" even if the cloud then didn't come back; now it says
   so and shows the logs.
+- **Updating:** a computer running something newer than the newest release, such as a test
+  version, is no longer moved back to that release. Database changes only go forwards, so going
+  back could break it.
 
 ## v0.6.0 (2026-10-08)
 

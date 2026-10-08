@@ -66,8 +66,15 @@ fi
 
 info "Running:   $FROM"
 info "Available: $TARGET"
-if [[ "$FROM" == "$TARGET" && "$(git rev-parse HEAD)" == "$(git rev-parse "$TARGET_REF^{commit}")" ]]; then
+TARGET_COMMIT=$(git rev-parse "$TARGET_REF^{commit}")
+if [[ "$FROM" == "$TARGET" && "$OLD_REF" == "$TARGET_COMMIT" ]]; then
   bold "Already up to date."
+  exit 0
+fi
+# Database changes only go forwards, so never back: a checkout ahead of what the channel offers
+# (a test version, or main after the newest release) stays as it is.
+if [[ "$OLD_REF" != "$TARGET_COMMIT" ]] && git merge-base --is-ancestor "$TARGET_COMMIT" HEAD; then
+  bold "Already newer than $TARGET."
   exit 0
 fi
 
@@ -83,13 +90,29 @@ else
   git log --oneline "HEAD..$TARGET_REF" | head -20 | sed 's/^/  /'
 fi
 echo
-if $CHECK; then exit 0; fi
 # Automatic updates never apply a release that needs someone to do something by hand.
 if $YES && grep -q '^### Before you update' <<<"$CHANGES"; then
   info "Not updating automatically: $TARGET needs you to do something first (\"Before you update\" above)."
   info "Read it, then run ./scripts/update.sh yourself."
   exit 0
 fi
+# Official images are pinned to the exact release, so the image always matches these scripts.
+# A custom IMAGE (e.g. your fork's registry) is left alone.
+case "${IMAGE:-$RELEASE_IMAGE_REPO:latest}" in
+  "$RELEASE_IMAGE_REPO":*|"$LOCAL_IMAGE") PINNED=true ;;
+  *) PINNED=false ;;
+esac
+# Until the release's image is published, this computer would build it instead: slow, and very
+# slow on a Raspberry Pi. Unattended updates wait for it.
+if $PINNED && [[ "$CHANNEL" == stable ]] && ! image_published "$TARGET"; then
+  if $YES; then
+    info "Not updating yet: the $TARGET image is still being published. The next run tries again."
+    exit 0
+  fi
+  info "The $TARGET image isn't published yet, so updating now builds it on this computer (slow)."
+  echo
+fi
+if $CHECK; then exit 0; fi
 
 if ! git diff --quiet HEAD; then
   git status --short | sed 's/^/  /' >&2
@@ -171,14 +194,10 @@ fi
 export APP_VERSION
 APP_VERSION=$(checkout_version)
 
-# Official images are pinned to the exact release, so the image always matches these scripts.
-# A custom IMAGE (e.g. your fork's registry) is left alone.
-case "${IMAGE:-$RELEASE_IMAGE_REPO:latest}" in
-  "$RELEASE_IMAGE_REPO":*|"$LOCAL_IMAGE")
-    if [[ "$CHANNEL" == stable ]]; then IMAGE="$RELEASE_IMAGE_REPO:$TARGET"; else IMAGE=$LOCAL_IMAGE; fi
-    set_env "$ENV_FILE" IMAGE "$IMAGE"
-    ;;
-esac
+if $PINNED; then
+  if [[ "$CHANNEL" == stable ]]; then IMAGE="$RELEASE_IMAGE_REPO:$TARGET"; else IMAGE=$LOCAL_IMAGE; fi
+  set_env "$ENV_FILE" IMAGE "$IMAGE"
+fi
 export IMAGE
 if [[ "$IMAGE" == "$LOCAL_IMAGE" ]] || ! docker compose pull --quiet app 2>/dev/null; then
   info "Building the image on this machine (takes a few minutes)…"
