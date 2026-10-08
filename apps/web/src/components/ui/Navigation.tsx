@@ -28,9 +28,11 @@ export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: 
   }, [path]);
   return (
     <nav aria-label="Folder path" className={cn('min-w-0', className)}>
+      {/* pe-1: scrolling stops at a whole pixel, which can shave a sliver off a name flush with
+          the end. */}
       <ol
         ref={trail}
-        className="flex items-center gap-0.5 overflow-x-auto text-sm whitespace-nowrap [scrollbar-width:none]"
+        className="flex items-center gap-0.5 overflow-x-auto pe-1 text-sm whitespace-nowrap [scrollbar-width:none]"
       >
         {items.map((c, i) => {
           const last = i === items.length - 1;
