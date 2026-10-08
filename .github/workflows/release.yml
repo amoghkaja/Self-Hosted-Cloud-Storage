@@ -61,7 +61,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       # Release notes are the version's CHANGELOG.md section (scripts/release.sh wrote it). The
-      # one-line installer goes with it: .../releases/latest/download/get.sh is the newest one.
+      # one-line installer goes with it, and its checksum for people who check before running it:
+      # .../releases/latest/download/get.sh is the newest one.
       - name: GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -72,5 +73,6 @@ jobs:
           [[ -s notes.md ]] || { echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2; exit 1; }
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
+          (cd scripts && sha256sum get.sh > ../get.sh.sha256)
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "Family Cloud $GITHUB_REF_NAME" \
-            --notes-file notes.md "${flags[@]}" scripts/get.sh
+            --notes-file notes.md "${flags[@]}" scripts/get.sh get.sh.sha256

@@ -6,6 +6,8 @@ type Last = NonNullable<UpdateStatus['last']>;
 export type UpdateView =
   /** The update helper isn't set up on the server yet. */
   | { kind: 'missing' }
+  /** The admin chose to update by hand on the server (UPDATES=manual). */
+  | { kind: 'off' }
   | { kind: 'not-responding' }
   /** Asked for (not started yet) or under way. */
   | { kind: 'updating'; version: string; phase: Last['phase']; started: boolean }
@@ -20,6 +22,7 @@ const MANUAL = 'Before you update';
 
 export function describeUpdate(s: UpdateStatus): UpdateView {
   if (s.updater === 'missing') return { kind: 'missing' };
+  if (s.updater === 'off') return { kind: 'off' };
   const { last, available: a } = s;
   if (last?.state === 'updating') {
     return { kind: 'updating', version: last.to, phase: last.phase, started: true };

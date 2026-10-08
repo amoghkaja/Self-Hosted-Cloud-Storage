@@ -187,9 +187,24 @@ describe('Updates in Admin → Overview', () => {
       }),
     });
     const { container } = renderWithProviders(<UpdatesCard />);
-    expect(await screen.findByText(/once on the server/)).toBeInTheDocument();
-    expect(screen.getByText('./scripts/update.sh')).toBeInTheDocument();
+    expect(await screen.findByText('./scripts/update.sh --updates notify')).toBeInTheDocument();
+    // Says what that does on the server before anyone runs it.
+    expect(screen.getByText(/adds the update helper to the server's crontab/)).toBeInTheDocument();
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    await expectAccessible(container);
+  });
+
+  it('says so when the server is set to update by hand, with no switch or button', async () => {
+    mockFetch({
+      'GET /admin/updates': () => ({
+        json: status({ updater: 'off', available: v080 }),
+      }),
+    });
+    const { container } = renderWithProviders(<UpdatesCard />);
+    expect(await screen.findByText(/Updates on this server are done by hand/)).toBeInTheDocument();
+    expect(screen.getByText('cd /home/fam/familycloud && ./scripts/update.sh')).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Update now' })).not.toBeInTheDocument();
     await expectAccessible(container);
   });
 

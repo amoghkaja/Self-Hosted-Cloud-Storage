@@ -162,16 +162,28 @@ function Updates({ s, unreachable }: { s: UpdateStatus; unreachable: boolean }) 
       {view.kind === 'missing' && (
         <p className="text-muted">
           To see new versions here and install them with a click, run{' '}
-          <Command>./scripts/update.sh</Command> once on the server. It sets up the update helper,
-          which looks for new versions every few hours and can install them at night.
+          <Command>./scripts/update.sh --updates notify</Command> on the server (or{' '}
+          <Command>auto</Command> to have them installed at night). That adds the update helper to
+          the server's crontab: it looks for new versions on GitHub every few hours and answers this
+          page.
+        </p>
+      )}
+
+      {view.kind === 'off' && (
+        <p className="text-muted">
+          Updates on this server are done by hand: run {command('./scripts/update.sh')} there, and
+          it shows what's new before it updates. To see new versions here and install them with a
+          click, run <Command>./scripts/update.sh --updates notify</Command> there.
         </p>
       )}
 
       {view.kind === 'not-responding' && (
         <Notice tone="warning">
           The update helper on the server isn't answering
-          {s.checkedAt ? ` (it last looked for updates ${formatRelative(s.checkedAt)})` : ''}. To
-          see why, run {command('./scripts/update.sh')} there.
+          {s.checkedAt ? ` (it last looked for updates ${formatRelative(s.checkedAt)})` : ''}. Its
+          line should be in the server's crontab (<Command>crontab -l</Command>); to add it again,
+          run {command(`./scripts/update.sh --updates ${s.auto.enabled ? 'auto' : 'notify'}`)}{' '}
+          there.
         </Notice>
       )}
 
@@ -298,7 +310,7 @@ function Updates({ s, unreachable }: { s: UpdateStatus; unreachable: boolean }) 
         </p>
       )}
 
-      {view.kind !== 'missing' && <AutoUpdates s={s} />}
+      {view.kind !== 'missing' && view.kind !== 'off' && <AutoUpdates s={s} />}
     </div>
   );
 }

@@ -23,7 +23,13 @@ export const updateRoutes: FastifyPluginAsyncZod = async (app) => {
   const helperNeeded = (s: UpdateStatus) => {
     if (s.updater === 'missing') {
       return conflict(
-        'Updates from here need the update helper on the server: run ./scripts/update.sh there once to set it up.',
+        'Updates from here need the update helper on the server: run ./scripts/update.sh --updates notify there to set it up.',
+        ErrorCode.UPDATER_MISSING,
+      );
+    }
+    if (s.updater === 'off') {
+      return conflict(
+        'Updates on this server are set to be done by hand. To install them from here, run ./scripts/update.sh --updates notify on the server.',
         ErrorCode.UPDATER_MISSING,
       );
     }
@@ -41,7 +47,7 @@ export const updateRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post('/admin/updates/check', { schema: { response: { 200: UpdateStatus } } }, async () => {
     const s = await status();
-    if (s.updater === 'missing') throw helperNeeded(s);
+    if (s.updater === 'missing' || s.updater === 'off') throw helperNeeded(s);
     await leaveRequest(dir, 'request-check');
     return status();
   });

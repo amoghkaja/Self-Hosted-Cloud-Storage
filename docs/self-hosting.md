@@ -17,7 +17,19 @@ On the computer that will run it, as your everyday user (not root):
 curl -fsSL https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh | bash
 ```
 
-That downloads Family Cloud into `~/familycloud` and runs its installer, `./scripts/install.sh`. For another folder, end the command with `| FC_DIR=/somewhere/else bash` instead. Prefer to do it by hand? The same thing:
+It first says what it will do and asks before it does anything: download Family Cloud into `~/familycloud` (and install `git` with `apt` if it's missing), then run its installer, `./scripts/install.sh`. For another folder, end the command with `| FC_DIR=/somewhere/else bash` instead.
+
+Rather read it before running it? Download it, check it against the checksum published with each release, read it, then run it:
+
+```bash
+curl -fsSLO https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh
+curl -fsSLO https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh.sha256
+sha256sum -c get.sh.sha256
+less get.sh
+bash get.sh
+```
+
+Or by hand, which is all it does:
 
 ```bash
 git clone https://github.com/amoghkaja/Self-Hosted-Cloud-Storage.git familycloud
@@ -25,7 +37,7 @@ cd familycloud
 ./scripts/install.sh
 ```
 
-If Docker isn't there yet, the installer offers to install it and carries on (`--install-docker` does it without asking). Log out and back in afterwards to use `docker` commands yourself.
+If Docker isn't there yet, the installer offers to install it with Docker's own script from [get.docker.com](https://get.docker.com) and carries on (`--install-docker` does it without asking). Log out and back in afterwards to use `docker` commands yourself.
 
 A fresh clone installs the newest release. Before changing anything, it checks that the app's port (3080) is free, shows which disk the files will go on and how much room it has (and suggests a bigger disk if there is one), and tells you when it needs your password for `sudo`. The installer asks:
 
@@ -37,18 +49,31 @@ A fresh clone installs the newest release. Before changing anything, it checks t
 | Name shown in the app | `Smith Family Cloud` | |
 | Where to keep files and the database | `/srv/familycloud` | Put it on the disk with the most space |
 | Your time zone (only if the computer's clock is on UTC) | `Asia/Kolkata` | So that "at night" means your night |
-| Install updates automatically, at night? | `yes` | Around 04:30, with a database backup first. See [Updating](#updating). |
+| How should Family Cloud update? | `1` | By itself at night (around 04:30, with a database backup first), shown in Admin → Overview for you to install, or only when you run `./scripts/update.sh`. See [Updating](#updating). |
 
 It then:
 
 1. creates `/srv/familycloud/{volumes/disk1,db,cache,backups}` owned by your user,
 2. writes `deploy/.env` with freshly generated secrets (readable only by you),
 3. pulls the release's image (or builds it) and starts the database, app and worker, plus `cloudflared` or Caddy if you chose them,
-4. prints a **setup token**.
+4. adds the update helper to your crontab, unless you chose to update by hand,
+5. prints a **setup token**, and what it changed on the computer.
 
 The app is now running at `http://127.0.0.1:3080` on that machine.
 
 > Lost the token? Run `docker compose -f deploy/docker-compose.yml exec app node dist/cli.js setup-token`.
+
+### What the installer changes on the computer
+
+Nothing is installed or scheduled without asking first, and nothing runs in the background except what's listed here:
+
+- **Docker**, if it wasn't there and you said yes (with Docker's own installer), and your user added to the `docker` group.
+- **The storage folder** (`/srv/familycloud`, created with `sudo` and owned by you) and **`deploy/.env`**, the settings, in the folder you installed from.
+- **Family Cloud's containers**: `cd deploy && docker compose ps` lists them. They restart by themselves after a reboot.
+- **Your crontab** (`crontab -l`): the update helper, with a note saying what it is, unless you chose to update by hand; and nightly backups, if you set them up.
+- **The computer's time zone**, only if its clock was on UTC and you gave yours.
+
+Family Cloud sends no telemetry. The only connections it makes on its own are to GitHub and GitHub's container registry, to look for and download new versions (and Docker Hub, for the database, tunnel, Caddy and virus scanner images). Your family's files and details never leave the server.
 
 ## 3. Put it on your domain
 
@@ -120,9 +145,17 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 
 ## Updating
 
-**Admin → Overview → Updates** shows the version you run and, when there's a newer one, what's new in it. **Update now** installs it, and the page shows how it's going. With **Install updates automatically** on, new versions install themselves at night instead. If the card asks you to, run `./scripts/update.sh` once on the server: that sets up the update helper the browser needs.
+How updates happen is your choice, asked when you install (`UPDATES` in `deploy/.env`). Change it any time with `./scripts/update.sh --updates auto`, `notify` or `manual`:
 
-On the server, the same by hand:
+| `UPDATES` | What happens |
+| --- | --- |
+| `auto` | New versions install themselves at night (between 04:30 and 05:30 by the computer's clock), with a database backup first. Admin → Overview shows what happened. |
+| `notify` | **Admin → Overview → Updates** shows a new version and what's new in it; **Update now** installs it, and the page shows how it's going. |
+| `manual` | Nothing happens by itself: run `./scripts/update.sh` when you like. |
+
+For `auto` and `notify`, a line in your crontab runs the **update helper**, `scripts/update.sh --cron`, every minute, with a note above it saying what it is. Most minutes it does nothing. Every 6 hours it asks GitHub whether there's a new version, and it answers Admin → Overview (the app itself can't change anything on the computer: it leaves the helper a request, which the helper checks). Its log is `/srv/familycloud/backups/update.log`. `--updates manual` removes the line.
+
+On the server, an update by hand:
 
 ```bash
 cd familycloud
@@ -138,11 +171,15 @@ It shows what's new since your version (from [CHANGELOG.md](../CHANGELOG.md)) an
 The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start.
 
 - **Just check:** `./scripts/update.sh --check` says whether there's a new version, without changing anything.
-- **Automatic updates:** the installer adds a crontab line that runs `scripts/update.sh --cron` every minute (most minutes it does nothing). This update helper answers **Admin → Overview**, looks for new versions every 6 hours and, with automatic updates on (`AUTO_UPDATE=yes` in `deploy/.env`, or the switch in Admin → Overview), installs them at night between 04:30 and 05:30 by the computer's clock. It waits until a new release is ready to download rather than build it on your computer, and it doesn't try a version again that failed to start. Its log is `/srv/familycloud/backups/update.log`. Running `./scripts/update.sh` adds the line if it's missing.
+- **Automatic updates** wait until a new release is ready to download rather than build it on your computer, and don't try a version again that failed to start. **Install updates automatically** in Admin → Overview switches between `auto` and `notify`.
 - **Releases that need you.** A release that needs you to do something lists it under **Before you update** in the changelog, and raises the first number of the version, e.g. `v1.x` → `v2.0` ([how versions are numbered](releasing.md)). Automatic updates and **Update now** skip these, and Admin → Overview lists the steps: do them, then run `./scripts/update.sh` yourself.
 - **Follow the latest code instead of releases:** set `UPDATE_CHANNEL=main` in `deploy/.env`. Updates then build `main` on your machine.
 - **An update failed?** Admin → Overview says why, with the end of what the server printed. Your files aren't touched. If the new version couldn't be built or the database backup failed, nothing was changed and the cloud carries on as before. If the new version crashes on start, `update.sh` goes back to the one you had by itself, with the database as it was just before the update. Automatic updates then wait for a newer version; running `./scripts/update.sh` yourself tries that one again. If it's only slow to start (a big database change on a small computer), it's left to finish, and `update.sh` prints how to go back by hand: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).
 - **Changed files in the checkout?** Updating stops rather than overwrite them. Keep changes in a fork (see below), or run `git stash`.
+
+### Updating from v0.6.0 or earlier
+
+Earlier installers asked about a weekly automatic update (Sundays at 04:30). If you said yes, the first `./scripts/update.sh` run of this version (by hand, or that Sunday by itself) turns it into `UPDATES=auto`: the update helper takes over that crontab line, and updates move to every night. If you didn't, `./scripts/update.sh` asks once how updates should happen. Crontab lines of your own are never changed.
 
 ## Running a modified version
 
@@ -162,6 +199,17 @@ Run these from the `deploy/` folder.
 | Reset someone's password (easier: **Admin → People → Password reset link**) | `docker compose exec app node dist/cli.js reset-password --email them@example.com` |
 | Turn off someone's two-factor | `docker compose exec app node dist/cli.js reset-totp --email them@example.com` |
 | Recount storage usage | `docker compose exec app node dist/cli.js reconcile` |
+
+## Uninstalling
+
+Your family's files stay until you delete them yourself in the last step, so make sure everyone has what they need first. From the folder you installed from (`cd familycloud`):
+
+1. Take the update helper out of your crontab: `./scripts/update.sh --updates manual`. If you set up backups, also `crontab -e` and delete the `backup.sh` line.
+2. Stop and remove the containers and their images: `docker compose -f deploy/docker-compose.yml down --rmi all`.
+3. Delete the folder, which holds `deploy/.env`: `cd .. && rm -rf familycloud`.
+4. Only once you're sure: `sudo rm -rf /srv/familycloud` deletes everyone's files, the database and the backups kept there. Off-site backups are separate.
+
+Docker stays installed; `sudo apt remove docker-ce docker-ce-cli containerd.io` removes it if you installed it for Family Cloud.
 
 ## Troubleshooting
 

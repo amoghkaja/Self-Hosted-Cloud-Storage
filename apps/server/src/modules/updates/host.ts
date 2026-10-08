@@ -42,7 +42,8 @@ const HostStatus = z.object({
     .string()
     .regex(/^[A-Za-z0-9_+/-]{1,64}$/)
     .nullable(),
-  auto: z.boolean(),
+  /** UPDATES in deploy/.env (auto, notify or manual); null before the admin chose. */
+  updates: z.enum(['auto', 'notify', 'manual']).nullable(),
   nextAutoAt: IsoDate.nullable(),
   triedAt: IsoDate.nullable(),
   checkedAt: IsoDate.nullable(),
@@ -147,16 +148,20 @@ export function toUpdateStatus(running: string, host: HostFiles, now = Date.now(
   const tried = s?.triedAt ? Date.parse(s.triedAt) : 0;
   const unanswered = !updating && host.requests.some((r) => now - r.at > 3 * MINUTE);
   const latest = s?.latest && s.latest !== running ? s.latest : null;
+  const auto = s?.updates === 'auto';
   // Too slow to answer in time, but it got there: that update worked.
   const lateStart = s?.state === 'failed' && s.reason === 'start' && s.to === running;
   const state = lateStart ? 'done' : s?.state;
   return {
     running,
-    updater: !s
+    // No choice made yet means no helper; manual means the admin turned it off.
+    updater: !s?.updates
       ? 'missing'
-      : now - tried > 13 * 60 * MINUTE || unanswered
-        ? 'not-responding'
-        : 'ok',
+      : s.updates === 'manual'
+        ? 'off'
+        : now - tried > 13 * 60 * MINUTE || unanswered
+          ? 'not-responding'
+          : 'ok',
     channel: s?.channel ?? null,
     checkedAt: s?.checkedAt ?? null,
     problem: s?.problem ?? null,
@@ -171,8 +176,8 @@ export function toUpdateStatus(running: string, host: HostFiles, now = Date.now(
           }
         : null,
     auto: {
-      enabled: s?.auto ?? false,
-      nextAt: s?.auto ? s.nextAutoAt : null,
+      enabled: auto,
+      nextAt: auto ? (s?.nextAutoAt ?? null) : null,
       timezone: s?.timezone ?? null,
     },
     pending: {

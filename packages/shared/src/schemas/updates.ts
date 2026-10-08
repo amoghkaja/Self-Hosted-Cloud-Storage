@@ -21,8 +21,11 @@ export const UpdateTrigger = z.enum(['manual', 'browser', 'auto']);
 export const UpdateStatus = z.object({
   /** The version this server runs. */
   running: z.string(),
-  /** The update helper: answering, not set up yet, or not answering (cron stopped, say). */
-  updater: z.enum(['ok', 'missing', 'not-responding']),
+  /**
+   * The update helper: answering, not set up yet, not answering (cron stopped, say), or off
+   * because the admin chose to update by hand (UPDATES=manual on the server).
+   */
+  updater: z.enum(['ok', 'missing', 'not-responding', 'off']),
   /** `stable` follows releases; `main` builds the latest code on the server. */
   channel: z.enum(['stable', 'main']).nullable(),
   checkedAt: IsoDate.nullable(),

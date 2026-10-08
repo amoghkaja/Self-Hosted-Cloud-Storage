@@ -7,7 +7,8 @@
 #
 # Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_API_TOKEN=... ./scripts/install.sh -y
 #   (CLOUDFLARE_TUNNEL_TOKEN=... for a tunnel you made yourself, or DOMAIN=cloud.example.com for
-#   Caddy; AUTO_UPDATE=yes installs updates at night; APP_PORT=3081 if 3080 is taken)
+#   Caddy; UPDATES=auto|notify|manual for how updates happen, notify by default; APP_PORT=3081 if
+#   3080 is taken)
 # WAIT_SECS=600 gives a slow machine longer to start the first time (default 180).
 # A fresh clone installs the newest release; set UPDATE_CHANNEL=main to run the main branch.
 set -euo pipefail
@@ -69,7 +70,9 @@ command -v curl >/dev/null || die "curl is required (sudo apt install curl)."
 
 if ! command -v docker >/dev/null; then
   if ! $INSTALL_DOCKER && ! $YES; then
-    read -r -p "  Docker isn't installed. Install it now (Ubuntu/Debian; uses sudo)? [Y/n] " ans || true
+    info "Docker isn't installed. The installer can install it with Docker's own script, from"
+    info "https://get.docker.com (Ubuntu/Debian; it asks for your password, for sudo)."
+    read -r -p "  Install Docker now? [Y/n] " ans || true
     [[ "${ans:-y}" =~ ^[Yy] ]] && INSTALL_DOCKER=true
   fi
   if $INSTALL_DOCKER; then
@@ -86,7 +89,7 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is requi
 docker info >/dev/null 2>&1 || die "Can't talk to Docker. Is your user in the docker group? (sudo usermod -aG docker \$USER, then log in again)"
 
 # Keep existing values on re-runs (read safely: the file is never executed).
-MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|AUTO_UPDATE|CLAMAV_HOST'
+MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|UPDATES|CLAMAV_HOST'
 EXTRA_SETTINGS=""
 if [[ -f "$ENV_FILE" ]]; then
   load_env "$ENV_FILE"
@@ -224,24 +227,31 @@ if [[ ! -f "$ENV_FILE" ]] && ! $YES \
   read -r -p "  This computer's clock is on UTC. Your time zone, e.g. Asia/Kolkata (Enter keeps UTC): " ZONE || true
   if [[ -n "${ZONE:-}" ]]; then
     if timedatectl list-timezones 2>/dev/null | grep -qxF -- "$ZONE"; then
-      sudo timedatectl set-timezone "$ZONE"
       # cron reads the time zone when it starts.
+      info "Running: sudo timedatectl set-timezone $ZONE && sudo systemctl try-restart cron"
+      sudo timedatectl set-timezone "$ZONE"
       sudo systemctl try-restart cron 2>/dev/null || true
     else
       info "That's not a time zone this computer knows; keeping UTC (sudo timedatectl set-timezone …)."
     fi
   fi
 fi
-# Updates at night, by the update helper (update.sh --cron); Admin → Overview switches them. An
-# install from before the helper had them as a weekly job: on stays on.
-if [[ -z "${AUTO_UPDATE:-}" ]] && weekly_update_job "$ROOT"; then AUTO_UPDATE=yes; fi
-if command -v crontab >/dev/null; then
-  if $YES; then AUTO_UPDATE=${AUTO_UPDATE:-no}; fi
-  # Suggested only for releases: the main branch can change daily.
-  [[ "$IMAGE" == "$RELEASE_IMAGE_REPO":* ]] && AUTO_DEFAULT=yes || AUTO_DEFAULT=no
-  ask AUTO_UPDATE "Install updates automatically, at night around 4:30? (yes/no)" "$AUTO_DEFAULT"
+# How updates happen (UPDATES), asked once. An install from before the question had the weekly
+# automatic update, which is auto; so is AUTO_UPDATE=yes, how earlier installers were told.
+if [[ -z "${UPDATES:-}" ]]; then
+  if weekly_update_job "$ROOT" "$STORAGE_ROOT" || [[ "${AUTO_UPDATE:-}" =~ ^[Yy] ]]; then
+    UPDATES=auto
+  elif ! command -v crontab >/dev/null; then
+    UPDATES=manual
+    info "This computer has no cron, which the update helper needs: updates will be by hand."
+  elif $YES; then
+    UPDATES=notify
+  else
+    # Suggested only for releases: the main branch can change daily.
+    if [[ "$IMAGE" == "$RELEASE_IMAGE_REPO":* ]]; then choose_updates 1; else choose_updates 2; fi
+  fi
 fi
-[[ "${AUTO_UPDATE:-}" =~ ^[Yy] ]] && AUTO_UPDATE=yes || AUTO_UPDATE=no
+[[ "$UPDATES" =~ ^(auto|notify|manual)$ ]] || die "UPDATES must be auto, notify or manual."
 PUID=${PUID:-$(id -u)}
 PGID=${PGID:-$(id -g)}
 # Optional services follow the settings; docker compose reads COMPOSE_PROFILES from deploy/.env,
@@ -286,7 +296,7 @@ chmod 600 "$TMP_ENV"
   env_line APP_PORT "$APP_PORT"
   env_line IMAGE "$IMAGE"
   env_line UPDATE_CHANNEL "$UPDATE_CHANNEL"
-  env_line AUTO_UPDATE "$AUTO_UPDATE"
+  env_line UPDATES "$UPDATES"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
   env_line CLAMAV_HOST "$CLAMAV_HOST"
   env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
@@ -323,16 +333,17 @@ fi
 docker compose up -d --remove-orphans
 wait_healthy || die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
 
-# The update helper (update.sh --cron, every minute; most minutes it does nothing): checks for
-# updates, answers Admin → Overview and, with AUTO_UPDATE=yes, installs updates at night. It backs
-# up the database first, follows releases only and goes back if a new version doesn't start.
-if ensure_update_helper "$ROOT" "$STORAGE_ROOT/backups/update.log"; then
-  if [[ "$AUTO_UPDATE" == yes ]]; then
-    info "Updates install themselves at night. Log: $STORAGE_ROOT/backups/update.log"
+# The update helper for auto and notify (update.sh --cron, every minute; most minutes it does
+# nothing): it looks for new versions, answers Admin → Overview and, for auto, installs them at
+# night. Its crontab line comes with a comment saying what it is.
+if [[ "$UPDATES" == manual ]]; then
+  if update_helper_installed "$ROOT" || weekly_update_job "$ROOT" "$STORAGE_ROOT"; then
+    remove_update_helper "$ROOT" "$STORAGE_ROOT"
+    info "Removed the update helper from your crontab (updates are by hand)."
   fi
-else
-  info "This computer has no cron (sudo apt install cron), so updates aren't checked or installed"
-  info "by themselves. Install it and run this installer again, or update by hand."
+elif ! update_helper_installed "$ROOT"; then
+  install_update_helper "$ROOT" "$STORAGE_ROOT"
+  info "Added the update helper to your crontab (crontab -l shows it, with a note of what it is)."
 fi
 
 if ! TOKEN=$(docker compose exec -T app node dist/cli.js setup-token 2>&1 | tail -1); then
@@ -355,7 +366,13 @@ elif [[ "$COMPOSE_PROFILES" != *tunnel* && "$COMPOSE_PROFILES" != *caddy* && "$P
   info "It's only reachable on this computer ($LOCAL_URL) until a tunnel or domain is set up:"
   info "re-run ./scripts/install.sh and choose how your family reaches it."
 fi
-info "Admin → Overview shows new versions and installs them; ./scripts/update.sh updates by hand."
+case "$UPDATES" in
+  auto) info "Updates install themselves at night; Admin → Overview shows them." ;;
+  notify) info "New versions show in Admin → Overview, where you install them." ;;
+  manual) info "Update with ./scripts/update.sh (what's new: CHANGELOG.md)." ;;
+esac
+info "Changed on this computer: Docker containers (cd deploy && docker compose ps), $STORAGE_ROOT,"
+info "deploy/.env$([[ "$UPDATES" == manual ]] || echo " and your crontab (crontab -l)"). To remove it all: docs/self-hosting.md#uninstalling"
 
 # Backups last: the setup token above is what's needed first, and backup setup is its own guide.
 if ! crontab -l 2>/dev/null | grep -qF "$ROOT/scripts/backup.sh"; then

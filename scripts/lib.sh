@@ -74,27 +74,85 @@ publish() {
   return 1
 }
 
-# Whether the crontab runs update.sh of the checkout in $1 with -y: the weekly automatic update
-# that installers added before the update helper.
-weekly_update_job() {
-  local script
-  script=$(printf '%q' "$1/scripts/update.sh")
-  crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep -qF -- "$script -y"
+# How updates happen is the admin's choice, UPDATES in deploy/.env: auto (by themselves at night),
+# notify (shown in Admin → Overview, installed when the admin chooses) or manual (only by running
+# update.sh). Asks it, setting UPDATES; $1 is the default answer, 1-3.
+# shellcheck disable=SC2034  # UPDATES is for the script that asks
+choose_updates() {
+  local ans
+  echo "  How should Family Cloud update?"
+  echo "    1) By itself at night (around 4:30), with a database backup first"
+  echo "    2) Show new versions in Admin → Overview; you choose when to install them"
+  echo "    3) Only when you run ./scripts/update.sh"
+  echo "  1 and 2 add the update helper to your crontab. It runs every minute and does nothing most"
+  echo "  minutes: every 6 hours it asks GitHub whether there's a new version, and it answers the"
+  echo "  Update now button in Admin → Overview."
+  while true; do
+    read -r -p "  Choose 1-3 [$1]: " ans || ans=$1
+    case "${ans:-$1}" in
+      1) UPDATES=auto; return ;;
+      2) UPDATES=notify; return ;;
+      3) UPDATES=manual; return ;;
+    esac
+  done
 }
 
-# Installs the update helper's crontab line (update.sh --cron of the checkout in $1, every minute,
-# logging to $2) in place of any other line that runs that update.sh. Fails without crontab.
-ensure_update_helper() {
-  local script line current runs others
+# The crontab lines Family Cloud looks after for the checkout in $1 (storage in $2): the update
+# helper's, under a comment that says what it is, and the weekly automatic update that installers
+# before it added. Lines of anyone's own, even ones that run update.sh, are never touched. The
+# crontab is always read in full before it's written, and read without pipes into grep -q (which
+# would end the reader early and, with pipefail, look like a failure).
+helper_job() { echo "$(printf '%q' "$1/scripts/update.sh") --cron"; }
+weekly_job() {
+  echo "30 4 * * 0 $(printf '%q' "$1/scripts/update.sh") -y >> $(printf '%q' "$2/backups/update.log") 2>&1"
+}
+crontab_without_ours() {
+  local current
+  current=$(crontab -l 2>/dev/null) && [[ -n "$current" ]] || return 0
+  FC_JOB=$(helper_job "$1") FC_WEEKLY=$(weekly_job "$1" "$2") awk '
+    /^# Family Cloud update helper/ { next }
+    !/^[[:space:]]*#/ && index($0, ENVIRON["FC_JOB"]) { next }
+    $0 == ENVIRON["FC_WEEKLY"] { next }
+    { print }' <<<"$current"
+}
+
+# Whether the crontab has the weekly automatic update earlier installers added.
+weekly_update_job() {
+  local current
+  current=$(crontab -l 2>/dev/null) || return 1
+  grep -qxF -- "$(weekly_job "$1" "$2")" <<<"$current"
+}
+
+update_helper_installed() {
+  local current
+  current=$(crontab -l 2>/dev/null) || return 1
+  FC_JOB=$(helper_job "$1") awk '
+    !/^[[:space:]]*#/ && index($0, ENVIRON["FC_JOB"]) { found = 1 }
+    END { exit !found }' <<<"$current"
+}
+
+# Adds the update helper (in place of the weekly automatic update, if there is one). Fails
+# without cron.
+install_update_helper() {
+  local rest
   command -v crontab >/dev/null || return 1
-  script=$(printf '%q' "$1/scripts/update.sh")
-  line="* * * * * $script --cron >> $(printf '%q' "$2") 2>&1"
-  current=$(crontab -l 2>/dev/null || true)
-  # The lines that run this update.sh, and all the others (comments are left alone).
-  runs=$(FC_SCRIPT=$script awk 'index($0, ENVIRON["FC_SCRIPT"]) && !/^[[:space:]]*#/' <<<"$current")
-  [[ "$runs" == "$line" ]] && return 0
-  others=$(FC_SCRIPT=$script awk '!(index($0, ENVIRON["FC_SCRIPT"]) && !/^[[:space:]]*#/)' <<<"$current")
-  { if [[ -n "$others" ]]; then printf '%s\n' "$others"; fi; echo "$line"; } | crontab -
+  rest=$(crontab_without_ours "$1" "$2")
+  {
+    if [[ -n "$rest" ]]; then printf '%s\n' "$rest"; fi
+    echo "# Family Cloud update helper: looks for new versions every 6 hours and answers Admin > Overview; most minutes it does nothing. To turn it off: $(printf '%q' "$1/scripts/update.sh") --updates manual"
+    echo "* * * * * $(helper_job "$1") >> $(printf '%q' "$2/backups/update.log") 2>&1"
+  } | crontab -
+}
+
+remove_update_helper() {
+  local rest
+  command -v crontab >/dev/null || return 0
+  rest=$(crontab_without_ours "$1" "$2")
+  if [[ -n "$rest" ]]; then
+    printf '%s\n' "$rest" | crontab -
+  else
+    crontab -r 2>/dev/null || true
+  fi
 }
 
 # All physical disks underneath a block device, following partitions, LVM, LUKS and md-raid.

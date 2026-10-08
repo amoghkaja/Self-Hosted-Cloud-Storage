@@ -13,7 +13,7 @@ const NOTES = `## v0.8.0 (2026-10-10)
 
 ### Before you update
 
-- Set \`AUTO_UPDATE=yes\` in \`deploy/.env\`.
+- Set \`UPDATES=auto\` in \`deploy/.env\`.
 `;
 
 let env: TestEnv;
@@ -29,7 +29,7 @@ function hostStatus(over: Record<string, unknown> = {}) {
     channel: 'stable',
     checkout: '/home/fam/familycloud',
     timezone: 'Etc/UTC',
-    auto: true,
+    updates: 'auto',
     nextAutoAt: '2026-10-09T04:30:00Z',
     triedAt: now,
     checkedAt: now,
@@ -118,7 +118,7 @@ describe('updates in Admin → Overview', () => {
         date: '2026-10-10',
         groups: [
           { title: 'New', items: ['**Updates:** install new versions from Admin → Overview.'] },
-          { title: 'Before you update', items: ['Set `AUTO_UPDATE=yes` in `deploy/.env`.'] },
+          { title: 'Before you update', items: ['Set `UPDATES=auto` in `deploy/.env`.'] },
         ],
       },
     ]);
@@ -172,7 +172,7 @@ describe('updates in Admin → Overview', () => {
   });
 
   it('turn automatic updates on and off, and check now', async () => {
-    await helperLeft({ auto: false });
+    await helperLeft({ updates: 'notify' });
     const on = await admin.req('PUT', '/admin/updates/auto', { json: { enabled: true } });
     expect(on.body.pending.auto).toBe(true);
     expect(await requests()).toEqual(['request-auto-on']);
@@ -189,6 +189,28 @@ describe('updates in Admin → Overview', () => {
       action: 'admin.auto_update_changed',
       meta: { enabled: false },
     });
+  });
+
+  it('say when the admin chose to update by hand, and ask nothing of the helper', async () => {
+    await helperLeft({ updates: 'manual' });
+    const { body } = await admin.get('/admin/updates');
+    expect(body).toMatchObject({ updater: 'off', auto: { enabled: false, nextAt: null } });
+    for (const send of [
+      () => admin.post('/admin/updates/check'),
+      () => admin.post('/admin/updates/install', { version: 'v0.8.0' }),
+      () => admin.req('PUT', '/admin/updates/auto', { json: { enabled: true } }),
+    ]) {
+      const refused = await send();
+      expect(refused.status).toBe(409);
+      expect(refused.body.code).toBe('UPDATER_MISSING');
+      expect(refused.body.detail).toMatch(/by hand.*--updates notify/);
+    }
+    expect(await requests()).toEqual([]);
+
+    // A status from before the admin chose (update.sh run by hand on an older install).
+    await rm(dir, { recursive: true, force: true });
+    await helperLeft({ updates: null });
+    expect((await admin.get('/admin/updates')).body.updater).toBe('missing');
   });
 
   it('notice a helper that has stopped answering', async () => {

@@ -106,7 +106,10 @@ jobs:
           git init -q --bare -b main "$RUNNER_TEMP/get.git"
           git push -q "$RUNNER_TEMP/get.git" HEAD:refs/heads/main
           export FC_REPO=file://$RUNNER_TEMP/get.git FC_DIR=$RUNNER_TEMP/get
-          bash -s -- --help < scripts/get.sh | grep -q 'Family Cloud installer'
+          bash -s -- --help < scripts/get.sh | tee "$RUNNER_TEMP/get.out"
+          # It says what it will do first, then runs the installer it downloaded.
+          grep -q 'This will:' "$RUNNER_TEMP/get.out"
+          grep -q 'prepares storage folders' "$RUNNER_TEMP/get.out"
           [[ -x "$FC_DIR/scripts/install.sh" ]]
           # Run again, it uses the copy it made.
           bash -s -- --help < scripts/get.sh | grep -q 'already in'
@@ -121,12 +124,13 @@ jobs:
           docker image rm postgres:18.0-alpine
       - name: Install on a clean machine
         run: ./scripts/install.sh -y
-      - name: The installer adds the update helper, with automatic updates off (-y)
+      - name: The installer adds the update helper under a note saying what it is (-y means notify)
         run: |
           crontab -l
-          [[ "$(crontab -l | grep -c scripts/update.sh)" == 1 ]]
+          [[ "$(crontab -l | grep -c -- --cron)" == 1 ]]
           crontab -l | grep -qxF "* * * * * $PWD/scripts/update.sh --cron >> $STORAGE_ROOT/backups/update.log 2>&1"
-          grep -qx AUTO_UPDATE=no deploy/.env
+          crontab -l | head -1 | grep -q '^# Family Cloud update helper: .*--updates manual$'
+          grep -qx UPDATES=notify deploy/.env
       - name: The app answers and waits for its first admin
         run: |
           curl -fsS localhost:3080/healthz
@@ -287,7 +291,7 @@ jobs:
           git push -q origin HEAD:main
           git checkout -q -
           # Automatic updates on, in a time zone where it's now 04:45.
-          sed -i 's/^AUTO_UPDATE=.*/AUTO_UPDATE=yes/' deploy/.env
+          sed -i 's/^UPDATES=.*/UPDATES=auto/' deploy/.env
           NOW=$(( 10#$(date -u +%H) * 60 + 10#$(date -u +%M) ))
           OFF=$(( (NOW - (4 * 60 + 45) + 1440) % 1440 ))
           export TZ=$(printf 'NIGHT+%02d:%02d' $((OFF / 60)) $((OFF % 60)))
@@ -311,14 +315,28 @@ jobs:
           cd deploy
           docker compose exec -T db psql -U familycloud -d postgres -tAc \
             "select datname from pg_database where datname = 'familycloud_failed_update'" | grep -q .
-      - name: Updating replaces the weekly automatic update of earlier installers
+      - name: Updating changes the crontab only with the admin's say-so
         run: |
-          echo "30 4 * * 0 $PWD/scripts/update.sh -y >> $STORAGE_ROOT/backups/update.log 2>&1" | crontab -
-          sed -i '/^AUTO_UPDATE=/d' deploy/.env
+          # An install from before UPDATES that never chose automatic updates: unattended, nothing
+          # is added or chosen for anyone.
+          crontab -r || true
+          sed -i '/^UPDATES=/d' deploy/.env
           ./scripts/update.sh -y
-          [[ "$(crontab -l | grep -c scripts/update.sh)" == 1 ]]
-          crontab -l | grep -qF -- "$PWD/scripts/update.sh --cron"
-          grep -qx AUTO_UPDATE=yes deploy/.env
+          if crontab -l 2>/dev/null | grep -q .; then exit 1; fi
+          if grep -q '^UPDATES=' deploy/.env; then exit 1; fi
+          # One that had the weekly automatic update earlier installers added: that line becomes
+          # the update helper (at night now); a line of the admin's own stays as it is.
+          MINE="0 3 * * * $PWD/scripts/update.sh -y"
+          printf '%s\n' "$MINE" "30 4 * * 0 $PWD/scripts/update.sh -y >> $STORAGE_ROOT/backups/update.log 2>&1" | crontab -
+          ./scripts/update.sh -y
+          grep -qx UPDATES=auto deploy/.env
+          crontab -l | grep -qxF "$MINE"
+          [[ "$(crontab -l | grep -c -- --cron)" == 1 ]]
+          if crontab -l | grep -q '^30 4'; then exit 1; fi
+          # Off again: only the admin's own line is left.
+          ./scripts/update.sh --updates manual
+          [[ "$(crontab -l)" == "$MINE" ]]
+          grep -qx UPDATES=manual deploy/.env
       - name: Logs
         if: failure()
         run: |

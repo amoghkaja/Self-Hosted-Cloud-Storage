@@ -3,12 +3,15 @@
 # that it came back (going back to the old version if the new one crashes). Your files, settings
 # and accounts are kept; database changes apply on start.
 #
-#   ./scripts/update.sh           show what's new, ask, then update
-#   ./scripts/update.sh --check   only show whether an update is available
-#   ./scripts/update.sh -y        update without asking
-#   ./scripts/update.sh --cron    the update helper, run every minute by the crontab line the
-#                                 installer adds: answers Admin → Overview, checks for updates
-#                                 every few hours and installs them at night (AUTO_UPDATE=yes)
+#   ./scripts/update.sh            show what's new, ask, then update
+#   ./scripts/update.sh --check    only show whether an update is available
+#   ./scripts/update.sh -y         update without asking
+#   ./scripts/update.sh --updates auto|notify|manual
+#                                  how updates happen (UPDATES in deploy/.env): by themselves at
+#                                  night, from Admin → Overview when you choose, or only by running
+#                                  this. auto and notify add the update helper to your crontab
+#                                  (a line with a comment saying what it is); manual removes it
+#   ./scripts/update.sh --cron     the update helper, as that crontab line runs it
 #
 # UPDATE_CHANNEL in deploy/.env picks what to follow:
 #   stable (default)  the newest release (vX.Y.Z), using its published image
@@ -20,22 +23,30 @@ ROOT="$(pwd)"
 # shellcheck source=scripts/lib.sh
 . "$ROOT/scripts/lib.sh"
 ENV_FILE="$ROOT/deploy/.env"
-YES=false
-CHECK=false
-CRON=false
-for arg in "$@"; do
-  case "$arg" in
-    -y|--yes) YES=true ;;
-    --check) CHECK=true ;;
-    --cron) CRON=true ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
-    *) echo "Unknown option: $arg" >&2; exit 1 ;;
-  esac
-done
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 die() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
+
+YES=false
+CHECK=false
+CRON=false
+SET_UPDATES=""
+while (($#)); do
+  case "$1" in
+    -y|--yes) YES=true ;;
+    --check) CHECK=true ;;
+    --cron) CRON=true ;;
+    --updates)
+      [[ "${2:-}" =~ ^(auto|notify|manual)$ ]] || die "Choose auto, notify or manual, e.g. ./scripts/update.sh --updates notify"
+      SET_UPDATES=$2
+      shift
+      ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
 
 if [[ ! -f "$ENV_FILE" ]]; then
   $CRON && exit 0
@@ -46,6 +57,10 @@ load_env "$ENV_FILE"
 STORAGE_ROOT=${STORAGE_ROOT:-/srv/familycloud}
 CHANNEL=${UPDATE_CHANNEL:-stable}
 [[ "$CHANNEL" == stable || "$CHANNEL" == main ]] || die "UPDATE_CHANNEL must be stable or main."
+UPDATES=${UPDATES:-}
+# The helper only runs for auto and notify: left behind otherwise, it does nothing.
+if $CRON && [[ "$UPDATES" != auto && "$UPDATES" != notify ]]; then exit 0; fi
+[[ "$UPDATES" =~ ^(auto|notify|manual|)$ ]] || die "UPDATES in deploy/.env must be auto, notify or manual."
 # Who started it: the helper says (browser, or auto at night); -y without a terminal, as from a
 # crontab line of one's own, is automatic too; anything else is by hand.
 if [[ -n "${FC_UPDATE_TRIGGER:-}" ]]; then
@@ -88,12 +103,12 @@ jstr() {
 jtime() { if [[ "$1" =~ ^[0-9]+$ ]]; then jstr "$(date -u -d "@$1" +%FT%TZ)"; else printf null; fi; }
 jbool() { if [[ "$1" == 1 ]]; then printf true; else printf false; fi; }
 status_json() {
-  local tz auto=0 next=""
+  local tz next=""
   tz=$(readlink -f /etc/localtime 2>/dev/null) || tz=
-  if [[ "${AUTO_UPDATE:-}" == yes ]]; then auto=1 next=$(next_auto); fi
-  printf '{"format":1,"channel":%s,"checkout":%s,"timezone":%s,"auto":%s,"nextAutoAt":%s,' \
+  if [[ "$UPDATES" == auto ]]; then next=$(next_auto); fi
+  printf '{"format":1,"channel":%s,"checkout":%s,"timezone":%s,"updates":%s,"nextAutoAt":%s,' \
     "$(jstr "$CHANNEL")" "$(jstr "$ROOT" '^/[A-Za-z0-9._/-]{1,200}$')" \
-    "$(jstr "${tz#*/zoneinfo/}" '^[A-Za-z0-9_+/-]{1,64}$')" "$(jbool "$auto")" "$(jtime "$next")"
+    "$(jstr "${tz#*/zoneinfo/}" '^[A-Za-z0-9_+/-]{1,64}$')" "$(jstr "$UPDATES")" "$(jtime "$next")"
   printf '"triedAt":%s,"checkedAt":%s,"problem":%s,"latest":%s,"ready":%s,"manualSteps":%s,' \
     "$(jtime "${UPD_TRIED_AT:-}")" "$(jtime "${UPD_CHECKED_AT:-}")" "$(jstr "${UPD_PROBLEM:-}")" \
     "$(jstr "${UPD_LATEST:-}")" "$(jbool "${UPD_READY:-1}")" "$(jbool "${UPD_MANUAL:-0}")"
@@ -152,7 +167,7 @@ check_due() { (( $(date +%s) - ${UPD_TRIED_AT:-0} >= 6 * 3600 )); }
 auto_due() {
   local now
   now=$(date +%H%M)
-  [[ "${AUTO_UPDATE:-}" == yes && "${UPD_AUTO_DAY:-}" != "$(date +%F)" ]] \
+  [[ "$UPDATES" == auto && "${UPD_AUTO_DAY:-}" != "$(date +%F)" ]] \
     && (( 10#$now >= 430 && 10#$now < 530 && $(date +%s) - ${UPD_TRIED_AT:-0} >= 600 ))
 }
 # When they next run (epoch): at 04:30 tonight, or tomorrow once tonight's has.
@@ -207,16 +222,16 @@ cut_short
 if $CRON; then
   REQUESTS=$(in_shared list_requests || true)
   has() { grep -qxF -- "$1" <<<"$REQUESTS"; }
-  # Automatic updates switched on or off in Admin → Overview (the newer request wins). The setting
-  # itself is AUTO_UPDATE in deploy/.env.
+  # Automatic updates switched on or off in Admin → Overview (the newer request wins): UPDATES
+  # becomes auto or notify. Turning the helper itself off takes --updates manual on the server.
   if has request-auto-on || has request-auto-off; then
     if has request-auto-on && ! { has request-auto-off && in_shared test request-auto-off -nt request-auto-on; }; then
-      AUTO_UPDATE=yes
+      UPDATES=auto
     else
-      AUTO_UPDATE=no
+      UPDATES=notify
     fi
-    set_env "$ENV_FILE" AUTO_UPDATE "$AUTO_UPDATE" || true
-    echo "$(date '+%F %T')  Automatic updates turned $([[ $AUTO_UPDATE == yes ]] && echo on || echo off) in Admin → Overview."
+    set_env "$ENV_FILE" UPDATES "$UPDATES" || true
+    echo "$(date '+%F %T')  Admin → Overview set updates to $UPDATES (UPDATES in deploy/.env)."
     save_state || true
     in_shared rm -f -- request-auto-on request-auto-off || true
   fi
@@ -252,14 +267,49 @@ if $CRON; then
   exit 0
 fi
 
-# The update helper replaces the weekly automatic update that installers before it added (and
-# keeps automatic updates on, at night, if that did them).
-if ! $CHECK && [[ -z "${FC_UPDATE_TRIGGER:-}" ]]; then
-  if [[ -z "${AUTO_UPDATE:-}" ]]; then
-    if weekly_update_job "$ROOT"; then AUTO_UPDATE=yes; else AUTO_UPDATE=no; fi
-    set_env "$ENV_FILE" AUTO_UPDATE "$AUTO_UPDATE"
+# Sets how updates happen: UPDATES in deploy/.env, and the update helper in the crontab for auto
+# and notify (not for manual). Says what it changed.
+set_updates() {
+  if [[ "$1" != manual ]] && ! command -v crontab >/dev/null; then
+    die "This computer has no cron (sudo apt install cron), which the update helper needs."
   fi
-  ensure_update_helper "$ROOT" "$STORAGE_ROOT/backups/update.log" || true
+  UPDATES=$1
+  set_env "$ENV_FILE" UPDATES "$UPDATES"
+  if [[ "$UPDATES" == manual ]]; then
+    if update_helper_installed "$ROOT" || weekly_update_job "$ROOT" "$STORAGE_ROOT"; then
+      remove_update_helper "$ROOT" "$STORAGE_ROOT"
+      info "Removed the update helper from your crontab."
+    fi
+  elif ! update_helper_installed "$ROOT"; then
+    install_update_helper "$ROOT" "$STORAGE_ROOT"
+    info "Added the update helper to your crontab (crontab -l shows it, with a note of what it is)."
+  fi
+  case "$UPDATES" in
+    auto) info "Updates install themselves at night, around 4:30, with a database backup first." ;;
+    notify) info "New versions show in Admin → Overview; you choose when to install them." ;;
+    manual) info "Updates happen only when you run ./scripts/update.sh." ;;
+  esac
+  save_state || true
+}
+
+if [[ -n "$SET_UPDATES" ]]; then
+  set_updates "$SET_UPDATES"
+  exit 0
+fi
+
+# An install from before UPDATES gets it here, never behind anyone's back: the weekly automatic
+# update earlier installers added means auto (the helper takes over its crontab line, at night
+# instead of on Sundays); otherwise whoever runs this at a terminal is asked. An unattended run
+# changes nothing.
+if [[ -z "$UPDATES" ]] && ! $CHECK && [[ -z "${FC_UPDATE_TRIGGER:-}" ]]; then
+  if weekly_update_job "$ROOT" "$STORAGE_ROOT"; then
+    info "Automatic updates now run every night instead of on Sundays."
+    set_updates auto
+  elif [[ -t 0 ]] && ! $YES; then
+    # Suggested only for releases: the main branch can change daily.
+    if [[ "$CHANNEL" == stable ]]; then choose_updates 1; else choose_updates 2; fi
+    set_updates "$UPDATES"
+  fi
 fi
 
 cd "$ROOT/deploy"

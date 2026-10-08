@@ -161,9 +161,15 @@ does, on the host. It moves the git checkout to the new release, pulls that rele
 backs up the database with the app stopped and restarts. If the new version crashes on start, it
 goes back to the previous version and database.
 
-A crontab line runs it every minute as the update helper (`update.sh --cron`). Most minutes it
-decides from file names and the clock alone that there's nothing to do. It shares one folder with
-the app, `cache/updates`:
+How it runs is the admin's choice, `UPDATES` in `deploy/.env`, asked by the installer and changed
+with `update.sh --updates`:
+
+- `auto` and `notify`: a crontab line runs it every minute as the update helper
+  (`update.sh --cron`), under a note saying what it is. Most minutes it decides from file names
+  and the clock alone that there's nothing to do. For `auto` it also installs updates at night.
+- `manual`: nothing runs by itself; Admin → Overview says so.
+
+The helper shares one folder with the app, `cache/updates`:
 
 ```
  Admin → Overview ─► app ─ request-check, request-update-v0.8.0, request-auto-on|off ─┐
@@ -179,7 +185,7 @@ the app, `cache/updates`:
 - **Requests from the app** are empty files whose name is the whole request.
 - **How it answers:** within a minute. It installs only the version its own check found, and only
   one that needs no steps by hand and whose image is published.
-- **Schedule:** it checks for new versions every 6 hours. With `AUTO_UPDATE=yes`, it installs them
+- **Schedule:** it checks for new versions every 6 hours. With `UPDATES=auto`, it installs them
   once a night, between 04:30 and 05:29 by the computer's clock.
 - **Failed versions:** one that crashed on start and was rolled back isn't tried again
   automatically.

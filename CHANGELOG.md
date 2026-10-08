@@ -12,24 +12,27 @@ to do yourself when updating is listed under **Before you update**.
 
 - **Updates in the browser:** Admin → Overview shows when there's a new version and what's new in
   it, installs it with **Update now** (showing how it's going), and turns automatic updates on or
-  off. When an update doesn't work, it says why. It needs the update helper below: after updating
-  to this version, run `./scripts/update.sh` once on the server (with automatic updates on, that
-  happens by itself the Sunday after).
+  off. When an update doesn't work, it says why.
+- **How updates happen is your choice:** the installer asks whether new versions should install
+  themselves at night (around 4:30, with a database backup first), wait for you in Admin →
+  Overview, or only happen when you run `./scripts/update.sh`. It's `UPDATES` in `deploy/.env`,
+  and `./scripts/update.sh --updates auto`, `notify` or `manual` changes it. The first two add
+  the update helper to your crontab, a line under a note saying what it is: it runs every minute
+  but does nothing most minutes, asks GitHub for new versions every 6 hours and answers Admin →
+  Overview. If you had the Sunday automatic updates, the next `./scripts/update.sh` run (by hand,
+  or by itself that Sunday) moves them to every night; otherwise it asks you once. Crontab lines
+  of your own are never changed.
 - **Update notices:** admins see a note at the top of every page when there's a new version (and
   whether it installs itself tonight), when one needs them to do something, when an update didn't
   work, and after one was installed.
-- **Automatic updates at night:** automatic updates now run every night around 4:30 instead of on
-  Sundays, so fixes arrive within a day, and new versions are looked for every few hours. A
-  crontab line runs `./scripts/update.sh --cron` every minute for this; most minutes it does
-  nothing. If you had the Sunday updates, the next time `./scripts/update.sh` runs (by hand, or
-  by itself that Sunday) it switches over and keeps automatic updates on. They're turned on or
-  off in Admin → Overview, or with `AUTO_UPDATE=yes` or `no` in `deploy/.env`.
 - **Installing:** one command installs Family Cloud on a new computer:
   `curl -fsSL https://github.com/amoghkaja/Self-Hosted-Cloud-Storage/releases/latest/download/get.sh | bash`.
-  It downloads Family Cloud into `~/familycloud` and runs the installer, which now offers to
-  install Docker itself when it's missing.
+  It says what it will do and asks first, downloads Family Cloud into `~/familycloud` and runs the
+  installer, which now offers to install Docker itself when it's missing. Each release publishes
+  a checksum for it, for anyone who'd rather read it before running it.
 - **Installing:** on a computer whose clock is on UTC, the installer offers to set your time zone,
-  so updates and backups run at night where you are.
+  so updates and backups run at night where you are. At the end it lists what it changed on the
+  computer, and the guide now says how to uninstall.
 
 ### Improved
 

@@ -154,6 +154,10 @@ export function PrivacyPage() {
               The server doesn't send your data anywhere else, and it asks search engines not to
               list it.
             </li>
+            <li>
+              To stay up to date, the server may ask GitHub, where Family Cloud is published,
+              whether there's a new version. That sends nothing about you or your files.
+            </li>
           </ul>
         </Part>
 

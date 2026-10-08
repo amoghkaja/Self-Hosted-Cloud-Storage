@@ -54,7 +54,7 @@ The [self-hosting guide](docs/self-hosting.md) walks through each step, includin
 
 ### Updating
 
-New versions show up in **Admin → Overview**, with what's new in them. Click **Update now**, or let them install themselves at night (the installer asks, and the switch is there too). Every update backs up the database first and checks that everything came back; if the new version doesn't start, it goes back to the one you had. Releases that need you to do something on the server are left for you, with the steps. On the server, `./scripts/update.sh` does the same by hand. What changed in each version is in the [changelog](CHANGELOG.md).
+New versions show up in **Admin → Overview**, with what's new in them. Click **Update now**, or let them install themselves at night: the installer asks which you'd like (or whether you'd rather only update by hand), and `./scripts/update.sh --updates` changes it later. Every update backs up the database first and checks that everything came back; if the new version doesn't start, it goes back to the one you had. Releases that need you to do something on the server are left for you, with the steps. On the server, `./scripts/update.sh` does the same by hand. What changed in each version is in the [changelog](CHANGELOG.md).
 
 ### Guides
 

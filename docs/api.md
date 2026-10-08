@@ -183,10 +183,10 @@ Every view route (`folder`, `content`, `stream`, `preview`, `thumbnail`, `zip`) 
 | POST / DELETE | `/admin/branding/logo` | `{mimeType, data}` (base64 SVG/PNG/WebP, ≤256 KB) / back to the built-in logo |
 | GET | `/brand/logo`, `/brand/icon/:size` | Public: the logo, and PNG app icons made from it (`180`, `192`, `512`, `maskable`) |
 | GET | `/admin/audit` | Audit log (`?before=&limit=`); entries older than a year are removed |
-| GET | `/admin/updates` | `{running, updater, channel, checkedAt, problem, available:{version, releases, manualSteps, ready, failedBefore}, auto:{enabled, nextAt, timezone}, pending:{check, install, auto}, last:{state, phase, from, to, at, reason, trigger, log}, checkout}`: what the update helper on the server (`update.sh --cron`) last found and did |
+| GET | `/admin/updates` | `{running, updater, channel, checkedAt, problem, available:{version, releases, manualSteps, ready, failedBefore}, auto:{enabled, nextAt, timezone}, pending:{check, install, auto}, last:{state, phase, from, to, at, reason, trigger, log}, checkout}`: what the update helper on the server (`update.sh --cron`) last found and did. `updater` is `ok`, `missing` (not set up), `not-responding` or `off` (updates set to be done by hand) |
 | POST | `/admin/updates/check` | Ask the helper to look for a new version now (it answers within a minute) |
 | POST | `/admin/updates/install` | `{version}`: ask the helper to install the newest version. 409 if it isn't the newest, needs steps on the server first, isn't published yet, or an update is already under way |
-| PUT | `/admin/updates/auto` | `{enabled}`: ask the helper to turn automatic updates at night on or off (`AUTO_UPDATE` in `deploy/.env`) |
+| PUT | `/admin/updates/auto` | `{enabled}`: ask the helper to turn automatic updates at night on or off (`UPDATES` becomes `auto` or `notify` in `deploy/.env`) |
 
 ### Health
 
