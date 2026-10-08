@@ -712,11 +712,10 @@ export function updatedSinceLoad(s: UpdateStatus): boolean {
 }
 
 /**
- * Updates, for admins (`enabled` keeps others from asking). Watched closely while the helper
- * has something to do: an update stops the server for a minute or two, and this keeps asking
- * until it answers again.
+ * Updates, for admins. Watched closely while the helper has something to do: an update stops
+ * the server for a minute or two, and this keeps asking until it answers again.
  */
-export function useAdminUpdates(enabled = true) {
+export function useAdminUpdates() {
   return useQuery({
     queryKey: qk.adminUpdates,
     queryFn: () =>
@@ -724,7 +723,6 @@ export function useAdminUpdates(enabled = true) {
         loadedVersion ??= s.running;
         return s;
       }),
-    enabled,
     retry: false,
     refetchInterval: (q) => (updateBusy(q.state.data) ? 3_000 : 5 * 60_000),
   });

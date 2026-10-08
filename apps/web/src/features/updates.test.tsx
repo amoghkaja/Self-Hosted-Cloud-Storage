@@ -1,8 +1,10 @@
-import type { UpdateStatus } from '@familycloud/shared';
-import { act, screen, within } from '@testing-library/react';
+import type { Me, UpdateStatus } from '@familycloud/shared';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { qk } from '../api/queries';
+import { AppShell } from '../app/AppShell';
+import { UpdateBanner } from '../app/UpdateBanner';
 import { expectAccessible, mockFetch, renderWithProviders } from '../test/utils';
 import { UpdatesCard } from './admin/UpdatesCard';
 import { describeUpdate } from './admin/updateView';
@@ -277,5 +279,127 @@ describe('describeUpdate', () => {
     expect(describeUpdate(status({ available: { ...v080, version: 'v0.8.1' }, last })).kind).toBe(
       'available',
     );
+  });
+});
+
+describe('The update notice for admins', () => {
+  beforeEach(() => localStorage.clear());
+  const notice = () => screen.queryByRole('region', { name: 'Update notice' });
+
+  it('tells about a new version until dismissed, and about the next one again', async () => {
+    let version = 'v0.8.0';
+    const calls = mockFetch({
+      'GET /admin/updates': () => ({
+        json: status({
+          available: { ...v080, version },
+          auto: { enabled: true, nextAt: hoursAgo(-10), timezone: 'Etc/UTC' },
+        }),
+      }),
+    });
+    const first = renderWithProviders(<UpdateBanner />);
+    const shown = await screen.findByRole('region', { name: 'Update notice' });
+    expect(shown).toHaveTextContent(
+      'Family Cloud v0.8.0 is available. It installs itself tonight.',
+    );
+    expect(within(shown).getByRole('link', { name: "See what's new" })).toHaveAttribute(
+      'href',
+      '/admin',
+    );
+    await expectAccessible(first.container);
+    await userEvent.click(within(shown).getByRole('button', { name: 'Dismiss' }));
+    expect(notice()).not.toBeInTheDocument();
+    first.unmount();
+
+    // Still dismissed on the next visit…
+    const asked = calls.length;
+    const second = renderWithProviders(<UpdateBanner />);
+    await waitFor(() => expect(calls.length).toBeGreaterThan(asked));
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(notice()).not.toBeInTheDocument();
+    second.unmount();
+
+    // …until there's news.
+    version = 'v0.8.1';
+    renderWithProviders(<UpdateBanner />);
+    expect(await screen.findByRole('region', { name: 'Update notice' })).toHaveTextContent(
+      'Family Cloud v0.8.1 is available.',
+    );
+  });
+
+  it('says when an update didn’t work', async () => {
+    mockFetch({
+      'GET /admin/updates': () => ({
+        json: status({
+          available: { ...v080, failedBefore: true },
+          last: {
+            state: 'rolled-back',
+            phase: null,
+            from: 'v0.7.0',
+            to: 'v0.8.0',
+            at: hoursAgo(1),
+            reason: null,
+            trigger: 'auto',
+            log: [],
+          },
+        }),
+      }),
+    });
+    renderWithProviders(<UpdateBanner />);
+    expect(await screen.findByRole('region', { name: 'Update notice' })).toHaveTextContent(
+      "Family Cloud v0.8.0 didn't start, so the cloud went back to v0.7.0. See why",
+    );
+  });
+
+  it('says when a new version was installed, with what’s new in it', async () => {
+    mockFetch({
+      'GET /admin/updates': () => ({
+        json: status({
+          running: 'v0.8.0',
+          last: {
+            state: 'done',
+            phase: null,
+            from: 'v0.7.0',
+            to: 'v0.8.0',
+            at: hoursAgo(5),
+            reason: null,
+            trigger: 'auto',
+            log: [],
+          },
+        }),
+      }),
+    });
+    renderWithProviders(<UpdateBanner />);
+    const shown = await screen.findByRole('region', { name: 'Update notice' });
+    expect(shown).toHaveTextContent('Family Cloud was updated to v0.8.0.');
+    expect(within(shown).getByRole('link', { name: "See what's new" })).toHaveAttribute(
+      'href',
+      '/whats-new',
+    );
+  });
+
+  it('is for admins only: other people’s pages never ask', async () => {
+    const calls = mockFetch({
+      'GET /admin/updates': () => ({ json: status({ available: v080 }) }),
+    });
+    const person = (role: 'admin' | 'member') =>
+      ({
+        id: '33333333-3333-4333-8333-333333333333',
+        email: 'mum@example.com',
+        displayName: 'Mum',
+        role,
+        rootNodeId: '22222222-2222-4222-8222-222222222222',
+        totpEnabled: true,
+        quotaBytes: null,
+        usedBytes: 0,
+      }) as Me;
+    const member = renderWithProviders(<AppShell me={person('member')} />);
+    await screen.findByRole('main');
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(calls.some((c) => c.path === '/admin/updates')).toBe(false);
+    expect(notice()).not.toBeInTheDocument();
+    member.unmount();
+
+    renderWithProviders(<AppShell me={person('admin')} />);
+    expect(await screen.findByRole('region', { name: 'Update notice' })).toBeInTheDocument();
   });
 });

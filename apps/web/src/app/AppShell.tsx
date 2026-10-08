@@ -28,6 +28,7 @@ import { uploadManager } from './providers';
 import { SearchBox } from './SearchBox';
 import { StorageSummary } from './StorageSummary';
 import { TabBar } from './TabBar';
+import { UpdateBanner } from './UpdateBanner';
 
 const NAV = [
   { to: '/files', label: 'My Files', icon: HardDrive, end: false },
@@ -243,6 +244,7 @@ export function AppShell({ me }: { me: Me }) {
         </header>
         <InterruptedUploads />
         <PasskeyNudge />
+        {me.role === 'admin' && <UpdateBanner />}
         {me.role === 'admin' && !me.totpEnabled && (
           <section
             aria-label="Security reminder"

@@ -15,6 +15,9 @@ to do yourself when updating is listed under **Before you update**.
   off. When an update doesn't work, it says why. It needs the update helper below: after updating
   to this version, run `./scripts/update.sh` once on the server (with automatic updates on, that
   happens by itself the Sunday after).
+- **Update notices:** admins see a note at the top of every page when there's a new version (and
+  whether it installs itself tonight), when one needs them to do something, when an update didn't
+  work, and after one was installed.
 - **Automatic updates at night:** automatic updates now run every night around 4:30 instead of on
   Sundays, so fixes arrive within a day, and new versions are looked for every few hours. A
   crontab line runs `./scripts/update.sh --cron` every minute for this; most minutes it does
