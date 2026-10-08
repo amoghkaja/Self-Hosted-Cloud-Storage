@@ -300,8 +300,7 @@ export class UploadManager {
     try {
       await Promise.all(dirs.map((dir) => this.ensurePath(parentId, dir)));
     } finally {
-      // As when uploads go idle (see pump): don't keep reusing folders that may be deleted later.
-      if (this.active === 0 && !this.items.some((i) => i.status === 'queued')) this.folders.clear();
+      this.forgetFoldersIfIdle();
     }
   }
 
@@ -358,11 +357,14 @@ export class UploadManager {
       // Ours, or still being sent by another tab (where "Discard" here would cancel it).
       if (sending.has(p.sessionId)) continue;
       if (this.items.some((i) => this.sessions.get(i.id) === p.sessionId)) continue;
-      // Couldn't ask (offline, server restarting): keep it for next time rather than forget it.
-      const s = await this.transport
-        .getUpload(p.sessionId)
-        .catch((err: unknown) => (isRetryable(err) ? undefined : null));
-      if (s === undefined) continue;
+      let s: UploadSession | null;
+      try {
+        s = await this.transport.getUpload(p.sessionId);
+      } catch (err) {
+        // Couldn't ask (offline, server restarting): keep it for next time rather than forget it.
+        if (isRetryable(err)) continue;
+        s = null; // the session is gone
+      }
       if (s?.status === 'uploading') live.push(p);
       else this.opts.pending.remove(p.sessionId);
     }
@@ -450,9 +452,7 @@ export class UploadManager {
     while (this.active < this.opts.fileConcurrency) {
       const next = this.items.find((i) => i.status === 'queued');
       if (!next) {
-        // Idle: forget which folders exist, so a later upload doesn't reuse one that has since
-        // been deleted or renamed.
-        if (this.active === 0) this.folders.clear();
+        this.forgetFoldersIfIdle();
         return;
       }
       this.active++;
@@ -463,6 +463,14 @@ export class UploadManager {
         this.pump();
       });
     }
+  }
+
+  /**
+   * Once nothing is uploading or queued, forgets which folders exist, so a later upload doesn't
+   * reuse one that has since been deleted or renamed.
+   */
+  private forgetFoldersIfIdle() {
+    if (this.active === 0 && !this.items.some((i) => i.status === 'queued')) this.folders.clear();
   }
 
   /** Creates (or reuses) each folder along `relativeDir`, memoized per upload batch. */
