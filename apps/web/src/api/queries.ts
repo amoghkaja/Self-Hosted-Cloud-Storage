@@ -278,8 +278,8 @@ function invalidateNodeViews(qc: QueryClient, folders: (string | null | undefine
   void qc.invalidateQueries({ queryKey: qk.albums });
 }
 
-/** Items came back out of the trash (Restore, or Undo right after moving them there). */
-export function invalidateRestored(qc: QueryClient, folders: (string | null | undefined)[]) {
+/** Items went into the trash or came back out of it (Trash, Restore, Undo, Rewind). */
+export function invalidateTrashChange(qc: QueryClient, folders: (string | null | undefined)[]) {
   invalidateNodeViews(qc, folders);
   void qc.invalidateQueries({ queryKey: qk.trash });
   void qc.invalidateQueries({ queryKey: qk.cleanup });
@@ -417,14 +417,11 @@ export function useTrashNodes() {
         patchChildren(qc, parentId, (list) => list.filter((n) => !gone.has(n.id)));
       }
     },
-    onSettled: (_d, _e, vars) => {
-      invalidateNodeViews(
+    onSettled: (_d, _e, vars) =>
+      invalidateTrashChange(
         qc,
         vars.items.map((n) => n.parentId),
-      );
-      void qc.invalidateQueries({ queryKey: qk.trash });
-      void qc.invalidateQueries({ queryKey: qk.cleanup });
-    },
+      ),
   });
 }
 
@@ -539,7 +536,7 @@ export function useRestore() {
   return useMutation({
     mutationFn: (id: string) =>
       api<{ node: FileNode }>(`/trash/${id}/restore`, { method: 'POST', json: {} }),
-    onSuccess: (res) => invalidateRestored(qc, [res.node.parentId]),
+    onSuccess: (res) => invalidateTrashChange(qc, [res.node.parentId]),
   });
 }
 

@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router';
 import { api, contentUrl, errorMessage, zipUrl } from '../../api/client';
 import {
   type BatchResult,
-  invalidateRestored,
+  invalidateTrashChange,
   qk,
   useStarred,
   useToggleStar,
@@ -142,7 +142,7 @@ export function useFileActions(o: FileActionOptions) {
                   failed++;
                 });
               }
-              invalidateRestored(
+              invalidateTrashChange(
                 qc,
                 trashed.map((n) => n.parentId),
               );

@@ -2,7 +2,7 @@ import type { RewindPreview, RewindResult } from '@familycloud/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, errorMessage } from '../../api/client';
-import { invalidateRestored, qk, useSetupStatus } from '../../api/queries';
+import { invalidateTrashChange, qk, useSetupStatus } from '../../api/queries';
 import { Button, Dialog, SelectField, Skeleton, TextField, toast } from '../../components/ui';
 
 const HOUR = 3600_000;
@@ -55,7 +55,7 @@ export function RewindDialog({
     mutationFn: () => api<RewindResult>(`/nodes/${folder.id}/rewind`, { json: { at } }),
     onSettled: () => {
       // Anything in the folder, however deep, may be back from the trash or hold older contents.
-      invalidateRestored(qc, []);
+      invalidateTrashChange(qc, []);
       for (const key of [['children'], qk.me, ['versions']]) {
         void qc.invalidateQueries({ queryKey: key });
       }
