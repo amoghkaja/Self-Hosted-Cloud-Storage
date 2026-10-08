@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import exifr from 'exifr';
 import type { AppContext } from '../context';
 import { blobs, nodes } from '../db/schema';
-import { UPLOADED_VIDEO_INPUT } from './video';
+import { uploadedInput } from './video';
 
 const PROBE_TIMEOUT_MS = 60_000;
 
@@ -67,7 +67,7 @@ async function videoInfo(file: string): Promise<MediaInfo> {
   const out = await new Promise<string>((resolve, reject) => {
     execFile(
       'ffprobe',
-      ['-v', 'error', ...UPLOADED_VIDEO_INPUT, '-print_format', 'json', '-show_format', file],
+      ['-v', 'error', '-print_format', 'json', '-show_format', ...uploadedInput(file)],
       { timeout: PROBE_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
       (err, stdout) => (err ? reject(err) : resolve(stdout)),
     );

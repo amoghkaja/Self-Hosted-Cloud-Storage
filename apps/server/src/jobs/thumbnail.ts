@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import type { AppContext } from '../context';
 import { blobs, nodes } from '../db/schema';
 import { previewPath, thumbPath } from '../storage/thumbs';
-import { UPLOADED_VIDEO_INPUT } from './video';
+import { uploadedInput } from './video';
 
 // Long-running worker: no libvips operation cache, and bounded threads per image.
 sharp.cache(false);
@@ -75,11 +75,10 @@ async function toRaster(kind: Kind, src: string, work: string): Promise<string> 
           '-hide_banner',
           '-loglevel',
           'error',
-          ...UPLOADED_VIDEO_INPUT,
+          // Before the input: seeks by the index instead of decoding up to the frame.
           '-ss',
           '1',
-          '-i',
-          src,
+          ...uploadedInput(src),
           '-frames:v',
           '1',
           '-y',
@@ -95,9 +94,7 @@ async function toRaster(kind: Kind, src: string, work: string): Promise<string> 
           '-hide_banner',
           '-loglevel',
           'error',
-          ...UPLOADED_VIDEO_INPUT,
-          '-i',
-          src,
+          ...uploadedInput(src),
           '-frames:v',
           '1',
           '-y',
