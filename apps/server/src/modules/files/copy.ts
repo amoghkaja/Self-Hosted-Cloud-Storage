@@ -1,11 +1,16 @@
 import { ErrorCode } from '@familycloud/shared/all';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, users } from '../../db/schema';
 import { AppError, conflict } from '../../lib/errors';
 import { reserveSpace } from '../uploads/service';
-import { replaceContent, type StoredBlob, withRoomFromVersions } from '../versions/service';
+import {
+  lockFileIn,
+  replaceContent,
+  type StoredBlob,
+  withRoomFromVersions,
+} from '../versions/service';
 import { lockWriteAccess } from './access';
 import { listTree } from './serve';
 import { deleteBlobFiles, insertNode, trashSubtree } from './tree';
@@ -86,14 +91,8 @@ export async function copyNode(ctx: AppContext, input: CopyInput): Promise<NodeR
       if (isFile && input.replace?.type === 'file') {
         // A file copied over a file is a save: the file keeps its identity (links, sharing) and
         // what it held becomes a version.
-        const [file] = await tx
-          .select()
-          .from(nodes)
-          .where(and(eq(nodes.id, input.replace.id), isNull(nodes.deletedAt)))
-          .for('update');
-        if (file?.type !== 'file' || file.parentId !== target.id) {
-          throw conflict('The file changed meanwhile. Try again.');
-        }
+        const file = await lockFileIn(tx, input.replace.id, target.id);
+        if (!file) throw conflict('The file changed meanwhile. Try again.');
         const { blobId, size, mimeType } = input.source;
         const replaced = await replaceContent(
           tx,

@@ -1,5 +1,5 @@
 import { ErrorCode, MAX_VERSIONS_PER_FILE } from '@familycloud/shared/all';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { AppContext } from '../../context';
 import type { Executor } from '../../db/client';
 import { type BlobRow, blobs, fileVersions, type NodeRow, nodes, users } from '../../db/schema';
@@ -88,6 +88,20 @@ export async function lockFileNamed(
     )
     .for('update');
   return row?.type === 'file' ? row : null;
+}
+
+/** The live file with this id while it's still in `folderId`, locked for replacing. */
+export async function lockFileIn(
+  tx: Executor,
+  id: string,
+  folderId: string,
+): Promise<NodeRow | null> {
+  const [row] = await tx
+    .select()
+    .from(nodes)
+    .where(and(eq(nodes.id, id), isNull(nodes.deletedAt)))
+    .for('update');
+  return row?.type === 'file' && row.parentId === folderId ? row : null;
 }
 
 /**

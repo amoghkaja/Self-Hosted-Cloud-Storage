@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { ErrorCode } from '@familycloud/shared/all';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import type { AppContext } from '../../context';
 import { blobs, type NodeRow, nodes, uploadSessions, users } from '../../db/schema';
@@ -12,7 +12,12 @@ import { AppError, conflict } from '../../lib/errors';
 import { DAY_MS } from '../../lib/time';
 import { lockWriteAccess } from '../files/access';
 import { deleteBlobFiles, insertNode, QUOTA_LOCK } from '../files/tree';
-import { replaceContent, type StoredBlob, withRoomFromVersions } from '../versions/service';
+import {
+  lockFileIn,
+  replaceContent,
+  type StoredBlob,
+  withRoomFromVersions,
+} from '../versions/service';
 import { assertFileSizeAllowed, releaseUpload, reserveSpace } from './service';
 
 export interface IngestInput {
@@ -141,15 +146,9 @@ export async function ingest(
       let usageDelta = input.size;
       let orphans: StoredBlob[] = [];
       if (input.replaceNodeId) {
-        const [existing] = await tx
-          .select()
-          .from(nodes)
-          .where(and(eq(nodes.id, input.replaceNodeId), isNull(nodes.deletedAt)))
-          .for('update');
+        const existing = await lockFileIn(tx, input.replaceNodeId, input.parent.id);
         // Moved elsewhere meanwhile: access was checked for the folder it used to be in.
-        if (existing?.type !== 'file' || existing.parentId !== input.parent.id) {
-          throw conflict('The file changed while saving');
-        }
+        if (!existing) throw conflict('The file changed while saving');
         if (input.expectBlobId != null && existing.blobId !== input.expectBlobId) {
           throw new AppError(412, ErrorCode.CONFLICT, 'The file changed since it was read');
         }
