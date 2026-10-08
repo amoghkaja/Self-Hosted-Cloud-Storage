@@ -34,6 +34,7 @@ import type {
   SortKey,
   StorageInfo,
   TrashList,
+  UpdateStatus,
   UserRole,
   VersionList,
   Volume,
@@ -91,6 +92,7 @@ export const qk = {
   adminAudit: ['admin', 'audit'] as const,
   adminBranding: ['admin', 'branding'] as const,
   adminScanner: ['admin', 'scanner'] as const,
+  adminUpdates: ['admin', 'updates'] as const,
 };
 
 // ── session ─────────────────────────────────────────────────────────────────
@@ -692,6 +694,61 @@ export function useAdminOverview() {
     refetchInterval: (q) =>
       q.state.data?.volumes.some((v) => v.status === 'draining') ? 5_000 : 60_000,
   });
+}
+
+/** Whether the update helper has something to do: a request waiting, or an update under way. */
+export function updateBusy(s: UpdateStatus | undefined): boolean {
+  if (!s) return false;
+  const p = s.pending;
+  return s.last?.state === 'updating' || p.check || p.install !== null || p.auto !== null;
+}
+
+// The version the server ran when this page loaded. Once it runs another, the page is old.
+let loadedVersion: string | undefined;
+
+/** Whether the server was updated since this page loaded, which then needs a reload. */
+export function updatedSinceLoad(s: UpdateStatus): boolean {
+  return loadedVersion !== undefined && s.running !== loadedVersion;
+}
+
+/**
+ * Updates, for admins (`enabled` keeps others from asking). Watched closely while the helper
+ * has something to do: an update stops the server for a minute or two, and this keeps asking
+ * until it answers again.
+ */
+export function useAdminUpdates(enabled = true) {
+  return useQuery({
+    queryKey: qk.adminUpdates,
+    queryFn: () =>
+      api<UpdateStatus>('/admin/updates').then((s) => {
+        loadedVersion ??= s.running;
+        return s;
+      }),
+    enabled,
+    retry: false,
+    refetchInterval: (q) => (updateBusy(q.state.data) ? 3_000 : 5 * 60_000),
+  });
+}
+
+export function useUpdateMutations() {
+  const qc = useQueryClient();
+  const show = (s: UpdateStatus) => qc.setQueryData(qk.adminUpdates, s);
+  return {
+    check: useMutation({
+      mutationFn: () => api<UpdateStatus>('/admin/updates/check', { json: {} }),
+      onSuccess: show,
+    }),
+    install: useMutation({
+      mutationFn: (version: string) =>
+        api<UpdateStatus>('/admin/updates/install', { json: { version } }),
+      onSuccess: show,
+    }),
+    setAuto: useMutation({
+      mutationFn: (enabled: boolean) =>
+        api<UpdateStatus>('/admin/updates/auto', { method: 'PUT', json: { enabled } }),
+      onSuccess: show,
+    }),
+  };
 }
 
 export function useAdminInvites() {

@@ -154,6 +154,39 @@ pg-boss queues live in PostgreSQL (no Redis). Jobs are retried with backoff; rec
 | `cleanup-sessions` | Daily (also old invites and reset links, and audit entries older than a year) |
 | `recover-work` | Hourly: re-queues thumbnails, previews, streams, photo dates, document words and checksums whose job was lost (and the backlog of files stored before dates and words were read). Every media job does nothing if its work is already done, so a second run is harmless |
 
+## Updates
+
+The app can't update itself: it runs read-only, without the Docker socket. `scripts/update.sh`
+does, on the host. It moves the git checkout to the new release, pulls that release's image,
+backs up the database with the app stopped and restarts. If the new version crashes on start, it
+goes back to the previous version and database.
+
+A crontab line runs it every minute as the update helper (`update.sh --cron`). Most minutes it
+decides from file names and the clock alone that there's nothing to do. It shares one folder with
+the app, `cache/updates`:
+
+```
+ Admin → Overview ─► app ─ request-check, request-update-v0.8.0, request-auto-on|off ─┐
+                      ▲                                                               ▼
+                      └─ status.json, notes.md, update.log ◄─ update.sh --cron (host) ◄─ cache/updates
+```
+
+- **What the helper writes:**
+  - `status.json`: what the last check found, and the update under way or how the last one went.
+  - `notes.md`: the changelog sections since the running version.
+  - `update.log`: the end of a failed update's output.
+- **What it remembers itself** is in `backups/.update-state`, out of the app's reach.
+- **Requests from the app** are empty files whose name is the whole request.
+- **How it answers:** within a minute. It installs only the version its own check found, and only
+  one that needs no steps by hand and whose image is published.
+- **Schedule:** it checks for new versions every 6 hours. With `AUTO_UPDATE=yes`, it installs them
+  once a night, between 04:30 and 05:29 by the computer's clock.
+- **Failed versions:** one that crashed on start and was rolled back isn't tried again
+  automatically.
+
+The app and the worker run as the host user and can write to that folder, so neither side trusts
+what the other leaves there (security report: "Updates asked for from the app").
+
 ## Scaling path
 
 The deployment is deliberately single-node. The seams to grow past it, roughly in order:

@@ -6,3 +6,4 @@ export * from './common';
 export * from './files';
 export * from './photos';
 export * from './sharing';
+export * from './updates';

@@ -112,6 +112,10 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 
 ## Updating
 
+**Admin → Overview → Updates** shows the version you run and, when there's a newer one, what's new in it. **Update now** installs it, and the page shows how it's going. With **Install updates automatically** on, new versions install themselves at night instead. If the card asks you to, run `./scripts/update.sh` once on the server: that sets up the update helper the browser needs.
+
+On the server, the same by hand:
+
 ```bash
 cd familycloud
 ./scripts/update.sh
@@ -123,13 +127,13 @@ It shows what's new since your version (from [CHANGELOG.md](../CHANGELOG.md)) an
 2. stops the app and backs up the database to `/srv/familycloud/backups/pre-update-*.dump` (the last 3 are kept),
 3. restarts and waits until the app answers again, removes the images the previous version used, and prints the old and new version.
 
-The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start. **Admin → Overview** shows the version you run, at the bottom.
+The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start.
 
 - **Just check:** `./scripts/update.sh --check` says whether there's a new version, without changing anything.
-- **Automatic updates:** the installer adds a crontab line that runs `scripts/update.sh --cron` every minute (most minutes it does nothing). It looks for new versions every 6 hours and, with `AUTO_UPDATE=yes` in `deploy/.env`, installs them at night between 04:30 and 05:30 by the computer's clock. It waits until a new release is ready to download rather than build it on your computer, and it doesn't try a version again that failed to start. Its log is `/srv/familycloud/backups/update.log`. Running `./scripts/update.sh` adds the line if it's missing.
-- **Releases that need you.** A release that needs you to do something lists it under **Before you update** in the changelog, and raises the first number of the version, e.g. `v1.x` → `v2.0` ([how versions are numbered](releasing.md)). Automatic updates skip these, and the log says why: read the notes, then run `./scripts/update.sh` yourself.
+- **Automatic updates:** the installer adds a crontab line that runs `scripts/update.sh --cron` every minute (most minutes it does nothing). This update helper answers **Admin → Overview**, looks for new versions every 6 hours and, with automatic updates on (`AUTO_UPDATE=yes` in `deploy/.env`, or the switch in Admin → Overview), installs them at night between 04:30 and 05:30 by the computer's clock. It waits until a new release is ready to download rather than build it on your computer, and it doesn't try a version again that failed to start. Its log is `/srv/familycloud/backups/update.log`. Running `./scripts/update.sh` adds the line if it's missing.
+- **Releases that need you.** A release that needs you to do something lists it under **Before you update** in the changelog, and raises the first number of the version, e.g. `v1.x` → `v2.0` ([how versions are numbered](releasing.md)). Automatic updates and **Update now** skip these, and Admin → Overview lists the steps: do them, then run `./scripts/update.sh` yourself.
 - **Follow the latest code instead of releases:** set `UPDATE_CHANNEL=main` in `deploy/.env`. Updates then build `main` on your machine.
-- **An update failed?** Your files aren't touched. If the new version couldn't be built or the database backup failed, nothing was changed and the cloud carries on as before. If the new version crashes on start, `update.sh` goes back to the one you had by itself, with the database as it was just before the update. Automatic updates then wait for a newer version; running `./scripts/update.sh` yourself tries that one again. If it's only slow to start (a big database change on a small computer), it's left to finish, and `update.sh` prints how to go back by hand: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).
+- **An update failed?** Admin → Overview says why, with the end of what the server printed. Your files aren't touched. If the new version couldn't be built or the database backup failed, nothing was changed and the cloud carries on as before. If the new version crashes on start, `update.sh` goes back to the one you had by itself, with the database as it was just before the update. Automatic updates then wait for a newer version; running `./scripts/update.sh` yourself tries that one again. If it's only slow to start (a big database change on a small computer), it's left to finish, and `update.sh` prints how to go back by hand: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).
 - **Changed files in the checkout?** Updating stops rather than overwrite them. Keep changes in a fork (see below), or run `git stash`.
 
 ## Running a modified version

@@ -18,7 +18,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { errorMessage } from '../../api/client';
 import {
   useAdminInvites,
@@ -55,6 +55,7 @@ import { LinkBox } from '../sharing/LinkActions';
 import { BrandingCard } from './BrandingCard';
 import { ByteSizeInput } from './ByteSizeInput';
 import { AllocateDialog, DiskBreakdown, FamilyBreakdown } from './StorageOverview';
+import { UpdatesCard } from './UpdatesCard';
 
 /** Runs a fire-and-forget admin action, confirming success and surfacing failures. */
 function run(p: Promise<unknown>, success?: string) {
@@ -102,119 +103,118 @@ function Overview() {
   const [, setParams] = useSearchParams();
   const [allocating, setAllocating] = useState(false);
   return (
-    <QueryState query={q} loading={<Skeleton className="h-64" />}>
-      {(d) => {
-        const t = d.totals;
-        const familyFree = Math.max(0, t.familyCapacityBytes - t.usedBytes - t.reservedBytes);
-        const capped = d.settings.globalCapacityBytes !== null;
-        return (
-          <div className="flex flex-col gap-4">
-            {d.warnings.length > 0 && (
-              <ul className="flex flex-col gap-2" aria-label="Warnings">
-                {d.warnings.map((w) => (
-                  <li
-                    key={w}
-                    className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+    <div className="flex flex-col gap-4">
+      <QueryState query={q} loading={<Skeleton className="h-64" />}>
+        {(d) => {
+          const t = d.totals;
+          const familyFree = Math.max(0, t.familyCapacityBytes - t.usedBytes - t.reservedBytes);
+          const capped = d.settings.globalCapacityBytes !== null;
+          return (
+            <div className="flex flex-col gap-4">
+              {d.warnings.length > 0 && (
+                <ul className="flex flex-col gap-2" aria-label="Warnings">
+                  {d.warnings.map((w) => (
+                    <li
+                      key={w}
+                      className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+                    >
+                      <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
+                      {w}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <Stat
+                  label="Used by family"
+                  value={formatBytes(t.usedBytes)}
+                  sub={t.reservedBytes ? `+${formatBytes(t.reservedBytes)} uploading` : undefined}
+                />
+                <Stat
+                  label="Family space left"
+                  value={formatBytes(familyFree)}
+                  sub={`of ${formatBytes(t.familyCapacityBytes)} for the family`}
+                />
+                <Stat
+                  label="Given to people"
+                  value={formatBytes(t.allocatedQuotaBytes)}
+                  sub={
+                    t.unlimitedUsers
+                      ? `${t.unlimitedUsers} ${t.unlimitedUsers === 1 ? 'person has' : 'people have'} no personal limit`
+                      : 'Everyone has an allowance'
+                  }
+                />
+              </div>
+              <Card
+                title="Family storage"
+                action={
+                  <Button
+                    variant="primary"
+                    icon={<PieChart size={16} />}
+                    onClick={() => setAllocating(true)}
                   >
-                    <TriangleAlert size={16} className="mt-0.5 shrink-0" aria-hidden />
-                    {w}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Stat
-                label="Used by family"
-                value={formatBytes(t.usedBytes)}
-                sub={t.reservedBytes ? `+${formatBytes(t.reservedBytes)} uploading` : undefined}
-              />
-              <Stat
-                label="Family space left"
-                value={formatBytes(familyFree)}
-                sub={`of ${formatBytes(t.familyCapacityBytes)} for the family`}
-              />
-              <Stat
-                label="Given to people"
-                value={formatBytes(t.allocatedQuotaBytes)}
-                sub={
-                  t.unlimitedUsers
-                    ? `${t.unlimitedUsers} ${t.unlimitedUsers === 1 ? 'person has' : 'people have'} no personal limit`
-                    : 'Everyone has an allowance'
+                    Allocate space
+                  </Button>
                 }
-              />
-            </div>
-            <Card
-              title="Family storage"
-              action={
-                <Button
-                  variant="primary"
-                  icon={<PieChart size={16} />}
-                  onClick={() => setAllocating(true)}
-                >
-                  Allocate space
-                </Button>
-              }
-            >
-              <p className="mb-4 text-sm text-muted">
-                {capped
-                  ? `The family may use up to ${formatBytes(d.settings.globalCapacityBytes ?? 0)} in total${
-                      t.familyCapacityBytes < (d.settings.globalCapacityBytes ?? 0)
-                        ? `, but the disks only have room for ${formatBytes(t.familyCapacityBytes)}`
-                        : ''
-                    }.`
-                  : `The family can use all the space the disks allow: ${formatBytes(t.familyCapacityBytes)}.`}
-              </p>
-              <FamilyBreakdown d={d} />
-              <div className="mt-4 flex flex-wrap gap-2">
-                {capped && (
+              >
+                <p className="mb-4 text-sm text-muted">
+                  {capped
+                    ? `The family may use up to ${formatBytes(d.settings.globalCapacityBytes ?? 0)} in total${
+                        t.familyCapacityBytes < (d.settings.globalCapacityBytes ?? 0)
+                          ? `, but the disks only have room for ${formatBytes(t.familyCapacityBytes)}`
+                          : ''
+                      }.`
+                    : `The family can use all the space the disks allow: ${formatBytes(t.familyCapacityBytes)}.`}
+                </p>
+                <FamilyBreakdown d={d} />
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {capped && (
+                    <Button
+                      size="sm"
+                      loading={m.updateSettings.isPending}
+                      onClick={() =>
+                        run(
+                          m.updateSettings.mutateAsync({ globalCapacityBytes: null }),
+                          'The family can now use all available space',
+                        )
+                      }
+                    >
+                      Give the family all available space
+                    </Button>
+                  )}
                   <Button
                     size="sm"
-                    loading={m.updateSettings.isPending}
-                    onClick={() =>
-                      run(
-                        m.updateSettings.mutateAsync({ globalCapacityBytes: null }),
-                        'The family can now use all available space',
-                      )
-                    }
+                    variant="ghost"
+                    onClick={() => setParams({ tab: 'settings' }, { replace: true })}
                   >
-                    Give the family all available space
+                    {capped ? 'Change the family limit' : 'Set a family limit'}
                   </Button>
-                )}
+                </div>
+              </Card>
+              <Card title="This computer’s disks">
+                <p className="mb-4 text-sm text-muted">
+                  {formatBytes(t.diskTotalBytes)} in total. Only the green part can take new family
+                  files.
+                </p>
+                <DiskBreakdown d={d} />
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setParams({ tab: 'settings' }, { replace: true })}
+                  className="mt-4"
+                  onClick={() => setParams({ tab: 'storage' }, { replace: true })}
                 >
-                  {capped ? 'Change the family limit' : 'Set a family limit'}
+                  Manage disks and limits
                 </Button>
-              </div>
-            </Card>
-            <Card title="This computer’s disks">
-              <p className="mb-4 text-sm text-muted">
-                {formatBytes(t.diskTotalBytes)} in total. Only the green part can take new family
-                files.
-              </p>
-              <DiskBreakdown d={d} />
-              <Button
-                size="sm"
-                variant="ghost"
-                className="mt-4"
-                onClick={() => setParams({ tab: 'storage' }, { replace: true })}
-              >
-                Manage disks and limits
-              </Button>
-            </Card>
-            <p className="text-center text-xs text-muted">
-              Family Cloud {d.version} ·{' '}
-              <Link to="/whats-new" className="underline underline-offset-2 hover:text-text">
-                What's new
-              </Link>
-            </p>
-            {allocating && <AllocateDialog d={d} onClose={() => setAllocating(false)} />}
-          </div>
-        );
-      }}
-    </QueryState>
+              </Card>
+              {allocating && <AllocateDialog d={d} onClose={() => setAllocating(false)} />}
+            </div>
+          );
+        }}
+      </QueryState>
+      {/* Outside the overview's loading and error states: an update restarts the server, and
+          this keeps showing how it's going. */}
+      <UpdatesCard />
+    </div>
   );
 }
 

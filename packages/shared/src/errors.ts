@@ -37,6 +37,11 @@ export const ErrorCode = {
   FILE_INFECTED: 'FILE_INFECTED',
   FILE_SCANNING: 'FILE_SCANNING',
   CSRF: 'CSRF_REJECTED',
+  /** The update helper on the server isn't set up, or isn't answering. */
+  UPDATER_MISSING: 'UPDATER_MISSING',
+  UPDATE_IN_PROGRESS: 'UPDATE_IN_PROGRESS',
+  /** That version can't be installed from the app (not the newest, needs steps, not published). */
+  UPDATE_UNAVAILABLE: 'UPDATE_UNAVAILABLE',
   INTERNAL: 'INTERNAL_ERROR',
 } as const;
 

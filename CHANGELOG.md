@@ -10,12 +10,17 @@ to do yourself when updating is listed under **Before you update**.
 
 ### New
 
+- **Updates in the browser:** Admin → Overview shows when there's a new version and what's new in
+  it, installs it with **Update now** (showing how it's going), and turns automatic updates on or
+  off. When an update doesn't work, it says why. It needs the update helper below: after updating
+  to this version, run `./scripts/update.sh` once on the server (with automatic updates on, that
+  happens by itself the Sunday after).
 - **Automatic updates at night:** automatic updates now run every night around 4:30 instead of on
   Sundays, so fixes arrive within a day, and new versions are looked for every few hours. A
   crontab line runs `./scripts/update.sh --cron` every minute for this; most minutes it does
   nothing. If you had the Sunday updates, the next time `./scripts/update.sh` runs (by hand, or
   by itself that Sunday) it switches over and keeps automatic updates on. They're turned on or
-  off with `AUTO_UPDATE=yes` or `no` in `deploy/.env`.
+  off in Admin → Overview, or with `AUTO_UPDATE=yes` or `no` in `deploy/.env`.
 - **Installing:** on a computer whose clock is on UTC, the installer offers to set your time zone,
   so updates and backups run at night where you are.
 
@@ -29,6 +34,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ### Fixed
 
+- **Updating:** pages left open while the cloud restarts for an update no longer turn into "Can't
+  reach Family Cloud" when you come back to them; they carry on once it's back.
 - **Updating:** when an update stops because the database backup failed, it now finishes only
   once the version you had is answering again. It used to finish while the cloud was still
   starting, and said "nothing was changed" even if the cloud then didn't come back; now it says

@@ -6,7 +6,7 @@ import { formatDate } from '../../lib/format';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 /** A changelog line with its `**bold**` and `code` marks turned into elements. */
-function Line({ text }: { text: string }) {
+export function Line({ text }: { text: string }) {
   return (
     <>
       {text.split(/(\*\*[^*]+\*\*|`[^`]+`)/).map((part, i) => {
@@ -24,6 +24,26 @@ function Line({ text }: { text: string }) {
   );
 }
 
+/** A release's groups of changes (New, Improved, …), under headings of their own. */
+export function ReleaseGroups({ release }: { release: ReleaseNotes }) {
+  return (
+    <div className="flex flex-col gap-4">
+      {release.groups.map((g) => (
+        <div key={g.title}>
+          <h3 className="mb-1.5 text-sm font-medium text-muted">{g.title}</h3>
+          <ul className="list-disc space-y-1.5 pl-5 text-sm">
+            {g.items.map((item) => (
+              <li key={item}>
+                <Line text={item} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Release({ release, running }: { release: ReleaseNotes; running: boolean }) {
   const unreleased = release.version === 'Unreleased';
   return (
@@ -33,20 +53,7 @@ function Release({ release, running }: { release: ReleaseNotes; running: boolean
         {release.date && <span className="text-sm text-muted">{formatDate(release.date)}</span>}
         {running && <span className="text-sm text-muted">This is what you're using</span>}
       </div>
-      <div className="flex flex-col gap-4">
-        {release.groups.map((g) => (
-          <div key={g.title}>
-            <h3 className="mb-1.5 text-sm font-medium text-muted">{g.title}</h3>
-            <ul className="list-disc space-y-1.5 pl-5 text-sm">
-              {g.items.map((item) => (
-                <li key={item}>
-                  <Line text={item} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
+      <ReleaseGroups release={release} />
     </section>
   );
 }

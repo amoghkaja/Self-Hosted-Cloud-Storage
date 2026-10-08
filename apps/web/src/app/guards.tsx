@@ -41,25 +41,25 @@ export function RequireAuth({ children }: { children: (me: Me) => ReactNode }) {
 
   if (me.isPending || setup.isPending) return <FullPageSpinner />;
   if (setup.data?.needsSetup) return <Navigate to="/setup" replace />;
-  if (me.isError || !me.data) {
-    const status = (me.error as { status?: number } | null)?.status;
-    if (status === 401 || status === undefined) {
-      return (
-        <Navigate
-          to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`}
-          replace
-        />
-      );
-    }
+  const status = (me.error as { status?: number } | null)?.status;
+  // Once signed in, a refresh that fails keeps the page unless the session is gone: while the
+  // server restarts (for an update, say) every open tab would otherwise turn into an error.
+  if (me.data && status !== 401) return <>{children(me.data)}</>;
+  if (status === 401 || status === undefined) {
     return (
-      <ErrorState
-        title="Can't reach Family Cloud"
-        error={me.error}
-        onRetry={() => void me.refetch()}
+      <Navigate
+        to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`}
+        replace
       />
     );
   }
-  return <>{children(me.data)}</>;
+  return (
+    <ErrorState
+      title="Can't reach Family Cloud"
+      error={me.error}
+      onRetry={() => void me.refetch()}
+    />
+  );
 }
 
 export interface ShellContext {

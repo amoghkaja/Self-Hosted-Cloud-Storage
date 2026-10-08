@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { api } from '../api/client';
@@ -52,5 +52,34 @@ describe('RequireAuth', () => {
     expect(await screen.findByText('Sign in')).toBeInTheDocument();
     expect(router.state.location.search).toBe('?next=%2Frecent');
     expect(qc.getQueryData(qk.children(me.rootNodeId))).toBeUndefined();
+  });
+
+  it('keeps the page while the server restarts (for an update, say)', async () => {
+    let restarting = false;
+    mockFetch({
+      'GET /auth/setup-status': () => ({ json: { needsSetup: false, appName: 'Family Cloud' } }),
+      'GET /auth/me': () =>
+        restarting ? { status: 502, json: { detail: 'Bad gateway' } } : { json: me },
+      'GET /recent': () => ({ json: { items: [] } }),
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter(
+      [{ path: '/recent', element: <RequireAuth>{() => <Recent />}</RequireAuth> }],
+      { initialEntries: ['/recent'] },
+    );
+    render(
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('Done')).toBeInTheDocument();
+    // Coming back to the tab refreshes the account, which fails until the server is back.
+    restarting = true;
+    await act(() => qc.refetchQueries({ queryKey: qk.me }));
+    expect(qc.getQueryState(qk.me)?.status).toBe('error');
+    // The query tells the page after a timeout of its own.
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.queryByText("Can't reach Family Cloud")).not.toBeInTheDocument();
   });
 });
