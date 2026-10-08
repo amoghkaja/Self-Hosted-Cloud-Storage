@@ -48,7 +48,8 @@ Every change a family would notice adds a line to the **Unreleased** section of
   *any* earlier release: people skip versions. Never edit a migration that has shipped.
 - `update.sh` backs up the database first. Going back to an older version means restoring
   that backup (it does so itself when a new version crashes on start), so a release never needs
-  a "downgrade" path.
+  a "downgrade" path. Automatic updates don't try a version that failed that way again: a fix
+  has to be a new release.
 - Automatic updates (`update.sh -y`) stop before any release with a **Before you update**
   section, so those steps are never skipped. They also wait until the release's image is
   published: the tag comes first, and without the image they would build it on the machine.

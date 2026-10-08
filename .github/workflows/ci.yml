@@ -154,6 +154,9 @@ jobs:
           ./scripts/update.sh <<<y
           [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]
           ls "$STORAGE_ROOT"/backups/pre-update-*.dump
+          # How it went, for Admin → Overview.
+          jq -e '.state == "done" and .trigger == "manual" and .latest == null' \
+            "$STORAGE_ROOT/cache/updates/status.json"
           # The previous version's image doesn't stay behind, taking up the disk.
           (( $(docker images -q --filter dangling=true | wc -l) <= LEFTOVERS ))
           # The database copy was made after the app stopped, so it holds everything it wrote.
@@ -174,6 +177,28 @@ jobs:
           grep -q 'Already newer' "$RUNNER_TEMP/out"
           [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
           git reset -q --hard HEAD~1
+      - name: The update status never follows links the app could plant
+        run: |
+          # The app runs as this same user and can put anything in cache/updates.
+          U=$STORAGE_ROOT/cache/updates
+          echo precious > "$RUNNER_TEMP/precious"
+          ln -sf "$RUNNER_TEMP/precious" "$U/status.json"
+          ln -sf "$RUNNER_TEMP/precious" "$U/notes.md"
+          ./scripts/update.sh --check
+          [[ "$(cat "$RUNNER_TEMP/precious")" == precious ]]
+          [[ -f "$U/status.json" && ! -L "$U/status.json" && ! -L "$U/notes.md" ]]
+          rm "$U/status.json"
+          mkdir "$U/status.json"
+          ./scripts/update.sh --check
+          [[ -z "$(ls -A "$U/status.json")" ]]
+          rmdir "$U/status.json"
+          mv "$U" "$U.real"
+          mkdir "$RUNNER_TEMP/elsewhere"
+          ln -s "$RUNNER_TEMP/elsewhere" "$U"
+          ./scripts/update.sh --check
+          [[ -z "$(ls -A "$RUNNER_TEMP/elsewhere")" ]]
+          rm "$U"
+          mv "$U.real" "$U"
       - name: An update that can't build or back up changes nothing
         run: |
           # A newer version that doesn't build: the update stops, and nothing changes.
@@ -187,6 +212,7 @@ jobs:
           if ./scripts/update.sh <<<y; then exit 1; fi
           [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
           [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          jq -e '.state == "failed" and .reason == "build"' "$STORAGE_ROOT/cache/updates/status.json"
           # The next version builds, but the database backup fails: the app that was running starts again.
           git checkout -q --detach origin/main
           git -c user.name=CI -c user.email=ci@localhost revert --no-edit HEAD >/dev/null
@@ -195,6 +221,7 @@ jobs:
           if BACKUP_DIR=/nonexistent ./scripts/update.sh <<<y; then exit 1; fi
           [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
           [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
+          jq -e '.state == "failed" and .reason == "backup"' "$STORAGE_ROOT/cache/updates/status.json"
           curl -fsS "localhost:${APP_PORT:-3080}/healthz"
       - name: A new version that crashes on start is rolled back
         env:
@@ -212,6 +239,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
           [[ "$(docker inspect -f '{{.Image}}' "$(cd deploy && docker compose ps -q app)")" == "$OLD_IMAGE_ID" ]]
           curl -fsS "localhost:${APP_PORT:-3080}/healthz"
+          jq -e '.state == "rolled-back" and .failedVersion != null' "$STORAGE_ROOT/cache/updates/status.json"
           # The database was put back from the backup; the one the new version had is kept aside.
           cd deploy
           docker compose exec -T db psql -U familycloud -d postgres -tAc \

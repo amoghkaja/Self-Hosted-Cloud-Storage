@@ -48,6 +48,32 @@ env_line() {
   fi
 }
 
+# cache/updates under STORAGE_ROOT is shared with the app: update.sh leaves the update status there
+# for it, and it leaves requests from Admin → Overview. The app (and the worker) run as this same
+# user and can swap any name in it at any moment, so the two helpers below never follow a link
+# there and only ever write new files, renamed into place.
+
+# Enters that folder ($1 is STORAGE_ROOT), making it if needed, but only the real one: cache/ is
+# the app's mount point and can't be swapped, while cache/updates can become a link at any time.
+# Not as root, which would make the folder the app can't write to.
+enter_shared() {
+  local cache
+  cd -P "$1/cache" 2>/dev/null || return 1
+  cache=$PWD
+  [[ -e updates || -L updates ]] || (( EUID == 0 )) || mkdir updates 2>/dev/null || true
+  cd -P updates 2>/dev/null && [[ "$PWD" == "$cache/updates" ]]
+}
+
+# Writes stdin to file $1 in the current folder as a new file (noclobber creates it with O_EXCL,
+# never through a link) renamed over the old one (mv -T: never into a folder put in its place).
+publish() {
+  local tmp
+  tmp=$(mktemp -u .publish.XXXXXXXX) || return 1
+  if (umask 022; set -C; cat >"$tmp") 2>/dev/null && mv -fT -- "$tmp" "$1"; then return 0; fi
+  rm -f -- "$tmp"
+  return 1
+}
+
 # All physical disks underneath a block device, following partitions, LVM, LUKS and md-raid.
 disks_under() {
   lsblk -nslo NAME,TYPE "$1" 2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u

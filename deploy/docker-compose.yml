@@ -10,7 +10,7 @@
 #
 # Storage lives under ${STORAGE_ROOT} on the host (default /srv/familycloud):
 #   volumes/<disk>/   file data, one directory (usually one mounted disk) per volume
-#   cache/            thumbnails (safe to delete; regenerated)
+#   cache/            thumbnails, and the update status for the app (safe to delete; regenerated)
 #   db/               PostgreSQL data
 #   backups/          scripts/backup.sh output
 

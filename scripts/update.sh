@@ -38,64 +38,154 @@ load_env "$ENV_FILE"
 STORAGE_ROOT=${STORAGE_ROOT:-/srv/familycloud}
 CHANNEL=${UPDATE_CHANNEL:-stable}
 [[ "$CHANNEL" == stable || "$CHANNEL" == main ]] || die "UPDATE_CHANNEL must be stable or main."
+# Unattended (-y without a terminal, as from cron) is an automatic update; anything else is by hand.
+if $YES && [[ ! -t 0 ]]; then TRIGGER=auto; else TRIGGER=manual; fi
+
+# What the updater remembers between runs (UPD_* settings): the last check and what it found, the
+# update under way or how the last one went, and a version that failed once it reached the
+# database, which automatic updates then skip. Kept with the backups, out of the app's reach, and
+# shown to the app as cache/updates/status.json.
+STATE=$STORAGE_ROOT/backups/.update-state
+load_state() {
+  unset "${!UPD_@}"
+  load_env "$STATE"
+}
+save_state() {
+  local tmp key
+  tmp=$(mktemp "$STATE.XXXXXX") || return 1
+  if { for key in "${!UPD_@}"; do env_line "$key" "${!key}"; done; } >"$tmp" && mv -f "$tmp" "$STATE"; then
+    status_json | in_shared publish status.json || true
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+# Runs a command in cache/updates (enter_shared, lib.sh), in a subshell of its own.
+in_shared() ( enter_shared "$STORAGE_ROOT" && "$@" )
+# A JSON string for status.json: the value if it matches REGEX (by default a version, a time or a
+# word), else null. Nothing is escaped, so nothing else gets through: some values come from the
+# app's container (the running version).
+jstr() {
+  local re='^[A-Za-z0-9._:+-]{1,64}$'
+  [[ -z "${2:-}" ]] || re=$2
+  if [[ "$1" =~ $re ]]; then printf '"%s"' "$1"; else printf null; fi
+}
+jtime() { if [[ "$1" =~ ^[0-9]+$ ]]; then jstr "$(date -u -d "@$1" +%FT%TZ)"; else printf null; fi; }
+jbool() { if [[ "$1" == 1 ]]; then printf true; else printf false; fi; }
+status_json() {
+  local tz
+  tz=$(readlink -f /etc/localtime 2>/dev/null) || tz=
+  printf '{"format":1,"channel":%s,"checkout":%s,"timezone":%s,' "$(jstr "$CHANNEL")" \
+    "$(jstr "$ROOT" '^/[A-Za-z0-9._/-]{1,200}$')" "$(jstr "${tz#*/zoneinfo/}" '^[A-Za-z0-9_+/-]{1,64}$')"
+  printf '"triedAt":%s,"checkedAt":%s,"problem":%s,"latest":%s,"ready":%s,"manualSteps":%s,' \
+    "$(jtime "${UPD_TRIED_AT:-}")" "$(jtime "${UPD_CHECKED_AT:-}")" "$(jstr "${UPD_PROBLEM:-}")" \
+    "$(jstr "${UPD_LATEST:-}")" "$(jbool "${UPD_READY:-1}")" "$(jbool "${UPD_MANUAL:-0}")"
+  printf '"failedVersion":%s,"state":%s,"phase":%s,"from":%s,"to":%s,"at":%s,"reason":%s,"trigger":%s}\n' \
+    "$(jstr "${UPD_FAILED_VERSION:-}")" "$(jstr "${UPD_STATE:-idle}")" "$(jstr "${UPD_PHASE:-}")" \
+    "$(jstr "${UPD_FROM:-}")" "$(jstr "${UPD_TO:-}")" "$(jtime "${UPD_AT:-}")" \
+    "$(jstr "${UPD_REASON:-}")" "$(jstr "${UPD_TRIGGER:-}")"
+}
+# What a check found: LATEST is the version to move to ("" when there's nothing newer), with
+# what's new in it (notes.md), and MANUAL and READY say whether it can be installed unattended.
+record_check() {
+  UPD_TRIED_AT=$(date +%s)
+  UPD_CHECKED_AT=$UPD_TRIED_AT UPD_LATEST=$1 UPD_MANUAL=$MANUAL UPD_READY=$READY
+  if git diff --quiet HEAD; then UPD_PROBLEM=; else UPD_PROBLEM=local-changes; fi
+  if [[ -n "$1" ]]; then printf '%s\n' "$CHANGES"; fi | in_shared publish notes.md || true
+  save_state || true
+}
+# The update under way ends: STATE is done, rolled-back or failed, with REASON build, backup,
+# start, rollback or error. A version that failed after it reached the database (it crashed or
+# never answered) isn't installed automatically again.
+finish() {
+  local how="$1/${2:-}"
+  if [[ "$how" == rolled-back/ || "$how" == failed/start || "$how" == failed/rollback \
+    || ( "$how" == failed/error && "${UPD_PHASE:-}" == restart ) ]]; then
+    UPD_FAILED_VERSION=${UPD_TO:-}
+  fi
+  if [[ "$1" == "done" ]]; then
+    [[ "${UPD_FAILED_VERSION:-}" != "${UPD_TO:-}" ]] || UPD_FAILED_VERSION=
+    UPD_LATEST=
+    in_shared publish notes.md </dev/null || true
+  fi
+  UPD_STATE=$1 UPD_REASON=${2:-} UPD_PHASE=
+  UPD_AT=$(date +%s)
+  save_state || true
+}
+set_phase() { UPD_PHASE=$1; save_state || true; }
+# An update cut short: killed, or a step failed that isn't handled where it happens.
+cut_short() { if [[ "${UPD_STATE:-}" == updating ]]; then finish failed error; fi; }
 
 # One update at a time (a cron run and a manual one could otherwise overlap).
 exec 9>"$STORAGE_ROOT/backups/.update.lock"
 flock -n 9 || die "Another update is already running."
+load_state
+# Holding the lock, an update still under way is one that was cut short (by a power cut, say).
+cut_short
 
 cd "$ROOT/deploy"
 FROM=$(running_version)
 OLD_REF=$(git rev-parse HEAD)
+MANUAL=0
+READY=1
+
+# The version to move to: sets TARGET, TARGET_REF, TARGET_COMMIT and CHANGES (what's new since the
+# running version). Fails when the code repository can't be reached.
+find_update() {
+  git fetch --quiet --tags origin || return 1
+  if [[ "$CHANNEL" == stable ]]; then
+    TARGET=$(latest_release)
+    # No releases published yet: follow the main branch.
+    [[ -n "$TARGET" ]] || CHANNEL=main
+  fi
+  if [[ "$CHANNEL" == main ]]; then
+    git rev-parse --verify --quiet origin/main >/dev/null || die "No origin/main branch to follow."
+    TARGET=$(git describe --tags --always origin/main)
+    TARGET_REF=origin/main
+  else
+    TARGET_REF=$TARGET
+  fi
+  TARGET_COMMIT=$(git rev-parse "$TARGET_REF^{commit}")
+  CHANGES=""
+  if git cat-file -e "$TARGET_REF:CHANGELOG.md" 2>/dev/null; then
+    # Release versions only: v0.2.0-5-gabc1234 was built after v0.2.0.
+    CHANGES=$(git show "$TARGET_REF:CHANGELOG.md" | changes_since "${FROM%%-*}" \
+      | { if [[ "$CHANNEL" == stable ]]; then sed '/^## Unreleased$/d'; else cat; fi; })
+  fi
+}
 
 bold "Checking for updates ($CHANNEL)"
-git fetch --quiet --tags origin || die "Couldn't reach the code repository. Check the internet connection."
-if [[ "$CHANNEL" == stable ]]; then
-  TARGET=$(latest_release)
-  if [[ -z "$TARGET" ]]; then
-    info "No releases published yet, so following the main branch."
-    CHANNEL=main
-  fi
+if ! find_update; then
+  UPD_TRIED_AT=$(date +%s) UPD_PROBLEM=offline
+  save_state || true
+  die "Couldn't reach the code repository. Check the internet connection."
 fi
-if [[ "$CHANNEL" == main ]]; then
-  git rev-parse --verify --quiet origin/main >/dev/null || die "No origin/main branch to follow."
-  TARGET=$(git describe --tags --always origin/main)
-  TARGET_REF=origin/main
-else
-  TARGET_REF=$TARGET
-fi
+[[ "$CHANNEL" == "${UPDATE_CHANNEL:-stable}" ]] || info "No releases published yet, so following the main branch."
 
 info "Running:   $FROM"
 info "Available: $TARGET"
-TARGET_COMMIT=$(git rev-parse "$TARGET_REF^{commit}")
 if [[ "$FROM" == "$TARGET" && "$OLD_REF" == "$TARGET_COMMIT" ]]; then
+  record_check ""
   bold "Already up to date."
   exit 0
 fi
 # Database changes only go forwards, so never back: a checkout ahead of what the channel offers
 # (a test version, or main after the newest release) stays as it is.
 if [[ "$OLD_REF" != "$TARGET_COMMIT" ]] && git merge-base --is-ancestor "$TARGET_COMMIT" HEAD; then
+  record_check ""
   bold "Already newer than $TARGET."
   exit 0
 fi
 
 echo
 bold "What's new"
-if git cat-file -e "$TARGET_REF:CHANGELOG.md" 2>/dev/null; then
-  # Release versions only: v0.2.0-5-gabc1234 was built after v0.2.0.
-  CHANGES=$(git show "$TARGET_REF:CHANGELOG.md" | changes_since "${FROM%%-*}" \
-    | { if [[ "$CHANNEL" == stable ]]; then sed '/^## Unreleased$/d'; else cat; fi; })
+if [[ -n "$CHANGES" ]]; then
   sed 's/^/  /' <<<"$CHANGES" | head -60
 else
-  CHANGES=""
   git log --oneline "HEAD..$TARGET_REF" | head -20 | sed 's/^/  /'
 fi
 echo
-# Automatic updates never apply a release that needs someone to do something by hand.
-if $YES && grep -q '^### Before you update' <<<"$CHANGES"; then
-  info "Not updating automatically: $TARGET needs you to do something first (\"Before you update\" above)."
-  info "Read it, then run ./scripts/update.sh yourself."
-  exit 0
-fi
+if grep -q '^### Before you update' <<<"$CHANGES"; then MANUAL=1; fi
 # Official images are pinned to the exact release, so the image always matches these scripts.
 # A custom IMAGE (e.g. your fork's registry) is left alone.
 case "${IMAGE:-$RELEASE_IMAGE_REPO:latest}" in
@@ -104,7 +194,15 @@ case "${IMAGE:-$RELEASE_IMAGE_REPO:latest}" in
 esac
 # Until the release's image is published, this computer would build it instead: slow, and very
 # slow on a Raspberry Pi. Unattended updates wait for it.
-if $PINNED && [[ "$CHANNEL" == stable ]] && ! image_published "$TARGET"; then
+if $PINNED && [[ "$CHANNEL" == stable ]] && ! image_published "$TARGET"; then READY=0; fi
+record_check "$TARGET"
+# Automatic updates never apply a release that needs someone to do something by hand.
+if $YES && ((MANUAL)); then
+  info "Not updating automatically: $TARGET needs you to do something first (\"Before you update\" above)."
+  info "Read it, then run ./scripts/update.sh yourself."
+  exit 0
+fi
+if ((!READY)); then
   if $YES; then
     info "Not updating yet: the $TARGET image is still being published. The next run tries again."
     exit 0
@@ -113,6 +211,13 @@ if $PINNED && [[ "$CHANNEL" == stable ]] && ! image_published "$TARGET"; then
   echo
 fi
 if $CHECK; then exit 0; fi
+# Nor one that already failed here after it reached the database: it waits for a newer version,
+# or for someone to try it again by hand.
+if [[ "$TRIGGER" == auto && "$TARGET" == "${UPD_FAILED_VERSION:-}" ]]; then
+  info "Not updating automatically: $TARGET didn't start here last time."
+  info "Run ./scripts/update.sh yourself to try it again."
+  exit 0
+fi
 
 if ! git diff --quiet HEAD; then
   git status --short | sed 's/^/  /' >&2
@@ -122,6 +227,12 @@ if ! $YES; then
   read -r -p "  Update to $TARGET now? The family can't use the cloud for a minute or two. [y/N] " ans || true
   [[ "$ans" =~ ^[Yy] ]] || { info "Not updated."; exit 0; }
 fi
+
+# From here on the update is under way, and status.json says how it's going.
+UPD_STATE=updating UPD_PHASE=download UPD_FROM=$FROM UPD_TO=$TARGET UPD_REASON='' UPD_TRIGGER=$TRIGGER
+UPD_AT=$(date +%s)
+save_state || true
+trap cut_short EXIT
 
 # What to go back to if the new version can't be used: this checkout, the IMAGE setting, and the
 # image the app runs now, under a name of its own (a local build's name is about to move on, and
@@ -201,8 +312,11 @@ fi
 export IMAGE
 if [[ "$IMAGE" == "$LOCAL_IMAGE" ]] || ! docker compose pull --quiet app 2>/dev/null; then
   info "Building the image on this machine (takes a few minutes)…"
-  docker compose build app \
-    || { back_to_previous || true; die "Building $TARGET failed (see above), so nothing was changed."; }
+  if ! docker compose build app; then
+    back_to_previous || true
+    finish failed build
+    die "Building $TARGET failed (see above), so nothing was changed."
+  fi
 fi
 # Docker downloads the database, tunnel, Caddy and virus scanner images (postgres:18-alpine and
 # so on) only once. Fetch their newest builds too, or their security fixes never arrive.
@@ -215,10 +329,12 @@ docker compose pull --quiet --ignore-buildable \
 BACKUP_DIR=${BACKUP_DIR:-$STORAGE_ROOT/backups}
 DUMP="$BACKUP_DIR/pre-update-$(date +%Y%m%d-%H%M%S).dump"
 bold "Backing up the database"
+set_phase backup
 docker compose stop app worker
 if ! ( umask 077; docker compose exec -T db pg_dump -U familycloud -d familycloud -Fc > "$DUMP.partial" ); then
   rm -f "$DUMP.partial"
   back_to_previous || true
+  finish failed backup
   die "The database backup failed, so nothing was changed."
 fi
 mv "$DUMP.partial" "$DUMP"
@@ -226,13 +342,21 @@ info "$DUMP ($(du -h "$DUMP" | cut -f1))"
 ls -1t "$BACKUP_DIR"/pre-update-*.dump 2>/dev/null | tail -n +4 | xargs -r rm --
 
 bold "Restarting"
+set_phase restart
 docker compose up -d --remove-orphans
 if ! wait_healthy; then
   echo >&2
-  if app_crashed && roll_back; then
-    bold "Back on $FROM: $TARGET didn't start (see the logs above)."
-    info "The database is as it was just before the update. The next update tries again."
-    exit 1
+  if app_crashed; then
+    if roll_back; then
+      finish rolled-back
+      bold "Back on $FROM: $TARGET didn't start (see the logs above)."
+      info "The database is as it was just before the update. Automatic updates now skip $TARGET;"
+      info "run ./scripts/update.sh yourself to try it again."
+      exit 1
+    fi
+    finish failed rollback
+  else
+    finish failed start
   fi
   info "Your files are untouched, and the database was backed up to:" >&2
   info "  $DUMP" >&2
@@ -248,4 +372,5 @@ if [[ "$OLD_IMAGE" == "$RELEASE_IMAGE_REPO":* && "$OLD_IMAGE" != "$IMAGE" ]]; th
   docker image rm "$OLD_IMAGE" >/dev/null 2>&1 || true
 fi
 docker image prune -f >/dev/null || true
+finish "done"
 bold "Updated: $FROM → $(running_version)"

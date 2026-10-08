@@ -12,6 +12,9 @@ to do yourself when updating is listed under **Before you update**.
 
 - **Updating:** automatic updates now wait until a new release is ready to download, instead of
   building it on your computer in the meantime (which can take an hour on a Raspberry Pi).
+- **Updating:** when a new version doesn't start and the update goes back to the one you had,
+  automatic updates no longer try that version again each time; they wait for a newer one.
+  Running `./scripts/update.sh` yourself still tries it.
 
 ### Fixed
 
