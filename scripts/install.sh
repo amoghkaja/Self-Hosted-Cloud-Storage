@@ -7,7 +7,7 @@
 #
 # Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_API_TOKEN=... ./scripts/install.sh -y
 #   (CLOUDFLARE_TUNNEL_TOKEN=... for a tunnel you made yourself, or DOMAIN=cloud.example.com for
-#   Caddy; AUTO_UPDATE=yes adds the weekly update job; APP_PORT=3081 if 3080 is taken)
+#   Caddy; AUTO_UPDATE=yes installs updates at night; APP_PORT=3081 if 3080 is taken)
 # WAIT_SECS=600 gives a slow machine longer to start the first time (default 180).
 # A fresh clone installs the newest release; set UPDATE_CHANNEL=main to run the main branch.
 set -euo pipefail
@@ -82,7 +82,7 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is requi
 docker info >/dev/null 2>&1 || die "Can't talk to Docker. Is your user in the docker group? (sudo usermod -aG docker \$USER, then log in again)"
 
 # Keep existing values on re-runs (read safely: the file is never executed).
-MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|CLAMAV_HOST'
+MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|AUTO_UPDATE|CLAMAV_HOST'
 EXTRA_SETTINGS=""
 if [[ -f "$ENV_FILE" ]]; then
   load_env "$ENV_FILE"
@@ -213,6 +213,31 @@ if [[ -z "${IMAGE:-}" ]]; then
     IMAGE=$LOCAL_IMAGE
   fi
 fi
+# "At night" goes by this computer's clock, which servers often keep on UTC: on a first install,
+# offer the family's time zone (the nightly backups follow it too).
+if [[ ! -f "$ENV_FILE" ]] && ! $YES \
+  && [[ "$(timedatectl show -p Timezone --value 2>/dev/null)" =~ ^(Etc/)?UTC$ ]]; then
+  read -r -p "  This computer's clock is on UTC. Your time zone, e.g. Asia/Kolkata (Enter keeps UTC): " ZONE || true
+  if [[ -n "${ZONE:-}" ]]; then
+    if timedatectl list-timezones 2>/dev/null | grep -qxF -- "$ZONE"; then
+      sudo timedatectl set-timezone "$ZONE"
+      # cron reads the time zone when it starts.
+      sudo systemctl try-restart cron 2>/dev/null || true
+    else
+      info "That's not a time zone this computer knows; keeping UTC (sudo timedatectl set-timezone …)."
+    fi
+  fi
+fi
+# Updates at night, by the update helper (update.sh --cron); Admin → Overview switches them. An
+# install from before the helper had them as a weekly job: on stays on.
+if [[ -z "${AUTO_UPDATE:-}" ]] && weekly_update_job "$ROOT"; then AUTO_UPDATE=yes; fi
+if command -v crontab >/dev/null; then
+  if $YES; then AUTO_UPDATE=${AUTO_UPDATE:-no}; fi
+  # Suggested only for releases: the main branch can change daily.
+  [[ "$IMAGE" == "$RELEASE_IMAGE_REPO":* ]] && AUTO_DEFAULT=yes || AUTO_DEFAULT=no
+  ask AUTO_UPDATE "Install updates automatically, at night around 4:30? (yes/no)" "$AUTO_DEFAULT"
+fi
+[[ "${AUTO_UPDATE:-}" =~ ^[Yy] ]] && AUTO_UPDATE=yes || AUTO_UPDATE=no
 PUID=${PUID:-$(id -u)}
 PGID=${PGID:-$(id -g)}
 # Optional services follow the settings; docker compose reads COMPOSE_PROFILES from deploy/.env,
@@ -257,6 +282,7 @@ chmod 600 "$TMP_ENV"
   env_line APP_PORT "$APP_PORT"
   env_line IMAGE "$IMAGE"
   env_line UPDATE_CHANNEL "$UPDATE_CHANNEL"
+  env_line AUTO_UPDATE "$AUTO_UPDATE"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
   env_line CLAMAV_HOST "$CLAMAV_HOST"
   env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
@@ -293,17 +319,16 @@ fi
 docker compose up -d --remove-orphans
 wait_healthy || die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
 
-# Weekly automatic updates: update.sh backs up the database first and follows releases only.
-UPDATE_JOB="$(printf '%q' "$ROOT/scripts/update.sh") -y >> $(printf '%q' "$STORAGE_ROOT/backups/update.log") 2>&1"
-if command -v crontab >/dev/null && ! crontab -l 2>/dev/null | grep -qF "$ROOT/scripts/update.sh"; then
-  if $YES; then AUTO_UPDATE=${AUTO_UPDATE:-no}; fi
-  # Suggested only for releases: the main branch can change daily.
-  [[ "$IMAGE" == "$RELEASE_IMAGE_REPO":* ]] && AUTO_DEFAULT=yes || AUTO_DEFAULT=no
-  ask AUTO_UPDATE "Install new releases automatically, Sundays at 04:30? (yes/no)" "$AUTO_DEFAULT"
-  if [[ "$AUTO_UPDATE" =~ ^[Yy] ]]; then
-    { crontab -l 2>/dev/null || true; echo "30 4 * * 0 $UPDATE_JOB"; } | crontab -
-    info "Automatic updates on (crontab -e to change). Log: $STORAGE_ROOT/backups/update.log"
+# The update helper (update.sh --cron, every minute; most minutes it does nothing): checks for
+# updates, answers Admin → Overview and, with AUTO_UPDATE=yes, installs updates at night. It backs
+# up the database first, follows releases only and goes back if a new version doesn't start.
+if ensure_update_helper "$ROOT" "$STORAGE_ROOT/backups/update.log"; then
+  if [[ "$AUTO_UPDATE" == yes ]]; then
+    info "Updates install themselves at night. Log: $STORAGE_ROOT/backups/update.log"
   fi
+else
+  info "This computer has no cron (sudo apt install cron), so updates aren't checked or installed"
+  info "by themselves. Install it and run this installer again, or update by hand."
 fi
 
 if ! TOKEN=$(docker compose exec -T app node dist/cli.js setup-token 2>&1 | tail -1); then
@@ -326,7 +351,7 @@ elif [[ "$COMPOSE_PROFILES" != *tunnel* && "$COMPOSE_PROFILES" != *caddy* && "$P
   info "It's only reachable on this computer ($LOCAL_URL) until a tunnel or domain is set up:"
   info "re-run ./scripts/install.sh and choose how your family reaches it."
 fi
-info "Update later with ./scripts/update.sh (what's new: CHANGELOG.md)."
+info "Admin → Overview shows new versions and installs them; ./scripts/update.sh updates by hand."
 
 # Backups last: the setup token above is what's needed first, and backup setup is its own guide.
 if ! crontab -l 2>/dev/null | grep -qF "$ROOT/scripts/backup.sh"; then

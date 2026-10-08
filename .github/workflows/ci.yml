@@ -91,6 +91,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # The installer adds the update helper's crontab line; the steps below run it themselves.
+      - name: Stop cron
+        run: sudo systemctl stop cron || true
       - name: Shell scripts pass shellcheck
         run: shellcheck --severity=warning scripts/*.sh
       - name: Unattended updates can tell whether a release's image is published yet
@@ -105,6 +108,12 @@ jobs:
           docker image rm postgres:18.0-alpine
       - name: Install on a clean machine
         run: ./scripts/install.sh -y
+      - name: The installer adds the update helper, with automatic updates off (-y)
+        run: |
+          crontab -l
+          [[ "$(crontab -l | grep -c scripts/update.sh)" == 1 ]]
+          crontab -l | grep -qxF "* * * * * $PWD/scripts/update.sh --cron >> $STORAGE_ROOT/backups/update.log 2>&1"
+          grep -qx AUTO_UPDATE=no deploy/.env
       - name: The app answers and waits for its first admin
         run: |
           curl -fsS localhost:3080/healthz
@@ -199,6 +208,35 @@ jobs:
           [[ -z "$(ls -A "$RUNNER_TEMP/elsewhere")" ]]
           rm "$U"
           mv "$U.real" "$U"
+      - name: The update helper answers the app, and is quiet otherwise
+        run: |
+          U=$STORAGE_ROOT/cache/updates
+          ./scripts/update.sh --check
+          BEFORE=$(stat -c %Y "$U/status.json")
+          sleep 1
+          [[ -z "$(./scripts/update.sh --cron 2>&1)" ]]
+          [[ "$(stat -c %Y "$U/status.json")" == "$BEFORE" ]]
+          # "Check now"
+          touch "$U/request-check"
+          ./scripts/update.sh --cron
+          [[ ! -e "$U/request-check" ]]
+          jq -e '.latest == null and .problem == null' "$U/status.json"
+          # "Update now", to a newer version
+          git -c user.name=CI -c user.email=ci@localhost commit -q --allow-empty -m "Installed from the browser"
+          git push -q origin HEAD:main
+          git reset -q --hard HEAD~1
+          git fetch -q origin
+          touch "$U/request-update-$(git describe --tags --always origin/main)"
+          ./scripts/update.sh --cron
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]
+          jq -e '.state == "done" and .trigger == "browser"' "$U/status.json"
+          [[ -z "$(find "$U" -name 'request-*')" ]]
+          # Only regular files are requests: nothing else is opened, waited on or followed.
+          mkfifo "$U/request-check"
+          mkdir "$U/request-update-v1.2.3"
+          timeout 60 ./scripts/update.sh --cron
+          rm "$U/request-check"
+          rmdir "$U/request-update-v1.2.3"
       - name: An update that can't build or back up changes nothing
         run: |
           # A newer version that doesn't build: the update stops, and nothing changes.
@@ -223,7 +261,7 @@ jobs:
           [[ "$(cd deploy && docker compose ps -q app)" == "$OLD_APP" ]]
           jq -e '.state == "failed" and .reason == "backup"' "$STORAGE_ROOT/cache/updates/status.json"
           curl -fsS "localhost:${APP_PORT:-3080}/healthz"
-      - name: A new version that crashes on start is rolled back
+      - name: A new version that crashes on start at night is rolled back, and not tried again
         env:
           WAIT_SECS: '60'
         run: |
@@ -235,15 +273,41 @@ jobs:
           git -c user.name=CI -c user.email=ci@localhost commit -q -am "A version that crashes on start"
           git push -q origin HEAD:main
           git checkout -q -
-          if ./scripts/update.sh <<<y; then exit 1; fi
+          # Automatic updates on, in a time zone where it's now 04:45.
+          sed -i 's/^AUTO_UPDATE=.*/AUTO_UPDATE=yes/' deploy/.env
+          NOW=$(( 10#$(date -u +%H) * 60 + 10#$(date -u +%M) ))
+          OFF=$(( (NOW - (4 * 60 + 45) + 1440) % 1440 ))
+          export TZ=$(printf 'NIGHT+%02d:%02d' $((OFF / 60)) $((OFF % 60)))
+          STATE=$STORAGE_ROOT/backups/.update-state
+          sed -i '/^UPD_TRIED_AT=/d' "$STATE"
+          ./scripts/update.sh --cron
           [[ "$(git rev-parse HEAD)" == "$OLD" && "$(grep '^IMAGE=' deploy/.env)" == "$OLD_IMAGE" ]]
           [[ "$(docker inspect -f '{{.Image}}' "$(cd deploy && docker compose ps -q app)")" == "$OLD_IMAGE_ID" ]]
           curl -fsS "localhost:${APP_PORT:-3080}/healthz"
-          jq -e '.state == "rolled-back" and .failedVersion != null' "$STORAGE_ROOT/cache/updates/status.json"
+          jq -e '.state == "rolled-back" and .trigger == "auto" and .failedVersion != null' \
+            "$STORAGE_ROOT/cache/updates/status.json"
+          # What the app shows about it.
+          grep -q . "$STORAGE_ROOT/cache/updates/update.log"
+          # The next night it isn't tried again.
+          NEWEST=$(ls -t "$STORAGE_ROOT"/backups/pre-update-*.dump | head -1)
+          sed -i '/^UPD_AUTO_DAY=/d; /^UPD_TRIED_AT=/d' "$STATE"
+          ./scripts/update.sh --cron
+          [[ "$(git rev-parse HEAD)" == "$OLD" ]]
+          [[ "$(ls -t "$STORAGE_ROOT"/backups/pre-update-*.dump | head -1)" == "$NEWEST" ]]
           # The database was put back from the backup; the one the new version had is kept aside.
           cd deploy
           docker compose exec -T db psql -U familycloud -d postgres -tAc \
             "select datname from pg_database where datname = 'familycloud_failed_update'" | grep -q .
+      - name: Updating replaces the weekly automatic update of earlier installers
+        run: |
+          echo "30 4 * * 0 $PWD/scripts/update.sh -y >> $STORAGE_ROOT/backups/update.log 2>&1" | crontab -
+          sed -i '/^AUTO_UPDATE=/d' deploy/.env
+          ./scripts/update.sh -y
+          [[ "$(crontab -l | grep -c scripts/update.sh)" == 1 ]]
+          crontab -l | grep -qF -- "$PWD/scripts/update.sh --cron"
+          grep -qx AUTO_UPDATE=yes deploy/.env
       - name: Logs
         if: failure()
-        run: cd deploy && docker compose ps && docker compose logs --tail 80
+        run: |
+          cat "$STORAGE_ROOT/backups/update.log" "$STORAGE_ROOT/cache/updates/status.json" || true
+          cd deploy && docker compose ps && docker compose logs --tail 80

@@ -74,6 +74,29 @@ publish() {
   return 1
 }
 
+# Whether the crontab runs update.sh of the checkout in $1 with -y: the weekly automatic update
+# that installers added before the update helper.
+weekly_update_job() {
+  local script
+  script=$(printf '%q' "$1/scripts/update.sh")
+  crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep -qF -- "$script -y"
+}
+
+# Installs the update helper's crontab line (update.sh --cron of the checkout in $1, every minute,
+# logging to $2) in place of any other line that runs that update.sh. Fails without crontab.
+ensure_update_helper() {
+  local script line current runs others
+  command -v crontab >/dev/null || return 1
+  script=$(printf '%q' "$1/scripts/update.sh")
+  line="* * * * * $script --cron >> $(printf '%q' "$2") 2>&1"
+  current=$(crontab -l 2>/dev/null || true)
+  # The lines that run this update.sh, and all the others (comments are left alone).
+  runs=$(FC_SCRIPT=$script awk 'index($0, ENVIRON["FC_SCRIPT"]) && !/^[[:space:]]*#/' <<<"$current")
+  [[ "$runs" == "$line" ]] && return 0
+  others=$(FC_SCRIPT=$script awk '!(index($0, ENVIRON["FC_SCRIPT"]) && !/^[[:space:]]*#/)' <<<"$current")
+  { if [[ -n "$others" ]]; then printf '%s\n' "$others"; fi; echo "$line"; } | crontab -
+}
+
 # All physical disks underneath a block device, following partitions, LVM, LUKS and md-raid.
 disks_under() {
   lsblk -nslo NAME,TYPE "$1" 2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u

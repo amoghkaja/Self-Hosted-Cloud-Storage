@@ -28,7 +28,8 @@ A fresh clone installs the newest release. Before changing anything, it checks t
 | Address family members will use | `https://cloud.example.com` | Must match what people type in the browser |
 | Name shown in the app | `Smith Family Cloud` | |
 | Where to keep files and the database | `/srv/familycloud` | Put it on the disk with the most space |
-| Install new releases automatically? | `yes` | Sundays at 04:30, with a database backup first. See [Updating](#updating). |
+| Your time zone (only if the computer's clock is on UTC) | `Asia/Kolkata` | So that "at night" means your night |
+| Install updates automatically, at night? | `yes` | Around 04:30, with a database backup first. See [Updating](#updating). |
 
 It then:
 
@@ -125,7 +126,7 @@ It shows what's new since your version (from [CHANGELOG.md](../CHANGELOG.md)) an
 The family can't use the cloud for a minute or two while it restarts. Database changes are applied automatically on start. **Admin → Overview** shows the version you run, at the bottom.
 
 - **Just check:** `./scripts/update.sh --check` says whether there's a new version, without changing anything.
-- **Automatic updates:** the installer offers a weekly job (Sundays 04:30). To add it later, run `crontab -e` and add `30 4 * * 0 /path/to/familycloud/scripts/update.sh -y >> /srv/familycloud/backups/update.log 2>&1`. A new release is ready to download a little after it's announced; automatic updates wait for that, rather than build it on your computer.
+- **Automatic updates:** the installer adds a crontab line that runs `scripts/update.sh --cron` every minute (most minutes it does nothing). It looks for new versions every 6 hours and, with `AUTO_UPDATE=yes` in `deploy/.env`, installs them at night between 04:30 and 05:30 by the computer's clock. It waits until a new release is ready to download rather than build it on your computer, and it doesn't try a version again that failed to start. Its log is `/srv/familycloud/backups/update.log`. Running `./scripts/update.sh` adds the line if it's missing.
 - **Releases that need you.** A release that needs you to do something lists it under **Before you update** in the changelog, and raises the first number of the version, e.g. `v1.x` → `v2.0` ([how versions are numbered](releasing.md)). Automatic updates skip these, and the log says why: read the notes, then run `./scripts/update.sh` yourself.
 - **Follow the latest code instead of releases:** set `UPDATE_CHANNEL=main` in `deploy/.env`. Updates then build `main` on your machine.
 - **An update failed?** Your files aren't touched. If the new version couldn't be built or the database backup failed, nothing was changed and the cloud carries on as before. If the new version crashes on start, `update.sh` goes back to the one you had by itself, with the database as it was just before the update. Automatic updates then wait for a newer version; running `./scripts/update.sh` yourself tries that one again. If it's only slow to start (a big database change on a small computer), it's left to finish, and `update.sh` prints how to go back by hand: check out the previous version, and restore the `pre-update` database backup ([backup-restore.md](backup-restore.md)).

@@ -5,7 +5,10 @@
 #
 #   ./scripts/update.sh           show what's new, ask, then update
 #   ./scripts/update.sh --check   only show whether an update is available
-#   ./scripts/update.sh -y        update without asking (for cron: automatic updates)
+#   ./scripts/update.sh -y        update without asking
+#   ./scripts/update.sh --cron    the update helper, run every minute by the crontab line the
+#                                 installer adds: answers Admin → Overview, checks for updates
+#                                 every few hours and installs them at night (AUTO_UPDATE=yes)
 #
 # UPDATE_CHANNEL in deploy/.env picks what to follow:
 #   stable (default)  the newest release (vX.Y.Z), using its published image
@@ -19,11 +22,13 @@ ROOT="$(pwd)"
 ENV_FILE="$ROOT/deploy/.env"
 YES=false
 CHECK=false
+CRON=false
 for arg in "$@"; do
   case "$arg" in
     -y|--yes) YES=true ;;
     --check) CHECK=true ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    --cron) CRON=true ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -32,14 +37,24 @@ bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 die() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
-[[ -f "$ENV_FILE" ]] || die "No deploy/.env yet. Install first: ./scripts/install.sh"
+if [[ ! -f "$ENV_FILE" ]]; then
+  $CRON && exit 0
+  die "No deploy/.env yet. Install first: ./scripts/install.sh"
+fi
 git rev-parse --git-dir >/dev/null 2>&1 || die "Updating needs the git checkout you installed from."
 load_env "$ENV_FILE"
 STORAGE_ROOT=${STORAGE_ROOT:-/srv/familycloud}
 CHANNEL=${UPDATE_CHANNEL:-stable}
 [[ "$CHANNEL" == stable || "$CHANNEL" == main ]] || die "UPDATE_CHANNEL must be stable or main."
-# Unattended (-y without a terminal, as from cron) is an automatic update; anything else is by hand.
-if $YES && [[ ! -t 0 ]]; then TRIGGER=auto; else TRIGGER=manual; fi
+# Who started it: the helper says (browser, or auto at night); -y without a terminal, as from a
+# crontab line of one's own, is automatic too; anything else is by hand.
+if [[ -n "${FC_UPDATE_TRIGGER:-}" ]]; then
+  TRIGGER=$FC_UPDATE_TRIGGER
+elif $YES && [[ ! -t 0 ]]; then
+  TRIGGER=auto
+else
+  TRIGGER=manual
+fi
 
 # What the updater remembers between runs (UPD_* settings): the last check and what it found, the
 # update under way or how the last one went, and a version that failed once it reached the
@@ -73,10 +88,12 @@ jstr() {
 jtime() { if [[ "$1" =~ ^[0-9]+$ ]]; then jstr "$(date -u -d "@$1" +%FT%TZ)"; else printf null; fi; }
 jbool() { if [[ "$1" == 1 ]]; then printf true; else printf false; fi; }
 status_json() {
-  local tz
+  local tz auto=0 next=""
   tz=$(readlink -f /etc/localtime 2>/dev/null) || tz=
-  printf '{"format":1,"channel":%s,"checkout":%s,"timezone":%s,' "$(jstr "$CHANNEL")" \
-    "$(jstr "$ROOT" '^/[A-Za-z0-9._/-]{1,200}$')" "$(jstr "${tz#*/zoneinfo/}" '^[A-Za-z0-9_+/-]{1,64}$')"
+  if [[ "${AUTO_UPDATE:-}" == yes ]]; then auto=1 next=$(next_auto); fi
+  printf '{"format":1,"channel":%s,"checkout":%s,"timezone":%s,"auto":%s,"nextAutoAt":%s,' \
+    "$(jstr "$CHANNEL")" "$(jstr "$ROOT" '^/[A-Za-z0-9._/-]{1,200}$')" \
+    "$(jstr "${tz#*/zoneinfo/}" '^[A-Za-z0-9_+/-]{1,64}$')" "$(jbool "$auto")" "$(jtime "$next")"
   printf '"triedAt":%s,"checkedAt":%s,"problem":%s,"latest":%s,"ready":%s,"manualSteps":%s,' \
     "$(jtime "${UPD_TRIED_AT:-}")" "$(jtime "${UPD_CHECKED_AT:-}")" "$(jstr "${UPD_PROBLEM:-}")" \
     "$(jstr "${UPD_LATEST:-}")" "$(jbool "${UPD_READY:-1}")" "$(jbool "${UPD_MANUAL:-0}")"
@@ -116,12 +133,134 @@ set_phase() { UPD_PHASE=$1; save_state || true; }
 # An update cut short: killed, or a step failed that isn't handled where it happens.
 cut_short() { if [[ "${UPD_STATE:-}" == updating ]]; then finish failed error; fi; }
 
-# One update at a time (a cron run and a manual one could otherwise overlap).
-exec 9>"$STORAGE_ROOT/backups/.update.lock"
-flock -n 9 || die "Another update is already running."
+# For the update helper (--cron). The requests the app leaves in cache/updates (Admin → Overview)
+# are empty files whose name is the whole request: only regular files with these exact names
+# count, and none is ever opened.
+list_requests() {
+  local f
+  for f in request-auto-on request-auto-off request-check request-update-*; do
+    if [[ ! -L "$f" && -f "$f" \
+      && "$f" =~ ^request-(auto-on|auto-off|check|update-[A-Za-z0-9][A-Za-z0-9._+-]{0,63})$ ]]; then
+      printf '%s\n' "$f"
+    fi
+  done
+}
+# A check every 6 hours, so the app knows about new versions.
+check_due() { (( $(date +%s) - ${UPD_TRIED_AT:-0} >= 6 * 3600 )); }
+# Automatic updates, once a night from 04:30 to 05:29 by this computer's clock (every 10 minutes
+# while the code repository can't be reached). A computer that's off then waits for the next.
+auto_due() {
+  local now
+  now=$(date +%H%M)
+  [[ "${AUTO_UPDATE:-}" == yes && "${UPD_AUTO_DAY:-}" != "$(date +%F)" ]] \
+    && (( 10#$now >= 430 && 10#$now < 530 && $(date +%s) - ${UPD_TRIED_AT:-0} >= 600 ))
+}
+# When they next run (epoch): at 04:30 tonight, or tomorrow once tonight's has.
+next_auto() {
+  if [[ "${UPD_AUTO_DAY:-}" == "$(date +%F)" ]] || (( 10#$(date +%H%M) >= 530 )); then
+    date -d 'tomorrow 04:30' +%s
+  else
+    date -d '04:30' +%s
+  fi
+}
+# Runs update.sh with ARGS as a child on this run's lock, for WHO (browser, or auto). Its output
+# goes to the log for an update or a failure, and an update that fails leaves its end for the app
+# (update.log).
+run_child() {
+  local who=$1 out since rc=0
+  shift
+  out=$(mktemp "$STORAGE_ROOT/backups/.update-run.XXXXXX")
+  since=$(date +%s)
+  FC_UPDATE_TRIGGER=$who "$ROOT/scripts/update.sh" "$@" >"$out" 2>&1 </dev/null || rc=$?
+  load_state
+  if [[ "$1" == -y ]] || ((rc)); then
+    printf '\n%s  update.sh %s (%s)\n' "$(date '+%F %T')" "$*" "$who"
+    cat "$out"
+  fi
+  if [[ "${UPD_STATE:-}" == failed || "${UPD_STATE:-}" == rolled-back ]] && (( ${UPD_AT:-0} >= since )); then
+    sed 's/\x1b\[[0-9;]*m//g' "$out" | tail -n 80 | in_shared publish update.log || true
+  fi
+  rm -f "$out"
+  return "$rc"
+}
+
+# The helper's minute: most of the time there's nothing to do, which it decides from file names
+# and the clock alone (no git, no docker, no writes, no output).
+if $CRON; then
+  load_state
+  [[ -n "$(in_shared list_requests)" || "${UPD_STATE:-}" == updating ]] || check_due || auto_due \
+    || exit 0
+fi
+
+# One update at a time (a cron run and a manual one could otherwise overlap). An update the helper
+# starts runs as its child, on the lock it inherited; by hand, wait a moment for the helper.
+[[ -n "${FC_UPDATE_TRIGGER:-}" ]] || exec 9>"$STORAGE_ROOT/backups/.update.lock"
+if $CRON; then
+  flock -n 9 || exit 0
+else
+  flock -w 30 9 || die "Another update is already running."
+fi
 load_state
 # Holding the lock, an update still under way is one that was cut short (by a power cut, say).
 cut_short
+
+if $CRON; then
+  REQUESTS=$(in_shared list_requests || true)
+  has() { grep -qxF -- "$1" <<<"$REQUESTS"; }
+  # Automatic updates switched on or off in Admin → Overview (the newer request wins). The setting
+  # itself is AUTO_UPDATE in deploy/.env.
+  if has request-auto-on || has request-auto-off; then
+    if has request-auto-on && ! { has request-auto-off && in_shared test request-auto-off -nt request-auto-on; }; then
+      AUTO_UPDATE=yes
+    else
+      AUTO_UPDATE=no
+    fi
+    set_env "$ENV_FILE" AUTO_UPDATE "$AUTO_UPDATE" || true
+    echo "$(date '+%F %T')  Automatic updates turned $([[ $AUTO_UPDATE == yes ]] && echo on || echo off) in Admin → Overview."
+    save_state || true
+    in_shared rm -f -- request-auto-on request-auto-off || true
+  fi
+  # Versions to install from Admin → Overview. One asked for while nothing was answering is
+  # dropped: an update shouldn't start half an hour or more later.
+  mapfile -t ASKED < <(grep '^request-update-' <<<"$REQUESTS" || true)
+  WANTED=""
+  for r in "${ASKED[@]}"; do
+    if (( $(date +%s) - $(in_shared stat -c %Y -- "$r" || echo 0) <= 1800 )); then
+      WANTED+="${r#request-update-}"$'\n'
+    else
+      in_shared rm -f -- "$r" || true
+    fi
+  done
+  NIGHT=false
+  if auto_due; then NIGHT=true; fi
+  if [[ -n "$WANTED" ]] || has request-check || check_due || $NIGHT; then
+    if run_child auto --check; then
+      if [[ -n "${UPD_LATEST:-}" ]] && grep -qxF -- "$UPD_LATEST" <<<"$WANTED"; then
+        run_child browser -y || true
+      elif $NIGHT && [[ "${UPD_READY:-1}" == 1 ]]; then
+        if [[ -n "${UPD_LATEST:-}" && "$UPD_LATEST" != "${UPD_FAILED_VERSION:-}" ]]; then
+          run_child auto -y || true
+        fi
+        # That's tonight's, unless the image was still being published: then again in 10 minutes.
+        UPD_AUTO_DAY=$(date +%F)
+        save_state || true
+      fi
+    fi
+    # Answered, however it went: status.json says what happened.
+    in_shared rm -f -- request-check "${ASKED[@]}" || true
+  fi
+  exit 0
+fi
+
+# The update helper replaces the weekly automatic update that installers before it added (and
+# keeps automatic updates on, at night, if that did them).
+if ! $CHECK && [[ -z "${FC_UPDATE_TRIGGER:-}" ]]; then
+  if [[ -z "${AUTO_UPDATE:-}" ]]; then
+    if weekly_update_job "$ROOT"; then AUTO_UPDATE=yes; else AUTO_UPDATE=no; fi
+    set_env "$ENV_FILE" AUTO_UPDATE "$AUTO_UPDATE"
+  fi
+  ensure_update_helper "$ROOT" "$STORAGE_ROOT/backups/update.log" || true
+fi
 
 cd "$ROOT/deploy"
 FROM=$(running_version)
@@ -232,6 +371,7 @@ fi
 UPD_STATE=updating UPD_PHASE=download UPD_FROM=$FROM UPD_TO=$TARGET UPD_REASON='' UPD_TRIGGER=$TRIGGER
 UPD_AT=$(date +%s)
 save_state || true
+in_shared rm -f update.log || true
 trap cut_short EXIT
 
 # What to go back to if the new version can't be used: this checkout, the IMAGE setting, and the

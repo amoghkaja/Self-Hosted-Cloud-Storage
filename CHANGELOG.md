@@ -8,6 +8,17 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### New
+
+- **Automatic updates at night:** automatic updates now run every night around 4:30 instead of on
+  Sundays, so fixes arrive within a day, and new versions are looked for every few hours. A
+  crontab line runs `./scripts/update.sh --cron` every minute for this; most minutes it does
+  nothing. If you had the Sunday updates, the next time `./scripts/update.sh` runs (by hand, or
+  by itself that Sunday) it switches over and keeps automatic updates on. They're turned on or
+  off with `AUTO_UPDATE=yes` or `no` in `deploy/.env`.
+- **Installing:** on a computer whose clock is on UTC, the installer offers to set your time zone,
+  so updates and backups run at night where you are.
+
 ### Improved
 
 - **Updating:** automatic updates now wait until a new release is ready to download, instead of
