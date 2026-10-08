@@ -98,6 +98,8 @@ export const ThumbQuery = z.object({
     .number()
     .pipe(z.union([z.literal(256), z.literal(1600)]))
     .default(256),
+  /** The file's version (changes with its contents): an address with one is cached for good. */
+  v: z.string().max(64).optional(),
 });
 
 export const ZipQuery = z.object({

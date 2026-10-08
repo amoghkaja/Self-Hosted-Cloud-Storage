@@ -161,4 +161,21 @@ describe('thumbnail cache', () => {
     await generateThumbnail(env.ctx, blob.id);
     expect((await c.get(`/nodes/${id}/thumbnail`)).status).toBe(200);
   });
+
+  it('keeps a thumbnail for good only at an address that carries its version', async () => {
+    const png = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: '#aa2266' },
+    })
+      .png()
+      .toBuffer();
+    const id = (await uploadFile(c, root, 'versioned.png', png, { mimeType: 'image/png' })).final!
+      .body.node.id;
+    await generateThumbnail(env.ctx, (await blobOf(id)).id);
+    // Without a version the browser checks back (a 304 when unchanged), so a view that forgets
+    // it shows a saved-over photo's new picture rather than the old one for a year.
+    const plain = await c.get(`/nodes/${id}/thumbnail`);
+    expect(plain.headers['cache-control']).toBe('private, no-cache');
+    const versioned = await c.get(`/nodes/${id}/thumbnail?v=2026-10-07T08:00:00.000Z`);
+    expect(versioned.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+  });
 });

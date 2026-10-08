@@ -631,7 +631,7 @@ export const linkRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       const r = await publicFile(req, req.params.token, req.params.nodeId);
       if (!r.node.blobId || r.node.thumb !== 'ready') throw notFound('Thumbnail');
-      return sendThumbnail(ctx, req, reply, r.node.blobId, req.query.size);
+      return sendThumbnail(ctx, req, reply, r.node.blobId, req.query);
     },
   );
 

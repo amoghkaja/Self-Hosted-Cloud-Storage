@@ -526,7 +526,7 @@ export const photoRoutes: FastifyPluginAsyncZod = async (app) => {
       requireUser(req);
       const p = await albumPhoto(req.params.id, req.params.nodeId);
       if (p.thumb !== 'ready') throw notFound('Thumbnail');
-      return sendThumbnail(ctx, req, reply, p.node.blobId!, req.query.size);
+      return sendThumbnail(ctx, req, reply, p.node.blobId!, req.query);
     },
   );
 

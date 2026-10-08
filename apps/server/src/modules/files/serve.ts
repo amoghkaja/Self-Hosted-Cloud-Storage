@@ -265,7 +265,7 @@ export async function sendThumbnail(
   req: FastifyRequest,
   reply: FastifyReply,
   blobId: string,
-  size: ThumbSize,
+  { size, v }: { size: ThumbSize; v?: string },
 ) {
   await refuseUnsafe(ctx, blobId);
   const file = thumbPath(ctx.config.cacheDir, blobId, size);
@@ -286,9 +286,9 @@ export async function sendThumbnail(
   const etag = `"${blobId}-${size}"`;
   reply
     .header('ETag', etag)
-    // The address is a file's id plus its version (`v`, its updatedAt), and a file's contents
-    // change only with a new version: so the bytes behind one address never change.
-    .header('Cache-Control', 'private, max-age=31536000, immutable')
+    // With its version (`v`), an address's bytes never change: keep them for good. Without one
+    // the address outlives a change of contents, so the browser checks back (a 304 if unchanged).
+    .header('Cache-Control', v ? 'private, max-age=31536000, immutable' : 'private, no-cache')
     .header('Content-Type', 'image/webp')
     .header('X-Content-Type-Options', 'nosniff');
   if (etagMatches(req.headers['if-none-match'], etag)) return reply.status(304).send();

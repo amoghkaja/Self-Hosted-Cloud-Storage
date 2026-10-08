@@ -440,7 +440,7 @@ export const fileRoutes: FastifyPluginAsyncZod = async (app) => {
       const { user } = requireUser(req);
       const a = await requireAccess(db, user.id, req.params.id, 'view');
       if (!a.node.blobId || a.node.thumb !== 'ready') throw notFound('Thumbnail');
-      return sendThumbnail(ctx, req, reply, a.node.blobId, req.query.size);
+      return sendThumbnail(ctx, req, reply, a.node.blobId, req.query);
     },
   );
 
