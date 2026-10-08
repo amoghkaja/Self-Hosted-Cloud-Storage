@@ -127,13 +127,26 @@ changelog_section() {
   '
 }
 
-# The mount point that holds a path (or, if it doesn't exist, its nearest existing parent).
-mount_of() {
+# A path if it exists, otherwise its nearest existing parent (findmnt -T fails on a missing path).
+nearest_existing() {
   local p=$1
   while [[ ! -e "$p" ]]; do p=$(dirname "$p"); done
-  findmnt -nro TARGET -T "$p"
+  printf '%s\n' "$p"
 }
+
+# The mount point that holds a path (or, if it doesn't exist, its nearest existing parent).
+mount_of() { findmnt -nro TARGET -T "$(nearest_existing "$1")"; }
 
 # Where backup.sh remembers which mount point a folder repository's disk is on: an unplugged
 # backup disk leaves an empty folder on the system disk, where no new repository may start.
 restic_mount_file() { echo "$1/.restic-mount"; }
+
+# Records that mount point for repository $2 (a /folder or local:/folder) in backup folder $1.
+# Other repositories (sftp:, b2:, s3:) aren't on a disk of this machine: nothing is recorded.
+remember_repo_mount() {
+  local dir=${2#local:}
+  if [[ "$dir" == /* ]]; then
+    mkdir -p "$1"
+    mount_of "$dir" > "$(restic_mount_file "$1")"
+  fi
+}

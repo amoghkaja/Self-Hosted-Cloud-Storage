@@ -43,9 +43,9 @@ yes_no() { # yes_no "Question" [default y|n]
 }
 # Physical disks holding a path (or, if it doesn't exist yet, its nearest existing parent).
 disks_of() {
-  local p=$1 src
-  while [[ ! -e "$p" ]]; do p=$(dirname "$p"); done
-  src=$(findmnt -nvo SOURCE -T "$p" 2>/dev/null) || return 0
+  local src
+  # Not via mount_of: it hex-escapes spaces in a mount point (/media/me/My\x20Passport).
+  src=$(findmnt -nvo SOURCE -T "$(nearest_existing "$1")" 2>/dev/null) || return 0
   if [[ -b "$src" ]]; then disks_under "$src"; fi
 }
 
@@ -134,10 +134,7 @@ else
     mv "$BACKUP_ENV.partial" "$BACKUP_ENV"
     # From the first nightly run on, backup.sh refuses to start a repository anywhere but this
     # disk (the disk is here now; tonight it may not be).
-    if [[ "$RESTIC_REPOSITORY" == /* ]]; then
-      mkdir -p "$BACKUP_DIR"
-      mount_of "$RESTIC_REPOSITORY" > "$(restic_mount_file "$BACKUP_DIR")"
-    fi
+    remember_repo_mount "$BACKUP_DIR" "$RESTIC_REPOSITORY"
     unset KEY
     export RESTIC_REPOSITORY RESTIC_PASSWORD
     bold "Wrote deploy/backup.env"

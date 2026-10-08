@@ -57,7 +57,7 @@ if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
     log "Initializing restic repository"
     restic init
   fi
-  if [[ "$REPO_DIR" == /* ]]; then mount_of "$REPO_DIR" > "$REPO_MOUNT_FILE"; fi
+  remember_repo_mount "$BACKUP_DIR" "$RESTIC_REPOSITORY"
   log "restic backup of volumes + database dumps"
   # Thumbnails (cache/) are derived data and are deliberately skipped. So is each disk's
   # lost+found: only root can read it, and an unreadable folder fails the run before pruning.
