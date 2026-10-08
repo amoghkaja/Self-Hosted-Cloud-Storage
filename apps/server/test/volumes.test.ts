@@ -163,7 +163,8 @@ describe('thumbnails', () => {
     expect(node.thumb).toBe('pending');
     const job = env.jobs.take('thumbnail').at(-1)!;
     await generateThumbnail(env.ctx, (job.data as { blobId: string }).blobId);
-    const res = await admin.get(`/nodes/${node.id}/thumbnail?size=256`);
+    // As the web app asks for it: with the file's version, so it can be kept for good.
+    const res = await admin.get(`/nodes/${node.id}/thumbnail?size=256&v=${node.updatedAt}`);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('image/webp');
     expect(res.headers['cache-control']).toContain('immutable');
