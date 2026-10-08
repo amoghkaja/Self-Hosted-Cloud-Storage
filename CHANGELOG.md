@@ -8,6 +8,13 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Fixed
+
+- **Updating:** when an update stops because the database backup failed, it now finishes only
+  once the version you had is answering again. It used to finish while the cloud was still
+  starting, and said "nothing was changed" even if the cloud then didn't come back; now it says
+  so and shows the logs.
+
 ## v0.6.0 (2026-10-08)
 
 ### Security

@@ -126,8 +126,11 @@ back_to_previous() {
   else
     git -c advice.detachedHead=false checkout --quiet "$OLD_REF"
   fi || failed=1
-  if ((restore)); then docker compose up -d --remove-orphans || failed=1; fi
   set_env "$ENV_FILE" IMAGE "$IMAGE" || failed=1
+  # Back once it answers, not once its container starts: the update ends right after this.
+  if ((restore)); then
+    docker compose up -d --remove-orphans && wait_healthy || failed=1
+  fi
   return "$failed"
 }
 # After a new version crashed on start: the database as the backup below holds it, then the
@@ -148,7 +151,7 @@ roll_back() {
   db_sql 'DROP DATABASE IF EXISTS familycloud_failed_update' || return 1
   db_sql 'ALTER DATABASE familycloud RENAME TO familycloud_failed_update' || return 1
   db_sql 'ALTER DATABASE familycloud_restore RENAME TO familycloud' || return 1
-  back_to_previous && wait_healthy
+  back_to_previous
 }
 # Crashed (restarted or stopped), rather than still busy with a big database change on a slow
 # computer: that one is left to finish.
