@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.7.0 (2026-10-12)
+
 ### New
 
 - **Updates in the browser:** Admin → Overview shows when there's a new version and what's new in
