@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.8.0 (2026-10-16)
+
 ### New
 
 - **Edit documents in the browser:** Word, Excel and PowerPoint files (`.docx`, `.xlsx`,
