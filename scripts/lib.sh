@@ -174,6 +174,35 @@ set_env() {
   mv "$tmp" "$file"
 }
 
+# The document editor (scripts/office.sh, and the installer's question) gets an address of its
+# own next to PUBLIC_URL ($1): office.<domain>, the Tailscale name on port 8443, or a port of
+# this computer ($2, 3081 by default).
+office_url_for() {
+  local scheme=${1%%://*} rest=${1#*://} host
+  host=${rest%%[:/]*}
+  if [[ "$host" == *.ts.net ]]; then
+    echo "https://$host:8443"
+  elif [[ "$scheme" == http || "$rest" == *:* || "$host" == localhost || "$host" =~ ^[0-9.]+$ ]]; then
+    echo "http://$host:${2:-3081}"
+  elif [[ "$host" =~ ^[^.]+\.[^.]+\.[^.]+ ]]; then
+    echo "https://office.${host#*.}"
+  else
+    echo "https://office.$host"
+  fi
+}
+office_host() { local rest=${1#*://}; echo "${rest%%[:/]*}"; }
+# Without a tunnel or Caddy, the editor is reached on a port of this computer: the one in its
+# address ($1), or 3081 ($2) behind Tailscale, which serves it on 8443.
+office_local_port() {
+  local port=${1##*:}
+  if [[ "$(office_host "$1")" == *.ts.net || ! "$port" =~ ^[0-9]+$ ]]; then port=${2:-3081}; fi
+  echo "$port"
+}
+# Whether $1 is an editor address that can go with PUBLIC_URL $2: http(s), no path, not $2.
+office_url_ok() {
+  [[ "$1" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ && "$1" != "${2%/}" ]]
+}
+
 # Where official release images are published (tags v0.1.0, v0.1, latest, edge).
 # shellcheck disable=SC2034  # these two are used by the scripts that load this file
 RELEASE_IMAGE_REPO=ghcr.io/amoghkaja/self-hosted-cloud-storage

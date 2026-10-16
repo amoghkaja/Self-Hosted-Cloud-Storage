@@ -18,7 +18,9 @@ The switch starts and removes the editor through the update helper (see [Updatin
 
 ## Adding it
 
-On the server:
+**A new install asks.** The installer offers it (suggesting yes on computers with 4 GB of memory or more), asks for the editor's address, and sets that up along with everything else: with a Cloudflare API token it adds the address to the tunnel too. For an unattended install, pass `OFFICE_EDITING=yes` (and `OFFICE_PUBLIC_URL=…` for an address other than the suggested one).
+
+**On an existing install**, or to add it later, on the server:
 
 ```bash
 ./scripts/office.sh on       # add the editor (asks for its address the first time)

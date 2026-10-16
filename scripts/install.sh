@@ -7,8 +7,9 @@
 #
 # Non-interactive: PUBLIC_URL=https://cloud.example.com CLOUDFLARE_API_TOKEN=... ./scripts/install.sh -y
 #   (CLOUDFLARE_TUNNEL_TOKEN=... for a tunnel you made yourself, or DOMAIN=cloud.example.com for
-#   Caddy; UPDATES=auto|notify|manual for how updates happen, notify by default; APP_PORT=3081 if
-#   3080 is taken)
+#   Caddy; UPDATES=auto|notify|manual for how updates happen, notify by default; APP_PORT=3082 if
+#   3080 is taken; OFFICE_EDITING=yes to add the document editor, OFFICE_PUBLIC_URL=… for its
+#   own address)
 # WAIT_SECS=600 gives a slow machine longer to start the first time (default 180).
 # A fresh clone installs the newest release; set UPDATE_CHANNEL=main to run the main branch.
 set -euo pipefail
@@ -89,7 +90,7 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is requi
 docker info >/dev/null 2>&1 || die "Can't talk to Docker. Is your user in the docker group? (sudo usermod -aG docker \$USER, then log in again)"
 
 # Keep existing values on re-runs (read safely: the file is never executed).
-MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|UPDATES|CLAMAV_HOST'
+MANAGED_KEYS='PUBLIC_URL|APP_NAME|SECRET_KEY|POSTGRES_PASSWORD|STORAGE_ROOT|PUID|PGID|CLOUDFLARE_TUNNEL_TOKEN|DOMAIN|APP_PORT|IMAGE|LOG_LEVEL|COMPOSE_PROFILES|UPDATE_CHANNEL|UPDATES|CLAMAV_HOST|OFFICE_PUBLIC_URL|OFFICE_TLS|OFFICE_DOMAIN|OFFICE_PORT'
 EXTRA_SETTINGS=""
 if [[ -f "$ENV_FILE" ]]; then
   load_env "$ENV_FILE"
@@ -165,7 +166,7 @@ STORAGE_ROOT=${STORAGE_ROOT%/}
 APP_RUNNING=$(cd "$ROOT/deploy" && docker compose ps -q app 2>/dev/null || true)
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 if [[ -z "$APP_RUNNING" ]] && port_busy "$APP_PORT"; then
-  die "Port $APP_PORT is already used by another program here. Pick a free one: APP_PORT=3081 ./scripts/install.sh"
+  die "Port $APP_PORT is already used by another program here. Pick a free one: APP_PORT=3082 ./scripts/install.sh"
 fi
 if [[ -n "${DOMAIN:-}" ]] && [[ -z "$(cd "$ROOT/deploy" && docker compose ps -q caddy 2>/dev/null || true)" ]]; then
   for p in 80 443; do
@@ -206,6 +207,22 @@ if [[ ! -f "$ENV_FILE" ]]; then
   fi
 fi
 CLAMAV_HOST=${CLAMAV_HOST:-}
+
+# Also asked on a first install only; scripts/office.sh adds or removes it later, and Admin →
+# Settings turns it off completely. Suggested where there's memory to spare (it needs 1-2 GB),
+# never added by an unattended install unless asked for (OFFICE_EDITING=yes).
+if [[ ! -f "$ENV_FILE" ]]; then
+  OFFICE_DEFAULT=no
+  if ! $YES && awk -v m="$MEM_GB" 'BEGIN { exit !(m >= 4) }'; then OFFICE_DEFAULT=yes; fi
+  ask OFFICE_EDITING "Edit Word, Excel and PowerPoint files in the browser? Needs about 1-2 GB of memory; this computer has $MEM_GB GB, and Admin → Settings turns it off completely (yes/no)" "$OFFICE_DEFAULT"
+  if [[ "${OFFICE_EDITING,,}" == y* ]]; then
+    info "The editor opens at an address of its own, next to $PUBLIC_URL."
+    ask OFFICE_PUBLIC_URL "The editor's address" "$(office_url_for "$PUBLIC_URL" "${OFFICE_PORT:-}")"
+    OFFICE_PUBLIC_URL=${OFFICE_PUBLIC_URL%/}
+    office_url_ok "$OFFICE_PUBLIC_URL" "$PUBLIC_URL" \
+      || die "The editor needs an address of its own, like https://office.example.com (not $PUBLIC_URL)."
+  fi
+fi
 
 SECRET_KEY=${SECRET_KEY:-$(rand)}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(rand)}
@@ -261,8 +278,20 @@ PROFILES=()
 [[ -n "${DOMAIN:-}" ]] && PROFILES+=(caddy)
 # Only the bundled scanner is a service here; another host name is someone's own clamd.
 [[ "$CLAMAV_HOST" == clamav ]] && PROFILES+=(clamav)
-# The document editor, if scripts/office.sh added it (its settings are kept as they are).
-[[ ",${COMPOSE_PROFILES:-}," == *,office,* ]] && PROFILES+=(office)
+# The document editor: chosen just now, or added before by scripts/office.sh. How browsers reach
+# it follows how the family reaches the app: through the tunnel or Caddy, else a local port.
+OFFICE_ON=false
+if [[ "${OFFICE_EDITING:-}" =~ ^[Yy] || ",${COMPOSE_PROFILES:-}," == *,office,* ]] \
+  && [[ -n "${OFFICE_PUBLIC_URL:-}" ]]; then
+  OFFICE_ON=true
+  PROFILES+=(office)
+  OFFICE_TLS=$([[ "$OFFICE_PUBLIC_URL" == https://* ]] && echo true || echo false)
+  if [[ -n "${DOMAIN:-}" ]]; then
+    OFFICE_DOMAIN=$(office_host "$OFFICE_PUBLIC_URL")
+  elif [[ -z "$CLOUDFLARE_TUNNEL_TOKEN" && -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+    OFFICE_PORT=$(office_local_port "$OFFICE_PUBLIC_URL" "${OFFICE_PORT:-}")
+  fi
+fi
 COMPOSE_PROFILES=$(IFS=,; echo "${PROFILES[*]}")
 export COMPOSE_PROFILES
 
@@ -301,6 +330,10 @@ chmod 600 "$TMP_ENV"
   env_line UPDATES "$UPDATES"
   env_line LOG_LEVEL "${LOG_LEVEL:-info}"
   env_line CLAMAV_HOST "$CLAMAV_HOST"
+  env_line OFFICE_PUBLIC_URL "${OFFICE_PUBLIC_URL:-}"
+  env_line OFFICE_TLS "${OFFICE_TLS:-}"
+  env_line OFFICE_DOMAIN "${OFFICE_DOMAIN:-}"
+  env_line OFFICE_PORT "${OFFICE_PORT:-}"
   env_line COMPOSE_PROFILES "$COMPOSE_PROFILES"
   if [[ -n "$EXTRA_SETTINGS" ]]; then printf '%s\n' "$EXTRA_SETTINGS"; fi
 } > "$TMP_ENV" || die "Could not write deploy/.env (see the message above)."
@@ -332,8 +365,28 @@ if [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -z "$CLOUDFLARE_TUNNEL_TOKEN" ]]; then
   set_env "$ENV_FILE" COMPOSE_PROFILES "$COMPOSE_PROFILES"
   info "Tunnel ready: ${PUBLIC_URL} reaches this computer (DNS can take a minute or two)."
 fi
+# The editor's address goes through the same tunnel, to the app's editor proxy.
+OFFICE_ROUTED=false
+if $OFFICE_ON && [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+  if docker run --rm -e CLOUDFLARE_API_TOKEN "$IMAGE" node dist/cli.js cloudflare-tunnel \
+    --hostname "$(office_host "$OFFICE_PUBLIC_URL")" --service http://app:3001 >/dev/null; then
+    OFFICE_ROUTED=true
+    info "Tunnel ready for the document editor too: $OFFICE_PUBLIC_URL."
+  else
+    info "The editor's address wasn't added to the tunnel (see above); the rest works without it."
+  fi
+fi
+if $OFFICE_ON && [[ -z "$(docker compose images -q collabora 2>/dev/null)" ]]; then
+  info "Downloading the document editor (about 1.8 GB on disk; a few minutes)…"
+  docker compose pull --quiet collabora
+fi
 docker compose up -d --remove-orphans
 wait_healthy || die "Fix the problem shown above, then re-run ./scripts/install.sh (your settings are kept)."
+# Chosen on this install: on for everyone straight away (the switch in Admin → Settings).
+if [[ "${OFFICE_EDITING:-}" =~ ^[Yy] ]] && $OFFICE_ON; then
+  docker compose exec -T app node dist/cli.js office-editing on </dev/null >/dev/null \
+    || info "Turn on the document editor in Admin → Settings → Document editor."
+fi
 
 # The update helper for auto and notify (update.sh --cron, every minute; most minutes it does
 # nothing): it looks for new versions, answers Admin → Overview and, for auto, installs them at
@@ -368,7 +421,21 @@ elif [[ "$COMPOSE_PROFILES" != *tunnel* && "$COMPOSE_PROFILES" != *caddy* && "$P
   info "It's only reachable on this computer ($LOCAL_URL) until a tunnel or domain is set up:"
   info "re-run ./scripts/install.sh and choose how your family reaches it."
 fi
-if [[ ",$COMPOSE_PROFILES," != *,office,* ]]; then
+if $OFFICE_ON; then
+  info "Word, Excel and PowerPoint files can be edited in the browser, at $OFFICE_PUBLIC_URL."
+  if ! [[ "${OFFICE_EDITING:-}" =~ ^[Yy] ]]; then
+    : # set up before, by scripts/office.sh
+  elif [[ ",$COMPOSE_PROFILES," == *,tunnel,* ]] && ! $OFFICE_ROUTED; then
+    info "Add that address to your tunnel (once): Zero Trust → Networks → Tunnels → your tunnel →"
+    info "Public hostname → Add: $(office_host "$OFFICE_PUBLIC_URL"), service HTTP, app:3001."
+  elif [[ -n "${DOMAIN:-}" ]]; then
+    info "Point $(office_host "$OFFICE_PUBLIC_URL") at this computer in your DNS, as you did for $DOMAIN."
+  elif [[ "$(office_host "$OFFICE_PUBLIC_URL")" == *.ts.net ]]; then
+    info "Put it on your tailnet (once): sudo tailscale serve --bg --https=8443 $OFFICE_PORT"
+  fi
+  info "If the computer gets slow, turn it off in Admin → Settings → Document editor: that removes"
+  info "it completely and gives its memory back."
+else
   info "To edit Word, Excel and PowerPoint files in the browser: ./scripts/office.sh on (needs"
   info "about 1-2 GB of memory; this computer has $MEM_GB GB). It can be turned off again"
   info "completely in Admin → Settings."

@@ -101,6 +101,18 @@ jobs:
           . scripts/lib.sh
           image_published v0.6.0
           if image_published v0.0.0; then exit 1; fi
+      - name: The document editor gets an address of its own, next to the family's
+        run: |
+          . scripts/lib.sh
+          [[ "$(office_url_for https://cloud.example.com)" == https://office.example.com ]]
+          [[ "$(office_url_for https://example.com)" == https://office.example.com ]]
+          [[ "$(office_url_for https://fam.tail1234.ts.net)" == https://fam.tail1234.ts.net:8443 ]]
+          [[ "$(office_url_for http://localhost:3080)" == http://localhost:3081 ]]
+          [[ "$(office_local_port http://localhost:3090)" == 3090 ]]
+          [[ "$(office_local_port https://fam.tail1234.ts.net:8443)" == 3081 ]]
+          office_url_ok https://office.example.com https://cloud.example.com
+          if office_url_ok https://cloud.example.com https://cloud.example.com/; then exit 1; fi
+          if office_url_ok https://office.example.com/path https://cloud.example.com; then exit 1; fi
       - name: The one-line installer gets Family Cloud and runs its installer
         run: |
           git init -q --bare -b main "$RUNNER_TEMP/get.git"
