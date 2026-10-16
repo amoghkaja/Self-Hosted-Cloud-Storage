@@ -11,7 +11,7 @@ Family Cloud is only reachable while the computer running it is **on, awake and 
 | **Old laptop** | 8–15 W | Built-in battery doubles as a UPS. Check it's happy running lid-closed. |
 | **Your desktop PC** | 40–100 W | Works, but it has to stay on and in Linux, and it costs noticeably more electricity per year. |
 
-Memory: 2 GB is enough for a family; 4 GB or more is comfortable. The app uses about 150 MB of RAM when idle.
+Memory: 2 GB is enough for a family; 4 GB or more is comfortable. The app uses about 150 MB of RAM when idle. The optional extras need more: virus scanning about 1.5 GB, and the document editor 1–2 GB (it can be turned off completely in Admin → Settings).
 
 ## If you run it on your everyday desktop
 

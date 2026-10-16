@@ -8,6 +8,18 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### New
+
+- **Edit documents in the browser:** Word, Excel and PowerPoint files (`.docx`, `.xlsx`,
+  `.pptx`, `.odt`, `.ods`, `.odp`) can be opened in a full editor from their preview with
+  **Edit**, and are saved back to the same file as you go. Anyone the file is shared with for
+  editing can use it, two people can edit at once, and Version history keeps the file as it was
+  before each editing session. It's optional and **off by default**, because the editor runs in a
+  container of its own that needs about 1–2 GB of memory: add it with `./scripts/office.sh on`
+  (see [docs/office-editing.md](docs/office-editing.md)). After that, **Admin → Settings →
+  Document editor** turns it on and off, and off removes the editor completely and gives the
+  memory back, with files opening as PDFs again.
+
 ## v0.7.0 (2026-10-12)
 
 ### New

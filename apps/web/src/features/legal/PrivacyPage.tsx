@@ -93,6 +93,10 @@ export function PrivacyPage() {
                 for good.
               </li>
               <li>
+                If the server has the document editor: which file you opened in it and when, until
+                that editing session ends (10 hours at most). The editor runs on this server too.
+              </li>
+              <li>
                 The devices you're signed in on (browser, IP address, when last used), so you can
                 see and end them in Settings. A sign-in lasts at most 90 days.
               </li>

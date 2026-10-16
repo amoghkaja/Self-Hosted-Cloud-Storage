@@ -32,14 +32,16 @@ export interface IngestInput {
   replaceNodeId?: string | null;
   /** If-Match: only replace while the file still has this blob (else 412). */
   expectBlobId?: string | null;
+  /** Keep what it replaces as a version (default: when versions are kept at all). */
+  keepVersion?: boolean;
 }
 
 class TooLarge extends Error {}
 
 /**
- * Single-request file write used by WebDAV PUT. Same guarantees as chunked uploads: quota
- * is reserved up front, bytes land in a temp file on the chosen volume, and the node/blob rows
- * plus usage counters change in one transaction. Replacing keeps the node id (so shares and
+ * Single-request file write used by WebDAV PUT and the document editor's saves. Same guarantees
+ * as chunked uploads: quota is reserved up front, bytes land in a temp file on the chosen volume,
+ * and the node/blob rows plus usage counters change in one transaction. Replacing keeps the node id (so shares and
  * links survive) and swaps in a new blob.
  * The write is recorded as an upload session, so usage reconciliation, volume placement and
  * drains all see the bytes in flight, and upload expiry cleans up after a crash.
@@ -158,7 +160,10 @@ export async function ingest(
           tx,
           existing,
           { blobId, size: input.size, mimeType: input.mimeType },
-          { actorId: input.uploaderId, keepVersion: settings.versionRetentionDays > 0 },
+          {
+            actorId: input.uploaderId,
+            keepVersion: settings.versionRetentionDays > 0 && input.keepVersion !== false,
+          },
         );
         node = replaced.node;
         usageDelta = replaced.usageDelta;

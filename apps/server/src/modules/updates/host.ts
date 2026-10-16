@@ -71,7 +71,8 @@ export interface HostFiles {
   requests: { name: string; at: number }[];
 }
 
-const REQUEST = /^request-(check|auto-on|auto-off|update-[A-Za-z0-9][A-Za-z0-9._+-]{0,63})$/;
+const REQUEST =
+  /^request-(check|auto-on|auto-off|office-on|office-off|update-[A-Za-z0-9][A-Za-z0-9._+-]{0,63})$/;
 const MINUTE = 60_000;
 
 /** A small regular file, or null: never through a link, never a FIFO or device, never too big. */

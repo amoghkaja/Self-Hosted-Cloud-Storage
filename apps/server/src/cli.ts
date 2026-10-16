@@ -15,6 +15,7 @@ import { randomToken } from './lib/crypto';
 import { hashPassword } from './lib/passwords';
 import { exportFiles } from './modules/admin/export';
 import { createUserWithRoot, dropRecoveryCodes } from './modules/auth/service';
+import { setEditingEnabled } from './modules/office/editor';
 
 const HELP = `Family Cloud admin CLI
 
@@ -30,9 +31,13 @@ Commands:
   export --out DIR [--email E]   Rebuild normal folders from the blob store (disaster recovery).
                                  Hard-links when on the same disk, copies otherwise.
   migrate                        Apply database migrations and exit
+  office-editing on|off          The Admin → Settings switch for editing documents in the
+                                 browser (scripts/office.sh sets it)
   cloudflare-tunnel --hostname H Create (or reuse) a Cloudflare Tunnel to this app for address H,
                                  with its DNS record, and print the tunnel token. Reads a
                                  Cloudflare API token from CLOUDFLARE_API_TOKEN.
+    [--service URL]              Send H somewhere else in the tunnel instead (the document
+                                 editor: http://app:3001). Other addresses are kept.
 `;
 
 /**
@@ -66,13 +71,14 @@ async function newPassword(): Promise<string> {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: rest,
     options: {
       email: { type: 'string' },
       name: { type: 'string' },
       out: { type: 'string' },
       hostname: { type: 'string' },
+      service: { type: 'string' },
     },
     allowPositionals: true,
   });
@@ -92,6 +98,7 @@ async function main() {
     const { token } = await setupTunnel({
       apiToken,
       hostname: values.hostname,
+      service: values.service,
       log: (line) => stderr.write(`  ${line}\n`),
     });
     stdout.write(`${token}\n`);
@@ -180,6 +187,14 @@ async function main() {
           stderr.write(`${failed.length} file(s) could not be exported.\n`);
           process.exitCode = 1;
         }
+        break;
+      }
+
+      case 'office-editing': {
+        const [state] = positionals;
+        if (state !== 'on' && state !== 'off') throw new Error('Usage: cli office-editing on|off');
+        await setEditingEnabled(ctx, state === 'on');
+        stdout.write(`Editing documents in the browser is ${state} in Admin → Settings.\n`);
         break;
       }
 

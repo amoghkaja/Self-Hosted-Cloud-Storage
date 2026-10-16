@@ -261,6 +261,8 @@ PROFILES=()
 [[ -n "${DOMAIN:-}" ]] && PROFILES+=(caddy)
 # Only the bundled scanner is a service here; another host name is someone's own clamd.
 [[ "$CLAMAV_HOST" == clamav ]] && PROFILES+=(clamav)
+# The document editor, if scripts/office.sh added it (its settings are kept as they are).
+[[ ",${COMPOSE_PROFILES:-}," == *,office,* ]] && PROFILES+=(office)
 COMPOSE_PROFILES=$(IFS=,; echo "${PROFILES[*]}")
 export COMPOSE_PROFILES
 
@@ -365,6 +367,11 @@ if [[ -n "${SHOW_TAILSCALE:-}" ]]; then
 elif [[ "$COMPOSE_PROFILES" != *tunnel* && "$COMPOSE_PROFILES" != *caddy* && "$PUBLIC_URL" != "$LOCAL_URL" ]]; then
   info "It's only reachable on this computer ($LOCAL_URL) until a tunnel or domain is set up:"
   info "re-run ./scripts/install.sh and choose how your family reaches it."
+fi
+if [[ ",$COMPOSE_PROFILES," != *,office,* ]]; then
+  info "To edit Word, Excel and PowerPoint files in the browser: ./scripts/office.sh on (needs"
+  info "about 1-2 GB of memory; this computer has $MEM_GB GB). It can be turned off again"
+  info "completely in Admin → Settings."
 fi
 case "$UPDATES" in
   auto) info "Updates install themselves at night; Admin → Overview shows them." ;;

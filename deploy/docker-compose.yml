@@ -6,6 +6,8 @@
 # COMPOSE_PROFILES in .env picks the optional services (scripts/install.sh sets it):
 #   tunnel   cloudflared, behind a Cloudflare Tunnel (recommended)
 #   caddy    Caddy with automatic HTTPS, for port-forwarding 80/443
+#   clamav   the virus scanner (scripts/virus-scan.sh)
+#   office   the document editor (scripts/office.sh, or Admin → Settings)
 #   (empty)  LAN/Tailscale only, on 127.0.0.1:${APP_PORT}
 #
 # Storage lives under ${STORAGE_ROOT} on the host (default /srv/familycloud):
@@ -91,6 +93,11 @@ services:
     ports:
       # Localhost only. The public internet reaches the app through cloudflared or Caddy.
       - "127.0.0.1:${APP_PORT:-3080}:3000"
+      # The document editor, through the app (only answers once it's set up). A fixed port only
+      # when scripts/office.sh sets OFFICE_PORT (LAN and Tailscale installs; a tunnel or Caddy
+      # reach it inside Docker); otherwise any free one, so nothing can clash. 3002, where the
+      # editor reads and saves files, is never published or routed.
+      - "127.0.0.1:${OFFICE_PORT:-}:3001"
     networks: [internal, edge]
 
   worker:
@@ -123,6 +130,7 @@ services:
     logging: *logging
     environment:
       DOMAIN: ${DOMAIN:-}   # see the note on cloudflared above
+      OFFICE_DOMAIN: ${OFFICE_DOMAIN:-}
     ports:
       - "80:80"
       - "443:443"
@@ -148,6 +156,42 @@ services:
       - no-new-privileges:true
     # internal: reached by the app and worker. updates: fetches the virus list.
     networks: [internal, updates]
+
+  # Edits Word, Excel and PowerPoint files in the browser (scripts/office.sh on, then the switch
+  # in Admin → Settings). Uses about 1–2 GB of memory, so it's optional: off removes it. Browsers
+  # reach it through the app (port 3001), and it reads and saves files only through the app's
+  # WOPI listener (3002), as the person who opened each one. No route to the internet, so a
+  # document can't fetch anything from outside; no capabilities (it sandboxes documents with
+  # landlock instead of chroot).
+  collabora:
+    image: collabora/code:26.04.5.1.1
+    profiles: [office]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      # The only WOPI host it accepts.
+      aliasgroup1: http://app:3002
+      # ssl.termination: browsers use https while the app talks to it in plain http.
+      extra_params: >-
+        --o:ssl.enable=false
+        --o:ssl.termination=${OFFICE_TLS:-true}
+        --o:net.frame_ancestors=${PUBLIC_URL:-}
+        --o:admin_console.enable=false
+        --o:home_mode.enable=true
+        --o:logging.level=warning
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+      - /opt/cool/child-roots:size=2g,uid=1001,gid=1001
+      - /opt/cool/cache:size=256m,uid=1001,gid=1001
+    mem_limit: 2g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Time to save documents still open when it's stopped.
+    stop_grace_period: 60s
+    networks: [internal]
 
 networks:
   # No route to the internet: the database and worker never need one.

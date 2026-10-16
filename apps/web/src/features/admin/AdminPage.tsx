@@ -54,6 +54,7 @@ import { usePageTitle } from '../../lib/usePageTitle';
 import { LinkBox } from '../sharing/LinkActions';
 import { BrandingCard } from './BrandingCard';
 import { ByteSizeInput } from './ByteSizeInput';
+import { OfficeCard } from './OfficeCard';
 import { AllocateDialog, DiskBreakdown, FamilyBreakdown } from './StorageOverview';
 import { UpdatesCard } from './UpdatesCard';
 
@@ -1223,6 +1224,7 @@ function AppSettings() {
           )}
         </QueryState>
       </Card>
+      <OfficeCard />
       <BrandingCard />
     </div>
   );

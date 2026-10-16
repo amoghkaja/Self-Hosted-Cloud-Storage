@@ -42,6 +42,8 @@ export const ErrorCode = {
   UPDATE_IN_PROGRESS: 'UPDATE_IN_PROGRESS',
   /** That version can't be installed from the app (not the newest, needs steps, not published). */
   UPDATE_UNAVAILABLE: 'UPDATE_UNAVAILABLE',
+  /** Editing in the browser is turned off, not set up, or the editor isn't answering. */
+  OFFICE_UNAVAILABLE: 'OFFICE_UNAVAILABLE',
   INTERNAL: 'INTERNAL_ERROR',
 } as const;
 

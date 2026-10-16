@@ -25,6 +25,8 @@ export async function registerSecurity(app: FastifyInstance) {
     });
   }
 
+  // The document editor opens in a frame, from a form posted to its own address.
+  const editor = config.office ? [config.office.publicOrigin] : [];
   await app.register(helmet, {
     // Strict CSP for the SPA. File responses set their own sandboxed CSP (see send-blob.ts).
     contentSecurityPolicy: {
@@ -40,11 +42,11 @@ export async function registerSecurity(app: FastifyInstance) {
         mediaSrc: ["'self'", 'blob:'],
         fontSrc: ["'self'"],
         connectSrc: ["'self'"],
-        frameSrc: ["'self'"],
+        frameSrc: ["'self'", ...editor],
         frameAncestors: ["'self'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
-        formAction: ["'self'"],
+        formAction: ["'self'", ...editor],
         manifestSrc: ["'self'"],
         workerSrc: ["'self'"],
       },

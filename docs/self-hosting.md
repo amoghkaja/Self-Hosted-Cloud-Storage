@@ -139,6 +139,7 @@ Do this before your family relies on it. A single disk will fail eventually. Fol
 - **Privacy page:** every install has a **Privacy** page (linked from the sign-in page) that says what the app keeps and who can see what. Under **Branding** you can add who runs the server and how to reach you, and any terms of your own. If you host it for people outside your household, the law where you live may require this.
 - **Versions and trash:** **Admin → Settings** sets how long deleted items stay in the trash (30 days) and how long older versions of files are kept when they're saved over (30 days; 0 turns versions off).
 - **Virus scanning:** `./scripts/virus-scan.sh on` checks uploads with ClamAV (needs about 1.5 GB of memory). See [virus-scanning.md](virus-scanning.md).
+- **Editing documents in the browser:** `./scripts/office.sh on` adds an editor for Word, Excel and PowerPoint files (needs about 1–2 GB of memory). **Admin → Settings → Document editor** turns it off again completely. See [office-editing.md](office-editing.md).
 - **Network drive:** each person can connect their Mac or Windows PC under **Settings → Network drive** (iPhones and iPads need a helper app). See [network-drive.md](network-drive.md).
 - **More disks:** [storage-and-disks.md](storage-and-disks.md).
 - **Protect the admin pages further:** with Cloudflare, add a Cloudflare Access policy for `/admin*` (Zero Trust → Access → Applications) so only listed emails can even load them.

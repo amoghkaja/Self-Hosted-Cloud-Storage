@@ -117,6 +117,7 @@ function FlatList({
               stream: streamUrl,
               preview: previewUrl,
               canDownload: true,
+              editable: true,
             }}
           />
         </Suspense>

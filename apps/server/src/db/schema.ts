@@ -458,6 +458,40 @@ export const appPasswords = pgTable(
 );
 
 /**
+ * A file open in the document editor. Its token lets the editor read and save that one file as
+ * the person who opened it, and only while their sign-in lasts: signing out (or being signed
+ * out) deletes the row with the session.
+ */
+export const officeSessions = pgTable(
+  'office_sessions',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    nodeId: uuid('node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    /**
+     * The contents this editing session last saved. Saving over them again keeps no version: the
+     * file as it was before the session is kept once, not every autosave since.
+     */
+    savedBlobId: uuid('saved_blob_id'),
+    lastUsedAt: ts('last_used_at').notNull().defaultNow(),
+    expiresAt: ts('expires_at').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('office_sessions_token_hash_key').on(t.tokenHash),
+    index('office_sessions_expires_idx').on(t.expiresAt),
+  ],
+);
+
+/**
  * Single-use codes for getting past two-factor sign-in without the phone (lost or broken).
  * Stored hashed: they're high-entropy, and every try counts toward the account lockout.
  */

@@ -570,6 +570,7 @@ function FileBrowser({ folderId }: { folderId: string }) {
               stream: streamUrl,
               preview: previewUrl,
               canDownload: true,
+              editable: true,
             }}
           />
         </Suspense>
