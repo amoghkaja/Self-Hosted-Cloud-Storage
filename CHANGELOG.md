@@ -8,6 +8,8 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+## v0.8.1 (2026-10-16)
+
 ### Improved
 
 - **Installing:** the installer now offers the document editor too (suggesting it on computers
