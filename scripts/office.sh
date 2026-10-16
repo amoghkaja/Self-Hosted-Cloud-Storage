@@ -51,25 +51,10 @@ set_switch() {
 }
 editor_health() { docker compose --profile office ps --format '{{.Health}}' collabora 2>/dev/null || true; }
 
-# An address of its own for the editor, next to PUBLIC_URL's.
-suggest_url() {
-  local scheme=${PUBLIC_URL%%://*} rest=${PUBLIC_URL#*://} host
-  host=${rest%%[:/]*}
-  if [[ "$host" == *.ts.net ]]; then
-    echo "https://$host:8443"
-  elif [[ "$scheme" == http || "$rest" == *:* || "$host" == localhost || "$host" =~ ^[0-9.]+$ ]]; then
-    echo "http://$host:${OFFICE_PORT:-3081}"
-  elif [[ "$host" =~ ^[^.]+\.[^.]+\.[^.]+ ]]; then
-    echo "https://office.${host#*.}"
-  else
-    echo "https://office.$host"
-  fi
-}
-
 # Points the editor's address at it: what that takes depends on how the family reaches the app.
 route_address() {
-  local host=${OFFICE_PUBLIC_URL#*://}
-  host=${host%%[:/]*}
+  local host
+  host=$(office_host "$OFFICE_PUBLIC_URL")
   if has_profile tunnel; then
     if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
       bold "Adding $host to your Cloudflare Tunnel"
@@ -89,10 +74,8 @@ route_address() {
     info "Point $host at this computer in your DNS, as you did for $DOMAIN; Caddy gets its"
     info "certificate by itself."
   else
-    # Reached on this computer's own port: the one in its address, or 3081 behind Tailscale.
-    local port=${OFFICE_PUBLIC_URL##*:}
-    [[ "$host" == *.ts.net || ! "$port" =~ ^[0-9]+$ ]] && port=${OFFICE_PORT:-3081}
-    export OFFICE_PORT=$port
+    export OFFICE_PORT
+    OFFICE_PORT=$(office_local_port "$OFFICE_PUBLIC_URL" "${OFFICE_PORT:-}")
     set_env "$ENV_FILE" OFFICE_PORT "$OFFICE_PORT"
     if [[ "$host" == *.ts.net ]]; then
       info "Put it on your tailnet (once): sudo tailscale serve --bg --https=8443 $OFFICE_PORT"
@@ -116,12 +99,12 @@ case "${1:-}" in
       $HELPER && die "OFFICE_PUBLIC_URL isn't set: run ./scripts/office.sh on by hand first."
       bold "Document editor"
       info "It opens at an address of its own, next to $PUBLIC_URL."
-      read -r -p "  Its address [$(suggest_url)]: " ans || true
-      OFFICE_PUBLIC_URL=${ans:-$(suggest_url)}
-      [[ "$OFFICE_PUBLIC_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]] \
-        || die "\"$OFFICE_PUBLIC_URL\" isn't an address like https://office.example.com"
+      SUGGESTED=$(office_url_for "$PUBLIC_URL" "${OFFICE_PORT:-}")
+      read -r -p "  Its address [$SUGGESTED]: " ans || true
+      OFFICE_PUBLIC_URL=${ans:-$SUGGESTED}
       OFFICE_PUBLIC_URL=${OFFICE_PUBLIC_URL%/}
-      [[ "$OFFICE_PUBLIC_URL" != "${PUBLIC_URL%/}" ]] || die "It needs an address of its own, not $PUBLIC_URL."
+      office_url_ok "$OFFICE_PUBLIC_URL" "$PUBLIC_URL" \
+        || die "\"$OFFICE_PUBLIC_URL\" isn't an address of its own like https://office.example.com"
     fi
     if ! $HELPER; then
       AVAILABLE_MB=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 0)

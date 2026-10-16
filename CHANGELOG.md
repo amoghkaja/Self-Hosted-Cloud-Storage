@@ -8,6 +8,14 @@ to do yourself when updating is listed under **Before you update**.
 
 ## Unreleased
 
+### Improved
+
+- **Installing:** the installer now offers the document editor too (suggesting it on computers
+  with 4 GB of memory or more), sets up its address with everything else, and adds it to your
+  Cloudflare Tunnel when you give it an API token. Nothing changes for an existing install; to
+  add the editor there, run `./scripts/office.sh on`. Either way, **Admin → Settings → Document
+  editor** turns it off completely.
+
 ## v0.8.0 (2026-10-16)
 
 ### New

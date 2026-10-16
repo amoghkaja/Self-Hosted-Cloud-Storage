@@ -48,6 +48,8 @@ A fresh clone installs the newest release. Before changing anything, it checks t
 | Address family members will use | `https://cloud.example.com` | Must match what people type in the browser |
 | Name shown in the app | `Smith Family Cloud` | |
 | Where to keep files and the database | `/srv/familycloud` | Put it on the disk with the most space |
+| Check uploads for viruses? | `no` | Needs about 1.5 GB of memory. See [virus-scanning.md](virus-scanning.md) |
+| Edit Word, Excel and PowerPoint files in the browser? | `yes` | Needs about 1–2 GB of memory, so it suggests yes only with 4 GB or more. It then asks for the editor's own address (e.g. `https://office.example.com`) and, with a Cloudflare API token, adds it to the tunnel too. **Admin → Settings → Document editor** turns it off completely later. See [office-editing.md](office-editing.md) |
 | Your time zone (only if the computer's clock is on UTC) | `Asia/Kolkata` | So that "at night" means your night |
 | How should Family Cloud update? | `1` | By itself at night (around 04:30, with a database backup first), shown in Admin → Overview for you to install, or only when you run `./scripts/update.sh`. See [Updating](#updating). |
 
