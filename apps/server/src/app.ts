@@ -21,6 +21,7 @@ import { passkeyRoutes } from './modules/auth/passkeys';
 import { authRoutes } from './modules/auth/routes';
 import { cleanupRoutes } from './modules/cleanup/routes';
 import { fileRoutes } from './modules/files/routes';
+import { officeRoutes } from './modules/office/routes';
 import { photoRoutes } from './modules/photos/routes';
 import { linkRoutes } from './modules/sharing/links';
 import { requestRoutes } from './modules/sharing/requests';
@@ -101,6 +102,7 @@ export async function buildApp(
       await api.register(fileRoutes);
       await api.register(uploadRoutes);
       await api.register(versionRoutes);
+      await api.register(officeRoutes);
       await api.register(cleanupRoutes);
       await api.register(sharingRoutes);
       await api.register(linkRoutes);

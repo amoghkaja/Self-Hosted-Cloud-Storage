@@ -112,7 +112,7 @@ jobs:
           grep -q 'prepares storage folders' "$RUNNER_TEMP/get.out"
           [[ -x "$FC_DIR/scripts/install.sh" ]]
           # Run again, it uses the copy it made.
-          bash -s -- --help < scripts/get.sh | grep -q 'already in'
+          bash -s -- --help < scripts/get.sh | grep -qF "in $FC_DIR again"
           # Never as root, and never into a folder that isn't Family Cloud.
           if sudo bash -s < scripts/get.sh; then exit 1; fi
           mkdir "$RUNNER_TEMP/other"

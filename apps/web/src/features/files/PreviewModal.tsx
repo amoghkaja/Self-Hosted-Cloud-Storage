@@ -1,12 +1,21 @@
-import { formatBytes, isOfficeDocument } from '@familycloud/shared';
-import { ChevronLeft, ChevronRight, Download, File, MapPin, X } from 'lucide-react';
+import {
+  type EditSession,
+  formatBytes,
+  isEditableOffice,
+  isOfficeDocument,
+} from '@familycloud/shared';
+import { useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, Download, File, MapPin, Pencil, X } from 'lucide-react';
 import { Dialog as D } from 'radix-ui';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Button, EmptyState, Spinner, useReturnFocus } from '../../components/ui';
+import { errorMessage } from '../../api/client';
+import { openForEditing, qk, useNode, useOffice } from '../../api/queries';
+import { Button, EmptyState, Spinner, toast, useReturnFocus } from '../../components/ui';
 import { parseSheets, type Sheet } from '../../lib/sheetHtml';
 import { type Gestures, useImageGestures } from '../../lib/useImageGestures';
 import { formatTaken, mapUrl } from '../photos/days';
 import { kindOf } from './FileIcon';
+import { OfficeEditor } from './OfficeEditor';
 import { PdfViewer } from './PdfViewer';
 
 export interface PreviewItem {
@@ -31,6 +40,11 @@ export interface PreviewSource {
   /** Word, Excel and PowerPoint files: a PDF rendering made by the server. */
   preview?: (id: string) => string;
   canDownload: boolean;
+  /**
+   * Word, Excel and PowerPoint files may open in the document editor, for people who can change
+   * them (when the server has it). Never on public links.
+   */
+  editable?: boolean;
 }
 
 const BROWSER_IMAGES = new Set([
@@ -410,6 +424,39 @@ function Viewer({
   return noPreview;
 }
 
+/** Opens the file in the document editor, for people who may change it. */
+function EditButton({ item, onOpen }: { item: PreviewItem; onOpen: (s: EditSession) => void }) {
+  const qc = useQueryClient();
+  const office = useOffice().data;
+  const wanted = !!office?.available && isEditableOffice(item.name);
+  const access = useNode(wanted ? item.id : undefined).data?.access;
+  const [opening, setOpening] = useState(false);
+  if (!wanted || (access !== 'owner' && access !== 'edit')) return null;
+  const open = async () => {
+    setOpening(true);
+    try {
+      onOpen(await openForEditing(item.id));
+    } catch (err) {
+      toast.error(errorMessage(err));
+      // Turned off meanwhile: the button goes.
+      void qc.invalidateQueries({ queryKey: qk.office });
+    } finally {
+      setOpening(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={opening}
+      className="flex h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium hover:bg-white/10 disabled:opacity-60"
+    >
+      {opening ? <Spinner size={18} label="Opening" /> : <Pencil size={18} aria-hidden />}
+      Edit
+    </button>
+  );
+}
+
 export default function PreviewModal({
   items,
   index,
@@ -430,8 +477,10 @@ export default function PreviewModal({
   const onCloseAutoFocus = useReturnFocus(true);
   const hasPrev = index > 0;
   const hasNext = index < items.length - 1;
+  const [editing, setEditing] = useState<{ id: string; session: EditSession } | null>(null);
 
   useEffect(() => {
+    if (editing) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest('video, audio, iframe, [data-own-keys]')) return;
       if (e.key === 'ArrowLeft' && hasPrev) onIndexChange(index - 1);
@@ -439,7 +488,7 @@ export default function PreviewModal({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [index, hasPrev, hasNext, onIndexChange]);
+  }, [index, hasPrev, hasNext, onIndexChange, editing]);
 
   if (!item) return null;
   // On touch screens you swipe instead, so the arrows don't cover the photo.
@@ -459,6 +508,8 @@ export default function PreviewModal({
         <D.Content
           className="fixed inset-0 z-50 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none"
           onCloseAutoFocus={onCloseAutoFocus}
+          // In the editor, Escape belongs to the document: closing is the editor's own button.
+          onEscapeKeyDown={(e) => editing && e.preventDefault()}
         >
           <header className="flex min-h-14 shrink-0 items-center gap-3 px-3 py-1 text-white">
             <div className="min-w-0 flex-1">
@@ -482,6 +533,9 @@ export default function PreviewModal({
               >
                 <MapPin size={20} aria-hidden />
               </a>
+            )}
+            {source.editable && (
+              <EditButton item={item} onOpen={(session) => setEditing({ id: item.id, session })} />
             )}
             {source.canDownload && (
               <a
@@ -510,7 +564,13 @@ export default function PreviewModal({
             >
               <ChevronLeft size={24} aria-hidden />
             </button>
-            <Viewer item={item} source={source} gestures={gestures} />
+            {/* Saved over (in the editor, say): a new viewer, so it shows the new contents. */}
+            <Viewer
+              key={`${item.id}:${item.updatedAt ?? ''}`}
+              item={item}
+              source={source}
+              gestures={gestures}
+            />
             <button
               type="button"
               aria-label="Next file"
@@ -522,6 +582,14 @@ export default function PreviewModal({
             </button>
           </div>
           {footer && <div className="shrink-0">{footer(item)}</div>}
+          {editing && (
+            <OfficeEditor
+              nodeId={editing.id}
+              name={items.find((i) => i.id === editing.id)?.name ?? item.name}
+              session={editing.session}
+              onClose={() => setEditing(null)}
+            />
+          )}
         </D.Content>
       </D.Portal>
     </D.Root>

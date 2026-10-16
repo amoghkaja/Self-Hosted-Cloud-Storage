@@ -134,3 +134,14 @@ export function isOfficeDocument(mimeType: string | null | undefined, name = '')
   const kind = fileKind(mimeType, name);
   return kind === 'document' || kind === 'spreadsheet' || kind === 'presentation';
 }
+
+/**
+ * Files the document editor may save back (when the server has it). Older formats (.doc, .xls,
+ * .ppt, .rtf) and CSV stay preview-only: saving them again loses formatting the editor can't
+ * write in them.
+ */
+export const EDITABLE_OFFICE_EXTENSIONS = ['.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp'];
+
+export function isEditableOffice(name: string): boolean {
+  return EDITABLE_OFFICE_EXTENSIONS.includes(splitExtension(name)[1].toLowerCase());
+}

@@ -1,15 +1,26 @@
 # Used only by the `caddy` compose profile (port-forwarding setups without Cloudflare).
-# Caddy obtains and renews HTTPS certificates automatically for $DOMAIN.
-{$DOMAIN} {
+# Caddy obtains and renews HTTPS certificates automatically for $DOMAIN, and for $OFFICE_DOMAIN
+# when the document editor is set up (scripts/office.sh; empty otherwise, which leaves it out).
+{$DOMAIN} {$OFFICE_DOMAIN} {
 	encode zstd gzip
-	reverse_proxy app:3000 {
-		# Only Cloudflare may set this header; strip any value a client sends so it can't
-		# spoof its IP past the app's rate limits. (Caddy sets X-Forwarded-For itself.)
-		header_up -Cf-Connecting-Ip
-		# Large uploads and downloads can take a while; never cut them off.
-		transport http {
-			read_timeout 0
-			write_timeout 0
+	# The document editor, through the app. office.invalid (a name that can't exist) keeps the
+	# list from being empty while OFFICE_DOMAIN is: an empty one would be read differently.
+	@office host {$OFFICE_DOMAIN} office.invalid
+	handle @office {
+		reverse_proxy app:3001 {
+			header_up -Cf-Connecting-Ip
+		}
+	}
+	handle {
+		reverse_proxy app:3000 {
+			# Only Cloudflare may set this header; strip any value a client sends so it can't
+			# spoof its IP past the app's rate limits. (Caddy sets X-Forwarded-For itself.)
+			header_up -Cf-Connecting-Ip
+			# Large uploads and downloads can take a while; never cut them off.
+			transport http {
+				read_timeout 0
+				write_timeout 0
+			}
 		}
 	}
 }

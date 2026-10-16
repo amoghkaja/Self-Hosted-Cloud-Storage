@@ -12,12 +12,15 @@ import type {
   CleanupReport,
   CreateAppPasswordResponse,
   DirectoryUser,
+  EditSession,
   FileNode,
   Freed,
   LoginResponse,
   Me,
   NodeDetail,
   NodePage,
+  OfficeInfo,
+  OfficeStatus,
   Passkey,
   PasswordResetLink,
   ScannerStatus,
@@ -63,6 +66,7 @@ export const qk = {
   cleanup: ['me', 'cleanup'] as const,
   setup: ['setup-status'] as const,
   about: ['about'] as const,
+  office: ['office'] as const,
   nodes: ['node'] as const,
   node: (id: string) => ['node', id] as const,
   children: (id: string) => ['children', id] as const,
@@ -93,6 +97,7 @@ export const qk = {
   adminBranding: ['admin', 'branding'] as const,
   adminScanner: ['admin', 'scanner'] as const,
   adminUpdates: ['admin', 'updates'] as const,
+  adminOffice: ['admin', 'office'] as const,
 };
 
 // ── session ─────────────────────────────────────────────────────────────────
@@ -278,6 +283,14 @@ function invalidateNodeViews(qc: QueryClient, folders: (string | null | undefine
   void qc.invalidateQueries({ queryKey: qk.starred });
   // A trip album shows the photos in its members' trip folders.
   void qc.invalidateQueries({ queryKey: qk.albums });
+}
+
+/** Saved from the document editor: the file's size, date, preview and versions changed. */
+export function invalidateEdited(qc: QueryClient, nodeId: string) {
+  void qc.invalidateQueries({ queryKey: ['children'] });
+  void qc.invalidateQueries({ queryKey: qk.versions(nodeId) });
+  void qc.invalidateQueries({ queryKey: qk.me });
+  invalidateNodeViews(qc, []);
 }
 
 /** Items went into the trash or came back out of it (Trash, Restore, Undo, Rewind). */
@@ -725,6 +738,41 @@ export function useAdminUpdates() {
       }),
     retry: false,
     refetchInterval: (q) => (updateBusy(q.state.data) ? 3_000 : 5 * 60_000),
+  });
+}
+
+/** Whether files can be opened in the document editor (an optional part of the server). */
+export function useOffice() {
+  return useQuery({
+    queryKey: qk.office,
+    queryFn: () => api<OfficeInfo>('/office'),
+    staleTime: 60_000,
+  });
+}
+
+/** Opens a file in the document editor: a token for it and the editor's address. */
+export function openForEditing(nodeId: string) {
+  return api<EditSession>(`/nodes/${nodeId}/edit`, { json: {} });
+}
+
+export function useOfficeStatus() {
+  return useQuery({
+    queryKey: qk.adminOffice,
+    queryFn: () => api<OfficeStatus>('/admin/office'),
+    // The update helper starts or removes the editor within a minute of the switch.
+    refetchInterval: (q) => (q.state.data?.pending ? 5_000 : 60_000),
+  });
+}
+
+export function useSetOffice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      api<OfficeStatus>('/admin/office', { method: 'PUT', json: { enabled } }),
+    onSuccess: (s) => {
+      qc.setQueryData(qk.adminOffice, s);
+      void qc.invalidateQueries({ queryKey: qk.office });
+    },
   });
 }
 

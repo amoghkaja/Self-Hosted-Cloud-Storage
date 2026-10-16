@@ -153,9 +153,10 @@ cut_short() { if [[ "${UPD_STATE:-}" == updating ]]; then finish failed error; f
 # count, and none is ever opened.
 list_requests() {
   local f
-  for f in request-auto-on request-auto-off request-check request-update-*; do
+  for f in request-auto-on request-auto-off request-office-on request-office-off request-check \
+    request-update-*; do
     if [[ ! -L "$f" && -f "$f" \
-      && "$f" =~ ^request-(auto-on|auto-off|check|update-[A-Za-z0-9][A-Za-z0-9._+-]{0,63})$ ]]; then
+      && "$f" =~ ^request-(auto-on|auto-off|office-on|office-off|check|update-[A-Za-z0-9][A-Za-z0-9._+-]{0,63})$ ]]; then
       printf '%s\n' "$f"
     fi
   done
@@ -234,6 +235,20 @@ if $CRON; then
     echo "$(date '+%F %T')  Admin → Overview set updates to $UPDATES (UPDATES in deploy/.env)."
     save_state || true
     in_shared rm -f -- request-auto-on request-auto-off || true
+  fi
+  # The document editor switched on or off in Admin → Settings (the newer request wins): its
+  # container is started, or removed to give its memory back. The request goes once tried, so a
+  # failure isn't retried every minute; Admin → Settings shows whether the editor is running.
+  if has request-office-on || has request-office-off; then
+    if has request-office-on && ! { has request-office-off && in_shared test request-office-off -nt request-office-on; }; then
+      OFFICE=on
+    else
+      OFFICE=off
+    fi
+    echo "$(date '+%F %T')  Admin → Settings turned the document editor $OFFICE."
+    "$ROOT/scripts/office.sh" "$OFFICE" --from-helper </dev/null \
+      || echo "  That didn't work: run ./scripts/office.sh $OFFICE on the server to see why."
+    in_shared rm -f -- request-office-on request-office-off || true
   fi
   # Versions to install from Admin → Overview. One asked for while nothing was answering is
   # dropped: an update shouldn't start half an hour or more later.

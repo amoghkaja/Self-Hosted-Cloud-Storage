@@ -20,6 +20,7 @@ import {
 import { audit } from '../lib/audit';
 import { DAY_MS } from '../lib/time';
 import { purgeTrashRoots, QUOTA_LOCK } from '../modules/files/tree';
+import { deleteExpiredOfficeSessions } from '../modules/office/editor';
 import { releaseUpload } from '../modules/uploads/service';
 
 const STALE_TMP_MS = 2 * DAY_MS;
@@ -153,6 +154,7 @@ export async function cleanupSessions(ctx: AppContext): Promise<void> {
   const monthAgo = new Date(Date.now() - 30 * DAY_MS);
   await ctx.db.delete(invites).where(lt(invites.expiresAt, monthAgo));
   await ctx.db.delete(passwordResets).where(lt(passwordResets.expiresAt, monthAgo));
+  await deleteExpiredOfficeSessions(ctx);
   // The security log keeps a year: long enough to look into anything, not forever.
   await ctx.db
     .delete(auditLog)

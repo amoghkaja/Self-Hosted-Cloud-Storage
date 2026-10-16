@@ -51,6 +51,28 @@ const Env = z.object({
   /** A clamd to check uploads with (the bundled container is `clamav`). Unset: no scanning. */
   CLAMAV_HOST: z.string().trim().max(255).optional(),
   CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+  /**
+   * Where browsers reach the document editor (Collabora Online), e.g. https://office.example.com.
+   * Its own address, never a path of PUBLIC_URL: the editor's pages must not run with the family's
+   * sign-in. Unset: no editing in the browser.
+   */
+  OFFICE_PUBLIC_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v), // deploy/.env has the line, empty, until it's set up
+    z
+      .url({ protocol: /^https?$/, error: 'OFFICE_PUBLIC_URL must be an http:// or https:// URL' })
+      .refine((u) => ['', '/'].includes(new URL(u).pathname), {
+        error: 'OFFICE_PUBLIC_URL must not contain a path (e.g. https://office.example.com)',
+      })
+      .optional(),
+  ),
+  /** The editor container, as the app reaches it. */
+  OFFICE_URL: z.url({ protocol: /^https?$/ }).default('http://collabora:9980'),
+  /** This app's WOPI listener, as the editor reaches it (OFFICE_WOPI_PORT, never public). */
+  OFFICE_WOPI_URL: z.url({ protocol: /^https?$/ }).default('http://app:3002'),
+  /** Passes browsers through to the editor: what OFFICE_PUBLIC_URL is routed to. */
+  OFFICE_PROXY_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  /** Where the editor reads and saves files. Only the editor may reach it. */
+  OFFICE_WOPI_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
   /** proxy-addr trust list: which peers may set X-Forwarded-For / CF-Connecting-IP. */
   TRUSTED_PROXIES: z.string().default('loopback,uniquelocal'),
   /** Directory with the built web app. When unset the API runs headless (dev uses Vite). */
@@ -95,6 +117,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     );
   }
   const dataDir = path.resolve(e.DATA_DIR);
+  const officeOrigin = e.OFFICE_PUBLIC_URL ? new URL(e.OFFICE_PUBLIC_URL).origin : null;
+  if (officeOrigin === publicUrl.origin) {
+    throw new Error(
+      'Invalid environment configuration:\n  OFFICE_PUBLIC_URL: must be an address of its own, not PUBLIC_URL',
+    );
+  }
   return {
     env: e.NODE_ENV,
     isProd: e.NODE_ENV === 'production',
@@ -116,6 +144,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       e.CHANGELOG_PATH ?? path.join(import.meta.dirname, '../../../CHANGELOG.md'),
     ),
     clamav: e.CLAMAV_HOST ? { host: e.CLAMAV_HOST, port: e.CLAMAV_PORT } : null,
+    office: officeOrigin
+      ? {
+          publicOrigin: officeOrigin,
+          internalUrl: e.OFFICE_URL.replace(/\/+$/, ''),
+          wopiUrl: e.OFFICE_WOPI_URL.replace(/\/+$/, ''),
+          proxyPort: e.OFFICE_PROXY_PORT,
+          wopiPort: e.OFFICE_WOPI_PORT,
+        }
+      : null,
     passkeyRpId: e.PASSKEY_RP_ID ?? publicUrl.hostname,
     trustedProxies: e.TRUSTED_PROXIES.split(',')
       .map((s) => s.trim())

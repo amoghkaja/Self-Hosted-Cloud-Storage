@@ -4,6 +4,7 @@ export * from './auth';
 export * from './cleanup';
 export * from './common';
 export * from './files';
+export * from './office';
 export * from './photos';
 export * from './sharing';
 export * from './updates';

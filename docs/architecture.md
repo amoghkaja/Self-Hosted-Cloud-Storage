@@ -33,6 +33,8 @@ This document explains how Family Cloud is put together and why. It's written fo
 
 The worker is a separate process so decoding a 50-megapixel photo or a 4K video never delays API responses.
 
+Two optional containers sit on the `internal` network too: **clamav** (virus scanning) and **collabora** (editing Office files in the browser, [office-editing.md](office-editing.md)). When the editor is set up, the app process opens two more listeners: `:3001` passes browsers through to Collabora at `OFFICE_PUBLIC_URL`'s own address, and `:3002`, never published or routed, is the WOPI host Collabora reads and saves files through (`modules/office`). Saves go through `ingest`, like a network-drive save; one editing session keeps one version.
+
 ## Storage model
 
 **The folder tree is data; file contents are opaque blobs.**
