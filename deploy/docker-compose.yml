@@ -164,7 +164,7 @@ services:
   # document can't fetch anything from outside; no capabilities (it sandboxes documents with
   # landlock instead of chroot).
   collabora:
-    image: collabora/code:26.04.5.1.1
+    image: collabora/code:26.04.5.2.1
     profiles: [office]
     restart: unless-stopped
     logging: *logging
